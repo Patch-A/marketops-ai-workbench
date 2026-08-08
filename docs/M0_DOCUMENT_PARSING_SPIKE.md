@@ -35,6 +35,8 @@
 
 合成 DOCX 由脚本生成，并在连续两次构建中得到相同 SHA-256。表格的 `tblW`、`tblInd`、`tblGrid` 和每个 `tcW` 已通过结构审计。
 
+在无法渲染的环境中，独立组件审计确认 20 类结构全部通过：OOXML ZIP 与 XML 完整性、必需部件、内容类型、内部与外部关系、活动内容、页面尺寸与页边距、精确样式参数、标题层级、显式表头与行设置、表格几何、直接格式化、图片替代文本、动态字段、批注与修订、正文编码、核心元数据和自定义属性。Skill 交叉检查另确认无障碍高/中/低风险项均为 0，样式直接格式化 Run 和段落均为 0。
+
 ## 4. 暂不支持
 
 以下能力没有通过，不能在 M1 中暗示为已支持：
@@ -52,7 +54,7 @@
 
 `documents` Skill 要求新建 DOCX 渲染成逐页 PNG 后检查。此次环境没有 LibreOffice `soffice`，已安装的 Microsoft Word 又因本机 Office 类型库错误无法导出 PDF。因此没有完成 DOCX 逐页视觉检查。
 
-这不影响 XML 顺序、表格几何、来源坐标和失败路径的工程验收，但意味着测试件的最终视觉排版只完成了结构审计，不能宣称通过视觉渲染门槛。引入生产解析器或交付用户可见 DOCX 前，必须在可用的 Word/LibreOffice 环境补做渲染回归。
+组件审计结果为 `structuralStatus: passed`、`visualStatus: not_run_renderer_unavailable`。这不影响 XML 顺序、表格几何、来源坐标和失败路径的工程验收，但不能发现字体替换、实际换行、截字、重叠和分页问题，也不能宣称通过视觉渲染门槛。引入生产解析器或交付用户可见 DOCX 前，必须在可用的 Word/LibreOffice 环境补做渲染回归。
 
 ## 6. 技术决策
 
@@ -72,6 +74,7 @@
 
 ```powershell
 python scripts/check_document_parser.py --check
+python scripts/audit_docx_components.py validation/fixtures/document-parser-spike-001/ai-event-brief.docx --check validation/results/m0-02-docx-components.json
 python scripts/document_parser_spike.py validation/fixtures/document-parser-spike-001/ai-event-brief.docx --pretty
 ```
 

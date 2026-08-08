@@ -11,6 +11,7 @@ from zipfile import ZIP_DEFLATED, ZipFile, ZipInfo
 
 from docx import Document
 from docx.enum.section import WD_SECTION_START
+from docx.enum.style import WD_STYLE_TYPE
 from docx.enum.table import WD_CELL_VERTICAL_ALIGNMENT, WD_TABLE_ALIGNMENT
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.oxml import OxmlElement
@@ -23,19 +24,7 @@ CELL_MARGINS = {"top": 80, "bottom": 80, "start": 120, "end": 120}
 REPRODUCIBLE_ZIP_TIME = (2024, 1, 1, 0, 0, 0)
 
 
-def set_run_font(run, name="Calibri", size=11, color="000000", bold=None, italic=None):
-    run.font.name = name
-    run._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:ascii"), name)
-    run._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:hAnsi"), name)
-    run.font.size = Pt(size)
-    run.font.color.rgb = RGBColor.from_string(color)
-    if bold is not None:
-        run.bold = bold
-    if italic is not None:
-        run.italic = italic
-
-
-def set_style(style, *, size, color, before, after, line_spacing=1.10, bold=None):
+def set_style(style, *, size, color, before, after, line_spacing=1.10, bold=None, alignment=None):
     style.font.name = "Calibri"
     style._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:ascii"), "Calibri")
     style._element.get_or_add_rPr().get_or_add_rFonts().set(qn("w:hAnsi"), "Calibri")
@@ -46,6 +35,8 @@ def set_style(style, *, size, color, before, after, line_spacing=1.10, bold=None
     style.paragraph_format.space_before = Pt(before)
     style.paragraph_format.space_after = Pt(after)
     style.paragraph_format.line_spacing = line_spacing
+    if alignment is not None:
+        style.paragraph_format.alignment = alignment
 
 
 def ensure_child(parent, tag):
@@ -111,15 +102,15 @@ def shade_cell(cell, fill):
 def fill_table(table, headers, rows, widths):
     for index, value in enumerate(headers):
         paragraph = table.rows[0].cells[index].paragraphs[0]
-        paragraph.alignment = WD_ALIGN_PARAGRAPH.CENTER
-        set_run_font(paragraph.add_run(value), bold=True)
+        paragraph.style = "Fixture Table Header"
+        paragraph.add_run(value)
         shade_cell(table.rows[0].cells[index], "F2F4F7")
     mark_header_row(table.rows[0])
     for row_values in rows:
         cells = table.add_row().cells
         for index, value in enumerate(row_values):
             paragraph = cells[index].paragraphs[0]
-            set_run_font(paragraph.add_run(value))
+            paragraph.add_run(value)
     apply_table_geometry(table, widths)
 
 
@@ -161,13 +152,16 @@ def build(output: Path):
     set_style(document.styles["Heading 2"], size=13, color="2E74B5", before=12, after=6, bold=True)
     set_style(document.styles["Heading 3"], size=12, color="1F4D78", before=8, after=4, bold=True)
 
-    # standard_business_brief with a named fixture-title override.
-    title = document.add_paragraph()
-    title.paragraph_format.space_after = Pt(4)
-    set_run_font(title.add_run("凌川工业增长峰会 AI 工作简报"), size=23, bold=True)
-    subtitle = document.add_paragraph()
-    subtitle.paragraph_format.space_after = Pt(14)
-    set_run_font(subtitle.add_run("SYNTHETIC FIXTURE | M0-02 document parsing"), size=10, color="555555", bold=True)
+    title_style = document.styles.add_style("Fixture Title", WD_STYLE_TYPE.PARAGRAPH)
+    set_style(title_style, size=23, color="000000", before=0, after=4, line_spacing=1.0, bold=True)
+    subtitle_style = document.styles.add_style("Fixture Subtitle", WD_STYLE_TYPE.PARAGRAPH)
+    set_style(subtitle_style, size=10, color="555555", before=0, after=14, line_spacing=1.0, bold=True)
+    table_header_style = document.styles.add_style("Fixture Table Header", WD_STYLE_TYPE.PARAGRAPH)
+    set_style(table_header_style, size=11, color="000000", before=0, after=0, line_spacing=1.0, bold=True, alignment=WD_ALIGN_PARAGRAPH.CENTER)
+
+    # standard_business_brief with named fixture title, subtitle, and table-header overrides.
+    document.add_paragraph("凌川工业增长峰会 AI 工作简报", style="Fixture Title")
+    document.add_paragraph("SYNTHETIC FIXTURE | M0-02 document parsing", style="Fixture Subtitle")
 
     document.add_heading("1. 已确认项目输入", level=1)
     document.add_paragraph("活动日为 2026-10-23，形式为单日线下 B2B 峰会。所有品牌、人物和项目数据均为合成内容。")

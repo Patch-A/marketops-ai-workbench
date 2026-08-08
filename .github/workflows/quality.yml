@@ -29,4 +29,6 @@ jobs:
       - name: Check public validation fixture
         run: node scripts/check-validation-set.mjs public
       - name: Check document parser spike
-        run: python scripts/check_document_parser.py --check
+        run: |
+          python scripts/check_document_parser.py --check
+          python scripts/audit_docx_components.py validation/fixtures/document-parser-spike-001/ai-event-brief.docx --check validation/results/m0-02-docx-components.json

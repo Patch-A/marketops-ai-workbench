@@ -1,0 +1,236 @@
+{
+  "schemaVersion": 1,
+  "auditId": "M0-02-DOCX-COMPONENTS",
+  "path": "validation/fixtures/document-parser-spike-001/ai-event-brief.docx",
+  "sha256": "e27d289d3ec30f12eb65d7d2787e30f72ca429ee3fbf7d9004c511adcc40fc50",
+  "structuralStatus": "passed",
+  "visualStatus": "not_run_renderer_unavailable",
+  "checks": [
+    {
+      "name": "zip_integrity",
+      "status": "passed",
+      "details": {
+        "entries": 17
+      }
+    },
+    {
+      "name": "required_parts",
+      "status": "passed",
+      "details": {
+        "count": 4
+      }
+    },
+    {
+      "name": "xml_well_formed",
+      "status": "passed",
+      "details": {
+        "partsChecked": 16
+      }
+    },
+    {
+      "name": "content_types",
+      "status": "passed",
+      "details": {
+        "documentOverridePresent": true
+      }
+    },
+    {
+      "name": "settings_part",
+      "status": "passed",
+      "details": {
+        "present": true
+      }
+    },
+    {
+      "name": "internal_relationships",
+      "status": "passed",
+      "details": {}
+    },
+    {
+      "name": "external_relationships",
+      "status": "passed",
+      "details": {
+        "count": 0
+      }
+    },
+    {
+      "name": "active_content",
+      "status": "passed",
+      "details": {
+        "parts": 0
+      }
+    },
+    {
+      "name": "page_geometry",
+      "status": "passed",
+      "details": {
+        "page": {
+          "w": "12240",
+          "h": "15840"
+        },
+        "margins": {
+          "top": "1440",
+          "right": "1440",
+          "bottom": "1440",
+          "left": "1440"
+        }
+      }
+    },
+    {
+      "name": "required_styles",
+      "status": "passed",
+      "details": {
+        "styles": {
+          "Normal": {
+            "name": "Normal",
+            "font": "Calibri",
+            "size": "22",
+            "color": "000000",
+            "before": "0",
+            "after": "120",
+            "line": "264",
+            "lineRule": "auto"
+          },
+          "Heading1": {
+            "name": "heading 1",
+            "font": "Calibri",
+            "size": "32",
+            "color": "2E74B5",
+            "before": "320",
+            "after": "160",
+            "line": "264",
+            "lineRule": "auto"
+          },
+          "Heading2": {
+            "name": "heading 2",
+            "font": "Calibri",
+            "size": "26",
+            "color": "2E74B5",
+            "before": "240",
+            "after": "120",
+            "line": "264",
+            "lineRule": "auto"
+          },
+          "Heading3": {
+            "name": "heading 3",
+            "font": "Calibri",
+            "size": "24",
+            "color": "1F4D78",
+            "before": "160",
+            "after": "80",
+            "line": "264",
+            "lineRule": "auto"
+          }
+        }
+      }
+    },
+    {
+      "name": "heading_hierarchy",
+      "status": "passed",
+      "details": {
+        "sequence": [
+          1,
+          2,
+          1,
+          1
+        ]
+      }
+    },
+    {
+      "name": "table_accessibility_and_rows",
+      "status": "passed",
+      "details": {
+        "tables": 2,
+        "headerRows": 2
+      }
+    },
+    {
+      "name": "table_geometry",
+      "status": "passed",
+      "details": {
+        "tables": [
+          {
+            "table": 1,
+            "width": 9360,
+            "indent": 120,
+            "grid": [
+              1600,
+              5360,
+              2400
+            ]
+          },
+          {
+            "table": 2,
+            "width": 9360,
+            "indent": 120,
+            "grid": [
+              1800,
+              3000,
+              1800,
+              2760
+            ]
+          }
+        ],
+        "cellMargins": {
+          "top": "80",
+          "bottom": "80",
+          "start": "120",
+          "end": "120"
+        }
+      }
+    },
+    {
+      "name": "direct_formatting",
+      "status": "passed",
+      "details": {
+        "runProperties": 0,
+        "paragraphProperties": 0
+      }
+    },
+    {
+      "name": "image_alt_text",
+      "status": "passed",
+      "details": {
+        "images": 0
+      }
+    },
+    {
+      "name": "dynamic_fields",
+      "status": "passed",
+      "details": {
+        "count": 0
+      }
+    },
+    {
+      "name": "review_markup",
+      "status": "passed",
+      "details": {
+        "revisions": 0,
+        "commentMarkers": 0
+      }
+    },
+    {
+      "name": "text_content",
+      "status": "passed",
+      "details": {
+        "characters": 447
+      }
+    },
+    {
+      "name": "core_metadata",
+      "status": "passed",
+      "details": {
+        "creator": "MarketOps AI Workbench"
+      }
+    },
+    {
+      "name": "custom_metadata",
+      "status": "passed",
+      "details": {
+        "present": false
+      }
+    }
+  ],
+  "errors": [],
+  "warnings": []
+}

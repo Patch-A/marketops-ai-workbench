@@ -2,7 +2,7 @@
 # Project Status
 
 Source registry updated: 2026-08-08
-Source hash: `9118237372f1`
+Source hash: `44e9cef776b3`
 
 ## Progress
 
@@ -49,7 +49,7 @@ Prove the riskiest inputs and deterministic engines before feature development.
 | M0-01C | Prepare two AI-era public case reconstructions | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public verified two AI-era cases, provenance, labelled facts, unknowns, required workflow dimensions, and reconstruction markers. |
 | M0-01D | Curate public event case references | Product research | Completed | Self-check passed: Official source pages were accessed on 2026-08-08; each reference distinguishes confirmed public description, inference, and unavailable project data. |
 | M0-01 | Validation project set review gate | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public passed; human review confirmed public narratives are labelled and cannot be mistaken for customer files or product validation. |
-| M0-02 | Document parsing spike | Engineering | Completed | Self-check passed: python scripts/check_document_parser.py --check passed 4 input cases and 3 failure paths; DOCX table geometry and reproducible SHA-256 passed. Visual rendering remains explicitly unverified because no working renderer was available. |
+| M0-02 | Document parsing spike | Engineering | Completed | Self-check passed: Parser checks passed 4 input cases and 3 failure paths; deterministic DOCX generation, exact table geometry, 20 component categories, and Skill a11y/heading/section/style cross-checks passed. Visual rendering remains explicitly unverified because no working renderer was available. |
 | M0-03 | Scheduling and critical-path spike | Engineering | In progress | A deterministic prototype recalculates dependencies, workdays, buffers, and critical path for the executable test project. |
 | M0-04 | Hybrid retrieval and citation spike | Engineering | Pending | Representative queries return workspace-scoped, cited results; an isolation test finds no cross-customer result. |
 | M0-05 | Dependency and license decision | Open source | Pending | Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker. |
@@ -140,6 +140,8 @@ Use paid or repeated use to decide what to build next.
 | M0-02 | file | `docs/M0_DOCUMENT_PARSING_SPIKE.md` | Records the parser contract, confirmed results, explicit unsupported formats, visual-QA limitation, and production dependency decision boundary. |
 | M0-02 | file | `validation/results/m0-02-document-parser.json` | Records deterministic hashes, block counts, warnings, and verified failure codes for Markdown, CSV, public-case Markdown, and synthetic DOCX inputs. |
 | M0-02 | file | `scripts/check_document_parser.py` | Checks headings, tables, section paths, source coordinates, failure behavior, and committed result freshness in CI. |
+| M0-02 | file | `validation/results/m0-02-docx-components.json` | Records the passed OOXML package, relationship, page, style, heading, table, accessibility, text, and metadata component checks while keeping visual status explicitly unverified. |
+| M0-02 | file | `scripts/audit_docx_components.py` | Recomputes the DOCX component audit and rejects structural failures or a stale committed result in CI. |
 
 ## Completion Log
 
@@ -157,7 +159,7 @@ Use paid or repeated use to decide what to build next.
 | 2026-08-08 | M0-01B | Create executable synthetic B2B event fixture | `validation/manifest.json`<br>`validation/fixtures/synthetic-b2b-event-001/ground-truth.json`<br>`validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv` | Passed |
 | 2026-08-08 | M0-01C | Prepare two AI-era public case reconstructions | `validation/public-cases/manifest.json`<br>`validation/public-cases/dreamforce-2024.md`<br>`validation/public-cases/vimeo-reframe-2025.md` | Passed |
 | 2026-08-08 | M0-01D | Curate public event case references | `docs/PUBLIC_CASE_REFERENCES.md` | Passed |
-| 2026-08-08 | M0-02 | Document parsing spike | `docs/M0_DOCUMENT_PARSING_SPIKE.md`<br>`validation/results/m0-02-document-parser.json`<br>`scripts/check_document_parser.py` | Passed |
+| 2026-08-08 | M0-02 | Document parsing spike | `docs/M0_DOCUMENT_PARSING_SPIKE.md`<br>`validation/results/m0-02-document-parser.json`<br>`scripts/check_document_parser.py`<br>`validation/results/m0-02-docx-components.json`<br>`scripts/audit_docx_components.py` | Passed |
 
 ## Update Protocol
 

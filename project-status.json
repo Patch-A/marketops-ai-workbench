@@ -176,9 +176,11 @@
           "evidence": [
             { "kind": "file", "ref": "docs/M0_DOCUMENT_PARSING_SPIKE.md", "note": "Records the parser contract, confirmed results, explicit unsupported formats, visual-QA limitation, and production dependency decision boundary." },
             { "kind": "file", "ref": "validation/results/m0-02-document-parser.json", "note": "Records deterministic hashes, block counts, warnings, and verified failure codes for Markdown, CSV, public-case Markdown, and synthetic DOCX inputs." },
-            { "kind": "file", "ref": "scripts/check_document_parser.py", "note": "Checks headings, tables, section paths, source coordinates, failure behavior, and committed result freshness in CI." }
+            { "kind": "file", "ref": "scripts/check_document_parser.py", "note": "Checks headings, tables, section paths, source coordinates, failure behavior, and committed result freshness in CI." },
+            { "kind": "file", "ref": "validation/results/m0-02-docx-components.json", "note": "Records the passed OOXML package, relationship, page, style, heading, table, accessibility, text, and metadata component checks while keeping visual status explicitly unverified." },
+            { "kind": "file", "ref": "scripts/audit_docx_components.py", "note": "Recomputes the DOCX component audit and rejects structural failures or a stale committed result in CI." }
           ],
-          "selfCheck": { "status": "passed", "method": "python scripts/check_document_parser.py --check passed 4 input cases and 3 failure paths; DOCX table geometry and reproducible SHA-256 passed. Visual rendering remains explicitly unverified because no working renderer was available." }
+          "selfCheck": { "status": "passed", "method": "Parser checks passed 4 input cases and 3 failure paths; deterministic DOCX generation, exact table geometry, 20 component categories, and Skill a11y/heading/section/style cross-checks passed. Visual rendering remains explicitly unverified because no working renderer was available." }
         },
         {
           "id": "M0-03",

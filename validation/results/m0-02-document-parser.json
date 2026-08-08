@@ -70,7 +70,7 @@
     {
       "path": "validation/fixtures/document-parser-spike-001/ai-event-brief.docx",
       "format": "docx",
-      "sha256": "50bf8a73b660ef83a0ae5b7dea22f575e4a22a1c866fc945f4aee691031aa982",
+      "sha256": "e27d289d3ec30f12eb65d7d2787e30f72ca429ee3fbf7d9004c511adcc40fc50",
       "blockCounts": {
         "heading": 4,
         "paragraph": 7,
