@@ -43,6 +43,8 @@ MarketOps 将营销项目的 Brief、证据、方案、排期、执行、外部�
 - [数据模型](docs/DATA_MODEL.md)
 - [知识库与自进化](docs/KNOWLEDGE_AND_LEARNING.md)
 - [路线图](docs/ROADMAP.md)
+- [项目执行方案](docs/PROJECT_EXECUTION_PLAN.md)
+- [项目进度与完成纪要](docs/PROJECT_STATUS.md)
 - [验收标准](docs/ACCEPTANCE_CRITERIA.md)
 - [开源组件与 Skill 审查](docs/OPEN_SOURCE_REVIEW.md)
 - [市场验证执行包](docs/market-validation-playbook.md)

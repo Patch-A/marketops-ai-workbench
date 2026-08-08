@@ -19,3 +19,5 @@ jobs:
         run: node --check app.js
       - name: Check documentation links and encoding
         run: node scripts/check-docs.mjs
+      - name: Check project progress registry
+        run: node scripts/progress.mjs check

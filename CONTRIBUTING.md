@@ -13,6 +13,8 @@
 ## 变更流程
 
 - 先创建 Issue，说明用户问题、输入、输出和验收方式。
+- 开始工作前阅读 [`project-status.json`](project-status.json) 和 [`docs/PROJECT_EXECUTION_PLAN.md`](docs/PROJECT_EXECUTION_PLAN.md)。一个人在同一时间只能推进一个 `in_progress` 任务。
+- 只有验收检查通过后，才能把任务标为 `completed`：记录完成日期、可核验证据和 `passed` 自检；随后运行 `node scripts/progress.mjs render` 与 `node scripts/progress.mjs check`。不要手工编辑生成的 [`docs/PROJECT_STATUS.md`](docs/PROJECT_STATUS.md)。
 - 一个 Pull Request 只处理一个明确问题。
 - 行为变更必须补测试或可重复的验收步骤。
 - UI 变更必须验证桌面与移动视口、键盘焦点、空状态、加载状态和错误状态。

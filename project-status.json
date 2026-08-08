@@ -1,0 +1,209 @@
+{
+  "schemaVersion": 1,
+  "project": {
+    "name": "MarketOps AI Workbench",
+    "repository": "https://github.com/Patch-A/marketops-ai-workbench",
+    "updatedAt": "2026-08-08",
+    "statusPolicy": "A task is completed only after its acceptance check passes and completion evidence is recorded. The generated status report is not a substitute for product or market validation."
+  },
+  "milestones": [
+    {
+      "id": "foundation",
+      "name": "Foundation",
+      "goal": "Establish the product contract, architecture, safety boundaries, and open-source baseline.",
+      "tasks": [
+        {
+          "id": "FND-01",
+          "title": "Product positioning and P0 boundary",
+          "owner": "Product",
+          "status": "completed",
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/PRODUCT_SPEC.md", "note": "Approved planning specification defines user, job, P0, non-goals, and human controls." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Reviewed against the agreed independent-workbench scope and documentation link check." }
+        },
+        {
+          "id": "FND-02",
+          "title": "Technical architecture and connector boundary",
+          "owner": "Architecture",
+          "status": "completed",
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/ARCHITECTURE.md", "note": "Defines independent deployment, deterministic scheduling, connector isolation, and P0 deployment direction." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Reviewed for consistency with the product boundary and dependency ordering." }
+        },
+        {
+          "id": "FND-03",
+          "title": "Data model and permission contract",
+          "owner": "Architecture",
+          "status": "completed",
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/DATA_MODEL.md", "note": "Defines project state, sources, tasks, permissions, audit, and retention boundaries." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Reviewed for workspace and customer isolation requirements." }
+        },
+        {
+          "id": "FND-04",
+          "title": "Knowledge and controlled-learning design",
+          "owner": "Product",
+          "status": "completed",
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/KNOWLEDGE_AND_LEARNING.md", "note": "Defines retrieval, citations, approval, evaluation, and knowledge promotion controls." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Reviewed to ensure raw project material is not automatically reused across projects." }
+        },
+        {
+          "id": "FND-05",
+          "title": "Milestone acceptance criteria",
+          "owner": "Product",
+          "status": "completed",
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/ACCEPTANCE_CRITERIA.md", "note": "Defines observable P0 acceptance criteria and release gates." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Reviewed against the P0 workflow; no implementation result is claimed." }
+        },
+        {
+          "id": "FND-06",
+          "title": "Open-source and dependency review",
+          "owner": "Open source",
+          "status": "completed",
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/OPEN_SOURCE_REVIEW.md", "note": "Documents candidate components, licenses, adoption conditions, and Skill review." },
+            { "kind": "file", "ref": "THIRD_PARTY_NOTICES.md", "note": "Provides the third-party notice baseline." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Reviewed candidates before adoption; no unreviewed runtime dependency has been introduced." }
+        },
+        {
+          "id": "FND-07",
+          "title": "Public repository and Apache-2.0 baseline",
+          "owner": "Maintainer",
+          "status": "completed",
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "LICENSE", "note": "Apache License 2.0." },
+            { "kind": "git_commit", "ref": "1386079", "note": "Public-plan baseline commit." },
+            { "kind": "url", "ref": "https://github.com/Patch-A/marketops-ai-workbench", "note": "Public repository." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Confirmed repository configuration and Quality workflow passed for the baseline commit." }
+        }
+      ]
+    },
+    {
+      "id": "m0",
+      "name": "M0: Samples and technical validation",
+      "goal": "Prove the riskiest inputs and deterministic engines before feature development.",
+      "tasks": [
+        {
+          "id": "M0-01",
+          "title": "Prepare validation project set",
+          "owner": "Product research",
+          "status": "in_progress",
+          "dependsOn": ["FND-01", "FND-03"],
+          "acceptance": "Two anonymized historical projects and one executable test project have an approved data-use record and cover proposal, schedule, change, and retrospective inputs."
+        },
+        {
+          "id": "M0-02",
+          "title": "Document parsing spike",
+          "owner": "Engineering",
+          "status": "pending",
+          "dependsOn": ["M0-01"],
+          "acceptance": "The selected parser extracts cited sections, tables, and source coordinates from the validation set with documented failures."
+        },
+        {
+          "id": "M0-03",
+          "title": "Scheduling and critical-path spike",
+          "owner": "Engineering",
+          "status": "pending",
+          "dependsOn": ["M0-01"],
+          "acceptance": "A deterministic prototype recalculates dependencies, workdays, buffers, and critical path for the executable test project."
+        },
+        {
+          "id": "M0-04",
+          "title": "Hybrid retrieval and citation spike",
+          "owner": "Engineering",
+          "status": "pending",
+          "dependsOn": ["M0-01"],
+          "acceptance": "Representative queries return workspace-scoped, cited results; an isolation test finds no cross-customer result."
+        },
+        {
+          "id": "M0-05",
+          "title": "Dependency and license decision",
+          "owner": "Open source",
+          "status": "pending",
+          "dependsOn": ["M0-02", "M0-03", "M0-04"],
+          "acceptance": "Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker."
+        },
+        {
+          "id": "M0-06",
+          "title": "M0 review gate",
+          "owner": "Product",
+          "status": "pending",
+          "dependsOn": ["M0-05"],
+          "acceptance": "The validation set, all spike results, risks, and M1 implementation decision are reviewed against the M0 exit criteria."
+        }
+      ]
+    },
+    {
+      "id": "m1",
+      "name": "M1: Proposal-to-schedule vertical slice",
+      "goal": "Turn an approved proposal into a usable, reviewable execution plan.",
+      "tasks": [
+        { "id": "M1-01", "title": "Project, file, and approved-proposal import", "owner": "Engineering", "status": "pending", "dependsOn": ["M0-06"], "acceptance": "A user can create a project, retain the source file, and select an approved proposal version." },
+        { "id": "M1-02", "title": "Deliverable extraction and review", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-01"], "acceptance": "Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval." },
+        { "id": "M1-03", "title": "Editable WBS and deterministic schedule", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-02"], "acceptance": "A user can edit WBS, dependencies, dates, and buffers; schedule changes recalculate deterministically." },
+        { "id": "M1-04", "title": "Execution state, export, and audit", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-03"], "acceptance": "Task status, blockers, actual dates, CSV/XLSX export, audit entries, and error recovery work for the validation project." },
+        { "id": "M1-05", "title": "M1 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M1-04"], "acceptance": "One anonymized project moves from approved proposal to an accepted executable schedule without critical dependency omissions." }
+      ]
+    },
+    {
+      "id": "m2",
+      "name": "M2: Knowledge base and project learning",
+      "goal": "Make approved historical knowledge reusable without leaking customer material.",
+      "tasks": [
+        { "id": "M2-01", "title": "Workspace-scoped document ingestion and hybrid retrieval", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-05"], "acceptance": "Documents are indexed with citations and retrieval respects project, client, and workspace boundaries." },
+        { "id": "M2-02", "title": "Project capsule, feedback, and candidate knowledge", "owner": "Engineering", "status": "pending", "dependsOn": ["M2-01"], "acceptance": "A completed project produces traceable candidate knowledge with outcome feedback and version history." },
+        { "id": "M2-03", "title": "Knowledge approval and reuse evaluation", "owner": "Engineering", "status": "pending", "dependsOn": ["M2-02"], "acceptance": "A user approves, scopes, rejects, or revokes knowledge; project B can cite approved knowledge from project A." },
+        { "id": "M2-04", "title": "M2 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M2-03"], "acceptance": "An isolation test and a usefulness evaluation pass with no unapproved cross-project reuse." }
+      ]
+    },
+    {
+      "id": "m3",
+      "name": "M3: Market signals and impact analysis",
+      "goal": "Connect observed external changes to confirmed project assumptions and work.",
+      "tasks": [
+        { "id": "M3-01", "title": "Source-managed signal ingestion", "owner": "Engineering", "status": "pending", "dependsOn": ["M2-04"], "acceptance": "A user can add legal sources and manual signals with source, time, confidence, and deduplication state." },
+        { "id": "M3-02", "title": "Impact mapping and review", "owner": "Engineering", "status": "pending", "dependsOn": ["M3-01"], "acceptance": "A signal maps to assumptions, decisions, deliverables, and tasks with an explainable proposed impact." },
+        { "id": "M3-03", "title": "Approved change workflow", "owner": "Engineering", "status": "pending", "dependsOn": ["M3-02"], "acceptance": "The system never changes a proposal or schedule automatically; approved changes create an audit trail." },
+        { "id": "M3-04", "title": "M3 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M3-03"], "acceptance": "A real validation case produces a useful, explainable action while false-positive noise remains within the agreed threshold." }
+      ]
+    },
+    {
+      "id": "m4",
+      "name": "M4: Reporting, Feishu, and team operation",
+      "goal": "Support small-team operation while preserving the independent core product.",
+      "tasks": [
+        { "id": "M4-01", "title": "Report and retrospective exports", "owner": "Engineering", "status": "pending", "dependsOn": ["M3-04"], "acceptance": "Weekly risk reports and retrospectives render from audited project state and are editable before export." },
+        { "id": "M4-02", "title": "Official Feishu connector", "owner": "Engineering", "status": "pending", "dependsOn": ["M4-01"], "acceptance": "The optional connector uses official APIs, least privilege, revocation, sync status, and retries." },
+        { "id": "M4-03", "title": "Roles, approval, and portfolio view", "owner": "Engineering", "status": "pending", "dependsOn": ["M4-01"], "acceptance": "A small team can use role-limited project access and approvals with a portfolio risk view." },
+        { "id": "M4-04", "title": "Private-deployment operations", "owner": "Engineering", "status": "pending", "dependsOn": ["M4-02", "M4-03"], "acceptance": "Docker deployment, health checks, backup, restore, and migration documentation are tested." },
+        { "id": "M4-05", "title": "M4 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M4-04"], "acceptance": "A small team completes one project cycle without continuous developer handholding." }
+      ]
+    },
+    {
+      "id": "m5",
+      "name": "M5: Commercial validation and expansion",
+      "goal": "Use paid or repeated use to decide what to build next.",
+      "tasks": [
+        { "id": "M5-01", "title": "Repeat-use and payment experiment", "owner": "Product research", "status": "pending", "dependsOn": ["M4-05"], "acceptance": "At least one real user repeats use in a second project and completes a payment or deposit test under a documented offer." },
+        { "id": "M5-02", "title": "Packaging decision", "owner": "Product", "status": "pending", "dependsOn": ["M5-01"], "acceptance": "Evidence supports a decision among hosted cloud, private deployment, and implementation service; pricing assumptions are documented." },
+        { "id": "M5-03", "title": "Expansion prioritization", "owner": "Product", "status": "pending", "dependsOn": ["M5-02"], "acceptance": "Feishu follow-ons, WeCom, GEO, media monitoring, PPTX, and additional templates are ranked by observed demand and cost." }
+      ]
+    }
+  ]
+}
