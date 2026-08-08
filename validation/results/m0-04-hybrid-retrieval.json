@@ -1,0 +1,118 @@
+{
+  "schemaVersion": 1,
+  "spikeId": "M0-04",
+  "fixture": "validation/fixtures/retrieval-spike-001",
+  "corpusSha256": "f5045b3b422292935c6181b7df8aee9c65c825e5f76424d47d15b5e751fe1198",
+  "goldenQueriesSha256": "9052230522a9b7bb853be7ef16625c0d8c0b7e5326f2041c65ca65306b5cdf10",
+  "cases": [
+    {
+      "queryId": "same-project-cited-result",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-aurora-launch-booth-handover"
+      ]
+    },
+    {
+      "queryId": "same-client-cross-project",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-aurora-launch-sponsor-response",
+        "orchid-aurora-renewal-sponsor-response"
+      ]
+    },
+    {
+      "queryId": "workspace-approved-is-explicit",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-approved-citation-guidance"
+      ]
+    },
+    {
+      "queryId": "workspace-approved-is-not-implicit",
+      "status": "empty",
+      "errorCode": null
+    },
+    {
+      "queryId": "cross-workspace-rare-decoy",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-aurora-launch-rare-decoy"
+      ]
+    },
+    {
+      "queryId": "cross-client-near-content",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-aurora-launch-sponsor-response"
+      ]
+    },
+    {
+      "queryId": "missing-workspace",
+      "status": "validation_error",
+      "errorCode": "WORKSPACE_REQUIRED"
+    },
+    {
+      "queryId": "unknown-workspace",
+      "status": "empty",
+      "errorCode": "unknown_workspace"
+    },
+    {
+      "queryId": "missing-client-for-project",
+      "status": "validation_error",
+      "errorCode": "CLIENT_REQUIRED_FOR_PROJECT_SCOPE"
+    },
+    {
+      "queryId": "client-workspace-mismatch",
+      "status": "empty",
+      "errorCode": "unknown_client"
+    },
+    {
+      "queryId": "unknown-project",
+      "status": "empty",
+      "errorCode": "unknown_project"
+    },
+    {
+      "queryId": "stable-repeat-order",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-approved-stable-tie-a",
+        "orchid-approved-stable-tie-b"
+      ]
+    },
+    {
+      "queryId": "source-hash-freshness",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-aurora-launch-booth-handover"
+      ]
+    },
+    {
+      "queryId": "chinese-same-project-cited-result",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-aurora-launch-cn-booth-handover"
+      ]
+    },
+    {
+      "queryId": "chinese-cross-client-near-content",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-aurora-launch-cn-booth-handover"
+      ]
+    },
+    {
+      "queryId": "chinese-cross-workspace-rare-decoy",
+      "status": "ok",
+      "resultChunkIds": [
+        "orchid-aurora-launch-cn-rare-decoy"
+      ]
+    }
+  ],
+  "scopeFilteringVerifiedBeforeScoring": true,
+  "citationFreshness": {
+    "fresh": true,
+    "staleErrorCode": "source_hash_mismatch"
+  },
+  "malformedCitationErrorCode": "invalid_citation",
+  "cliRepresentativeQueryPassed": true
+}

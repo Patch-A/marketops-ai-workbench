@@ -1,0 +1,266 @@
+{
+  "schemaVersion": 1,
+  "queries": [
+    {
+      "id": "same-project-cited-result",
+      "input": {
+        "queryText": "booth handover checklist demo floor",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "requiredChunkIds": ["orchid-aurora-launch-booth-handover"],
+        "allowedChunkIds": ["orchid-aurora-launch-booth-handover"],
+        "forbiddenChunkIds": ["orchid-birch-launch-booth-handover", "orchid-approved-citation-guidance", "cobalt-cinder-project-rare-decoy"]
+      }
+    },
+    {
+      "id": "same-client-cross-project",
+      "input": {
+        "queryText": "72-hour sponsor response pattern qualified partner questions",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "requiredChunkIds": ["orchid-aurora-launch-sponsor-response", "orchid-aurora-renewal-sponsor-response"],
+        "allowedChunkIds": ["orchid-aurora-launch-sponsor-response", "orchid-aurora-renewal-sponsor-response"],
+        "forbiddenChunkIds": ["orchid-birch-launch-sponsor-response", "cobalt-cinder-project-sponsor-response"]
+      }
+    },
+    {
+      "id": "workspace-approved-is-explicit",
+      "input": {
+        "queryText": "current source version generic event checklist",
+        "workspaceId": "ws-orchid",
+        "includeWorkspaceApproved": true
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "requiredChunkIds": ["orchid-approved-citation-guidance"],
+        "allowedChunkIds": ["orchid-approved-citation-guidance"],
+        "forbiddenChunkIds": ["orchid-aurora-launch-booth-handover", "orchid-birch-launch-booth-handover", "cobalt-approved-rare-decoy"]
+      }
+    },
+    {
+      "id": "workspace-approved-is-not-implicit",
+      "input": {
+        "queryText": "current source version generic event checklist",
+        "workspaceId": "ws-orchid",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "empty",
+        "requiredChunkIds": [],
+        "allowedChunkIds": [],
+        "forbiddenChunkIds": ["orchid-approved-citation-guidance", "cobalt-approved-rare-decoy"]
+      }
+    },
+    {
+      "id": "cross-workspace-rare-decoy",
+      "input": {
+        "queryText": "quartz-helix-904 routing token escalation queue",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "requiredChunkIds": ["orchid-aurora-launch-rare-decoy"],
+        "allowedChunkIds": ["orchid-aurora-launch-rare-decoy"],
+        "forbiddenChunkIds": ["orchid-approved-rare-decoy", "cobalt-cinder-project-rare-decoy", "cobalt-approved-rare-decoy"]
+      }
+    },
+    {
+      "id": "cross-client-near-content",
+      "input": {
+        "queryText": "72-hour sponsor response pattern qualified partner questions",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "requiredChunkIds": ["orchid-aurora-launch-sponsor-response"],
+        "allowedChunkIds": ["orchid-aurora-launch-sponsor-response"],
+        "forbiddenChunkIds": ["orchid-aurora-renewal-sponsor-response", "orchid-birch-launch-sponsor-response", "cobalt-cinder-project-sponsor-response"]
+      }
+    },
+    {
+      "id": "missing-workspace",
+      "input": {
+        "queryText": "booth handover checklist",
+        "clientId": "client-aurora",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "validation_error",
+        "expectedErrorCode": "WORKSPACE_REQUIRED",
+        "requiredChunkIds": [],
+        "allowedChunkIds": [],
+        "forbiddenChunkIds": ["orchid-aurora-launch-booth-handover", "cobalt-cinder-project-rare-decoy"]
+      }
+    },
+    {
+      "id": "unknown-workspace",
+      "input": {
+        "queryText": "quartz-helix-904 routing token",
+        "workspaceId": "ws-unknown",
+        "clientId": "client-aurora",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "empty",
+        "requiredChunkIds": [],
+        "allowedChunkIds": [],
+        "forbiddenChunkIds": ["orchid-aurora-launch-rare-decoy", "cobalt-cinder-project-rare-decoy", "cobalt-approved-rare-decoy"]
+      }
+    },
+    {
+      "id": "missing-client-for-project",
+      "input": {
+        "queryText": "booth handover checklist",
+        "workspaceId": "ws-orchid",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "validation_error",
+        "expectedErrorCode": "CLIENT_REQUIRED_FOR_PROJECT_SCOPE",
+        "requiredChunkIds": [],
+        "allowedChunkIds": [],
+        "forbiddenChunkIds": ["orchid-aurora-launch-booth-handover", "orchid-birch-launch-booth-handover"]
+      }
+    },
+    {
+      "id": "client-workspace-mismatch",
+      "input": {
+        "queryText": "72-hour sponsor response pattern",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-cinder",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "empty",
+        "requiredChunkIds": [],
+        "allowedChunkIds": [],
+        "forbiddenChunkIds": ["orchid-aurora-launch-sponsor-response", "cobalt-cinder-project-sponsor-response"]
+      }
+    },
+    {
+      "id": "unknown-project",
+      "input": {
+        "queryText": "booth handover checklist",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "projectId": "project-unknown",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "empty",
+        "requiredChunkIds": [],
+        "allowedChunkIds": [],
+        "forbiddenChunkIds": ["orchid-aurora-launch-booth-handover", "orchid-birch-launch-booth-handover"]
+      }
+    },
+    {
+      "id": "stable-repeat-order",
+      "input": {
+        "queryText": "approved reusable agenda checklist",
+        "workspaceId": "ws-orchid",
+        "includeWorkspaceApproved": true
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "repeatRuns": 3,
+        "stableTieBreak": "chunkId_ascending",
+        "expectedOrderedChunkIds": ["orchid-approved-stable-tie-a", "orchid-approved-stable-tie-b"],
+        "requiredChunkIds": ["orchid-approved-stable-tie-a", "orchid-approved-stable-tie-b"],
+        "allowedChunkIds": ["orchid-approved-stable-tie-a", "orchid-approved-stable-tie-b"],
+        "forbiddenChunkIds": ["orchid-approved-citation-guidance", "cobalt-approved-rare-decoy"]
+      }
+    },
+    {
+      "id": "source-hash-freshness",
+      "input": {
+        "queryText": "booth handover checklist demo floor",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "requiredChunkIds": ["orchid-aurora-launch-booth-handover"],
+        "allowedChunkIds": ["orchid-aurora-launch-booth-handover"],
+        "forbiddenChunkIds": ["orchid-birch-launch-booth-handover"],
+        "citationIntegrity": {
+          "hashAlgorithm": "sha256",
+          "expectedSourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/project-aurora-launch.md",
+          "expectedSourceVersionSha256": "37771d6d4ab0baf1141cd3e5ef83ae88a83449fac69322b210667063524d69fc",
+          "tamperInTemporaryCopy": {
+            "operation": "append_utf8_text",
+            "text": "\nSynthetic freshness mutation.\n"
+          },
+          "expectedStaleStatus": "source_hash_mismatch"
+        }
+      }
+    },
+    {
+      "id": "chinese-same-project-cited-result",
+      "input": {
+        "queryText": "演示区展台交接",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "repeatRuns": 3,
+        "requiredChunkIds": ["orchid-aurora-launch-cn-booth-handover"],
+        "allowedChunkIds": ["orchid-aurora-launch-cn-booth-handover"],
+        "forbiddenChunkIds": ["orchid-birch-launch-cn-booth-handover", "cobalt-cinder-cn-rare-decoy"]
+      }
+    },
+    {
+      "id": "chinese-cross-client-near-content",
+      "input": {
+        "queryText": "演示区开放展台交接清单",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "requiredChunkIds": ["orchid-aurora-launch-cn-booth-handover"],
+        "allowedChunkIds": ["orchid-aurora-launch-cn-booth-handover"],
+        "forbiddenChunkIds": ["orchid-birch-launch-cn-booth-handover", "cobalt-cinder-cn-rare-decoy"]
+      }
+    },
+    {
+      "id": "chinese-cross-workspace-rare-decoy",
+      "input": {
+        "queryText": "星簇密钥九零四升级处理队列",
+        "workspaceId": "ws-orchid",
+        "clientId": "client-aurora",
+        "projectId": "project-aurora-launch",
+        "includeWorkspaceApproved": false
+      },
+      "oracle": {
+        "expectedStatus": "ok",
+        "requiredChunkIds": ["orchid-aurora-launch-cn-rare-decoy"],
+        "allowedChunkIds": ["orchid-aurora-launch-cn-rare-decoy"],
+        "forbiddenChunkIds": ["cobalt-cinder-cn-rare-decoy", "orchid-birch-launch-cn-booth-handover"]
+      }
+    }
+  ]
+}

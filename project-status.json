@@ -200,15 +200,21 @@
           "id": "M0-04",
           "title": "Hybrid retrieval and citation spike",
           "owner": "Engineering",
-          "status": "in_progress",
+          "status": "completed",
           "dependsOn": ["M0-01"],
-          "acceptance": "Representative queries return workspace-scoped, cited results; an isolation test finds no cross-customer result."
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M0_HYBRID_RETRIEVAL_SPIKE.md", "note": "Records the deterministic retrieval contract, confirmed English and Chinese behavior, explicit production limitations, and M0-05 decision inputs." },
+            { "kind": "file", "ref": "validation/results/m0-04-hybrid-retrieval.json", "note": "Records fresh hashes and outcomes for 16 English and Chinese oracle queries, scope-order, citation freshness, malformed citation, and CLI checks." },
+            { "kind": "file", "ref": "scripts/check_hybrid_retrieval.py", "note": "Independently recomputes oracle outcomes, customer and workspace isolation, deterministic ordering, citation validity, and failure behavior in CI." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Sixteen synthetic oracle cases passed, including three Chinese cases; scope filtering preceded scoring, cross-customer and cross-workspace decoys were excluded, stale and malformed citations failed closed, and independent QA found no blocker." }
         },
         {
           "id": "M0-05",
           "title": "Dependency and license decision",
           "owner": "Open source",
-          "status": "pending",
+          "status": "in_progress",
           "dependsOn": ["M0-02", "M0-03", "M0-04"],
           "acceptance": "Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker."
         },

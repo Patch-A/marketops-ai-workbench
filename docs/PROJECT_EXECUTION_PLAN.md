@@ -3,6 +3,7 @@
 Status: `Active planning and validation`
 Canonical progress source: [`project-status.json`](../project-status.json)
 Generated progress record: [`PROJECT_STATUS.md`](PROJECT_STATUS.md)
+Multi-agent delivery rules: [`MULTI_AGENT_EXECUTION.md`](MULTI_AGENT_EXECUTION.md)
 
 ## Objective
 

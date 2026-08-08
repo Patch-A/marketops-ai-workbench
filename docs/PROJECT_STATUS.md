@@ -2,22 +2,22 @@
 # Project Status
 
 Source registry updated: 2026-08-08
-Source hash: `9c6f875080fd`
+Source hash: `fd5fb05f7768`
 
 ## Progress
 
-Task-count completion: **14/38 (36.8%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
+Task-count completion: **15/38 (39.5%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
 
-Current work: `M0-04` Hybrid retrieval and citation spike
+Current work: `M0-05` Dependency and license decision
 
-Next action: `M0-04` Hybrid retrieval and citation spike
+Next action: `M0-05` Dependency and license decision
 
 ## Milestones
 
 | Milestone | Goal | Completed | Active |
 | --- | --- | ---: | ---: |
 | Foundation | Establish the product contract, architecture, safety boundaries, and open-source baseline. | 7/7 | 0 |
-| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 7/10 | 1 |
+| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 8/10 | 1 |
 | M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 0/5 | 0 |
 | M2: Knowledge base and project learning | Make approved historical knowledge reusable without leaking customer material. | 0/4 | 0 |
 | M3: Market signals and impact analysis | Connect observed external changes to confirmed project assumptions and work. | 0/4 | 0 |
@@ -51,8 +51,8 @@ Prove the riskiest inputs and deterministic engines before feature development.
 | M0-01 | Validation project set review gate | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public passed; human review confirmed public narratives are labelled and cannot be mistaken for customer files or product validation. |
 | M0-02 | Document parsing spike | Engineering | Completed | Self-check passed: Parser checks passed 4 input cases and 3 failure paths; deterministic DOCX generation, exact table geometry, 20 component categories, and Skill a11y/heading/section/style cross-checks passed. Visual rendering remains explicitly unverified because no working renderer was available. |
 | M0-03 | Scheduling and critical-path spike | Engineering | Completed | Self-check passed: Four deterministic scenarios passed; three invalid-input paths were rejected; locked dependency conflicts and deadline misses were reported without moving locked dates. |
-| M0-04 | Hybrid retrieval and citation spike | Engineering | In progress | Representative queries return workspace-scoped, cited results; an isolation test finds no cross-customer result. |
-| M0-05 | Dependency and license decision | Open source | Pending | Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker. |
+| M0-04 | Hybrid retrieval and citation spike | Engineering | Completed | Self-check passed: Sixteen synthetic oracle cases passed, including three Chinese cases; scope filtering preceded scoring, cross-customer and cross-workspace decoys were excluded, stale and malformed citations failed closed, and independent QA found no blocker. |
+| M0-05 | Dependency and license decision | Open source | In progress | Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker. |
 | M0-06 | M0 review gate | Product | Pending | The validation set, all spike results, risks, and M1 implementation decision are reviewed against the M0 exit criteria. |
 
 ## M1: Proposal-to-schedule vertical slice
@@ -145,6 +145,9 @@ Use paid or repeated use to decide what to build next.
 | M0-03 | file | `docs/M0_SCHEDULING_SPIKE.md` | Defines deterministic scheduling semantics, confirmed scenario results, failure behavior, and production limitations. |
 | M0-03 | file | `validation/results/m0-03-schedule.json` | Records source-bound results for baseline, duration change, locked conflict, and holiday scenarios. |
 | M0-03 | file | `scripts/check_schedule_spike.py` | Recalculates four scenarios, rejects malformed schedules, and checks committed result freshness in CI. |
+| M0-04 | file | `docs/M0_HYBRID_RETRIEVAL_SPIKE.md` | Records the deterministic retrieval contract, confirmed English and Chinese behavior, explicit production limitations, and M0-05 decision inputs. |
+| M0-04 | file | `validation/results/m0-04-hybrid-retrieval.json` | Records fresh hashes and outcomes for 16 English and Chinese oracle queries, scope-order, citation freshness, malformed citation, and CLI checks. |
+| M0-04 | file | `scripts/check_hybrid_retrieval.py` | Independently recomputes oracle outcomes, customer and workspace isolation, deterministic ordering, citation validity, and failure behavior in CI. |
 
 ## Completion Log
 
@@ -164,6 +167,7 @@ Use paid or repeated use to decide what to build next.
 | 2026-08-08 | M0-01D | Curate public event case references | `docs/PUBLIC_CASE_REFERENCES.md` | Passed |
 | 2026-08-08 | M0-02 | Document parsing spike | `docs/M0_DOCUMENT_PARSING_SPIKE.md`<br>`validation/results/m0-02-document-parser.json`<br>`scripts/check_document_parser.py`<br>`validation/results/m0-02-docx-components.json`<br>`scripts/audit_docx_components.py` | Passed |
 | 2026-08-08 | M0-03 | Scheduling and critical-path spike | `docs/M0_SCHEDULING_SPIKE.md`<br>`validation/results/m0-03-schedule.json`<br>`scripts/check_schedule_spike.py` | Passed |
+| 2026-08-08 | M0-04 | Hybrid retrieval and citation spike | `docs/M0_HYBRID_RETRIEVAL_SPIKE.md`<br>`validation/results/m0-04-hybrid-retrieval.json`<br>`scripts/check_hybrid_retrieval.py` | Passed |
 
 ## Update Protocol
 

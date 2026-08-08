@@ -1,0 +1,214 @@
+{
+  "schemaVersion": 1,
+  "chunks": [
+    {
+      "chunkId": "orchid-aurora-launch-booth-handover",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-aurora",
+      "projectId": "project-aurora-launch",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/project-aurora-launch.md",
+      "sourceVersionSha256": "37771d6d4ab0baf1141cd3e5ef83ae88a83449fac69322b210667063524d69fc",
+      "location": { "startLine": 5, "endLine": 5, "anchor": "aurora-launch-booth-handover" },
+      "text": "The Aurora launch team must complete the booth handover checklist before the demo floor opens."
+    },
+    {
+      "chunkId": "orchid-aurora-launch-rare-decoy",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-aurora",
+      "projectId": "project-aurora-launch",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/project-aurora-launch.md",
+      "sourceVersionSha256": "37771d6d4ab0baf1141cd3e5ef83ae88a83449fac69322b210667063524d69fc",
+      "location": { "startLine": 7, "endLine": 7, "anchor": "aurora-launch-rare-decoy" },
+      "text": "The quartz-helix-904 routing token identifies the Aurora launch escalation queue."
+    },
+    {
+      "chunkId": "orchid-aurora-launch-sponsor-response",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-aurora",
+      "projectId": "project-aurora-launch",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/project-aurora-launch.md",
+      "sourceVersionSha256": "37771d6d4ab0baf1141cd3e5ef83ae88a83449fac69322b210667063524d69fc",
+      "location": { "startLine": 9, "endLine": 9, "anchor": "aurora-launch-sponsor-response" },
+      "text": "The Aurora team uses a 72-hour sponsor response pattern for qualified partner questions."
+    },
+    {
+      "chunkId": "orchid-aurora-renewal-owner",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-aurora",
+      "projectId": "project-aurora-renewal",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/project-aurora-renewal.md",
+      "sourceVersionSha256": "5c04d3b49da58a11ddbd630e1348a988851692d0c88bba818b41802948af146f",
+      "location": { "startLine": 5, "endLine": 5, "anchor": "aurora-renewal-owner" },
+      "text": "The Aurora renewal project retained a named owner for every sponsor follow-up."
+    },
+    {
+      "chunkId": "orchid-aurora-renewal-sponsor-response",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-aurora",
+      "projectId": "project-aurora-renewal",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/project-aurora-renewal.md",
+      "sourceVersionSha256": "5c04d3b49da58a11ddbd630e1348a988851692d0c88bba818b41802948af146f",
+      "location": { "startLine": 7, "endLine": 7, "anchor": "aurora-renewal-sponsor-response" },
+      "text": "The renewal review records the same 72-hour sponsor response pattern for qualified partner questions."
+    },
+    {
+      "chunkId": "orchid-aurora-client-approval",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-aurora",
+      "projectId": null,
+      "visibility": "client",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/client-playbook.md",
+      "sourceVersionSha256": "1f35072e025fd407b1c44f84d92c5c052d9cb03881dacbc63fee85dd55cbd26e",
+      "location": { "startLine": 5, "endLine": 5, "anchor": "aurora-client-approval" },
+      "text": "Aurora client guidance requires a human approval before publishing a revised sponsor promise."
+    },
+    {
+      "chunkId": "orchid-birch-launch-sponsor-response",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-birch",
+      "projectId": "project-birch-launch",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-birch/project-birch-launch.md",
+      "sourceVersionSha256": "e86de532f6049198f6e3555208ee0d27ddee26fe194044e42ae321f52a153d41",
+      "location": { "startLine": 5, "endLine": 5, "anchor": "birch-launch-sponsor-response" },
+      "text": "The Birch launch team uses a 72-hour sponsor response pattern for qualified partner questions."
+    },
+    {
+      "chunkId": "orchid-birch-launch-booth-handover",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-birch",
+      "projectId": "project-birch-launch",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-birch/project-birch-launch.md",
+      "sourceVersionSha256": "e86de532f6049198f6e3555208ee0d27ddee26fe194044e42ae321f52a153d41",
+      "location": { "startLine": 7, "endLine": 7, "anchor": "birch-launch-booth-handover" },
+      "text": "Birch has a separate booth handover checklist that must remain client-scoped."
+    },
+    {
+      "chunkId": "orchid-approved-citation-guidance",
+      "workspaceId": "ws-orchid",
+      "clientId": null,
+      "projectId": null,
+      "visibility": "workspace_approved",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/workspace-approved/approved-patterns.md",
+      "sourceVersionSha256": "063b81e67b70045943df0008d4a0be2b720bca74eaadfb47ffca053c97919932",
+      "location": { "startLine": 5, "endLine": 5, "anchor": "approved-citation-guidance" },
+      "text": "Approved workspace guidance: cite the current source version before reusing a generic event checklist."
+    },
+    {
+      "chunkId": "orchid-approved-stable-tie-a",
+      "workspaceId": "ws-orchid",
+      "clientId": null,
+      "projectId": null,
+      "visibility": "workspace_approved",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/workspace-approved/approved-patterns.md",
+      "sourceVersionSha256": "063b81e67b70045943df0008d4a0be2b720bca74eaadfb47ffca053c97919932",
+      "location": { "startLine": 7, "endLine": 7, "anchor": "approved-stable-tie-a" },
+      "text": "Stable tie phrase: approved reusable agenda checklist."
+    },
+    {
+      "chunkId": "orchid-approved-stable-tie-b",
+      "workspaceId": "ws-orchid",
+      "clientId": null,
+      "projectId": null,
+      "visibility": "workspace_approved",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/workspace-approved/approved-patterns.md",
+      "sourceVersionSha256": "063b81e67b70045943df0008d4a0be2b720bca74eaadfb47ffca053c97919932",
+      "location": { "startLine": 9, "endLine": 9, "anchor": "approved-stable-tie-b" },
+      "text": "Stable tie phrase: approved reusable agenda checklist."
+    },
+    {
+      "chunkId": "orchid-approved-rare-decoy",
+      "workspaceId": "ws-orchid",
+      "clientId": null,
+      "projectId": null,
+      "visibility": "workspace_approved",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/workspace-approved/approved-patterns.md",
+      "sourceVersionSha256": "063b81e67b70045943df0008d4a0be2b720bca74eaadfb47ffca053c97919932",
+      "location": { "startLine": 11, "endLine": 11, "anchor": "approved-rare-decoy" },
+      "text": "The quartz-helix-904 routing token is an Orchid workspace-approved routing example."
+    },
+    {
+      "chunkId": "cobalt-cinder-project-rare-decoy",
+      "workspaceId": "ws-cobalt",
+      "clientId": "client-cinder",
+      "projectId": "project-cinder",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-cobalt/client-cinder/project-cinder.md",
+      "sourceVersionSha256": "85569c55eda5c017c4042076fd979ecc1ad4d06ae56209a9cb02df84343587e7",
+      "location": { "startLine": 5, "endLine": 5, "anchor": "cinder-project-rare-decoy" },
+      "text": "The Cinder project uses the quartz-helix-904 routing token for a separate escalation queue."
+    },
+    {
+      "chunkId": "cobalt-cinder-project-sponsor-response",
+      "workspaceId": "ws-cobalt",
+      "clientId": "client-cinder",
+      "projectId": "project-cinder",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-cobalt/client-cinder/project-cinder.md",
+      "sourceVersionSha256": "85569c55eda5c017c4042076fd979ecc1ad4d06ae56209a9cb02df84343587e7",
+      "location": { "startLine": 7, "endLine": 7, "anchor": "cinder-project-sponsor-response" },
+      "text": "The Cinder team uses a 72-hour sponsor response pattern for qualified partner questions."
+    },
+    {
+      "chunkId": "cobalt-approved-rare-decoy",
+      "workspaceId": "ws-cobalt",
+      "clientId": null,
+      "projectId": null,
+      "visibility": "workspace_approved",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-cobalt/workspace-approved/approved-patterns.md",
+      "sourceVersionSha256": "b81b4786ace699f64679798e5a671da342627a67b34e1013f7edb42f65e55928",
+      "location": { "startLine": 5, "endLine": 5, "anchor": "cobalt-approved-rare-decoy" },
+      "text": "The quartz-helix-904 routing token is a Cobalt workspace-approved routing example."
+    },
+    {
+      "chunkId": "orchid-aurora-launch-cn-booth-handover",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-aurora",
+      "projectId": "project-aurora-launch",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/project-aurora-launch-cn.md",
+      "sourceVersionSha256": "388528e341bce6a8baf92c66fad827975c92c71881378189dcb987c1f716305f",
+      "location": { "startLine": 6, "endLine": 6, "anchor": "aurora-launch-cn-booth-handover" },
+      "text": "极光发布项目要求在演示区开放前完成展台交接清单，并由项目负责人确认。"
+    },
+    {
+      "chunkId": "orchid-aurora-launch-cn-rare-decoy",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-aurora",
+      "projectId": "project-aurora-launch",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-aurora/project-aurora-launch-cn.md",
+      "sourceVersionSha256": "388528e341bce6a8baf92c66fad827975c92c71881378189dcb987c1f716305f",
+      "location": { "startLine": 9, "endLine": 9, "anchor": "aurora-launch-cn-rare-decoy" },
+      "text": "星簇密钥九零四用于标识极光发布项目的升级处理队列。"
+    },
+    {
+      "chunkId": "orchid-birch-launch-cn-booth-handover",
+      "workspaceId": "ws-orchid",
+      "clientId": "client-birch",
+      "projectId": "project-birch-launch",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-orchid/client-birch/project-birch-launch-cn.md",
+      "sourceVersionSha256": "e166702c443821f6be2a0bc32187b71755a2da21d1e19c41dadda9a8d48158f3",
+      "location": { "startLine": 6, "endLine": 6, "anchor": "birch-launch-cn-booth-handover" },
+      "text": "白桦发布项目要求在演示区开放前完成展台交接清单，但该规则仅限白桦客户使用。"
+    },
+    {
+      "chunkId": "cobalt-cinder-cn-rare-decoy",
+      "workspaceId": "ws-cobalt",
+      "clientId": "client-cinder",
+      "projectId": "project-cinder",
+      "visibility": "project",
+      "sourcePath": "validation/fixtures/retrieval-spike-001/sources/ws-cobalt/client-cinder/project-cinder-cn.md",
+      "sourceVersionSha256": "22420cc59ce78e60a527af4d82804729b16a9ec18fc73e5a9b69bdc811537f89",
+      "location": { "startLine": 6, "endLine": 6, "anchor": "cinder-cn-rare-decoy" },
+      "text": "星簇密钥九零四用于标识炭火项目的独立升级处理队列。"
+    }
+  ]
+}
