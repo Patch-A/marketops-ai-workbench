@@ -36,3 +36,5 @@ jobs:
         run: python scripts/check_schedule_spike.py --check
       - name: Check hybrid retrieval spike
         run: python scripts/check_hybrid_retrieval.py --check
+      - name: Check dependency decision
+        run: node scripts/check_dependency_decision.mjs

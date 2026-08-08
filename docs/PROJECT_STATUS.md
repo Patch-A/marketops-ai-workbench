@@ -2,22 +2,22 @@
 # Project Status
 
 Source registry updated: 2026-08-08
-Source hash: `fd5fb05f7768`
+Source hash: `6fd4bdc508a0`
 
 ## Progress
 
-Task-count completion: **15/38 (39.5%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
+Task-count completion: **16/38 (42.1%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
 
-Current work: `M0-05` Dependency and license decision
+Current work: `M0-06` M0 review gate
 
-Next action: `M0-05` Dependency and license decision
+Next action: `M0-06` M0 review gate
 
 ## Milestones
 
 | Milestone | Goal | Completed | Active |
 | --- | --- | ---: | ---: |
 | Foundation | Establish the product contract, architecture, safety boundaries, and open-source baseline. | 7/7 | 0 |
-| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 8/10 | 1 |
+| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 9/10 | 1 |
 | M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 0/5 | 0 |
 | M2: Knowledge base and project learning | Make approved historical knowledge reusable without leaking customer material. | 0/4 | 0 |
 | M3: Market signals and impact analysis | Connect observed external changes to confirmed project assumptions and work. | 0/4 | 0 |
@@ -52,8 +52,8 @@ Prove the riskiest inputs and deterministic engines before feature development.
 | M0-02 | Document parsing spike | Engineering | Completed | Self-check passed: Parser checks passed 4 input cases and 3 failure paths; deterministic DOCX generation, exact table geometry, 20 component categories, and Skill a11y/heading/section/style cross-checks passed. Visual rendering remains explicitly unverified because no working renderer was available. |
 | M0-03 | Scheduling and critical-path spike | Engineering | Completed | Self-check passed: Four deterministic scenarios passed; three invalid-input paths were rejected; locked dependency conflicts and deadline misses were reported without moving locked dates. |
 | M0-04 | Hybrid retrieval and citation spike | Engineering | Completed | Self-check passed: Sixteen synthetic oracle cases passed, including three Chinese cases; scope filtering preceded scoring, cross-customer and cross-workspace decoys were excluded, stale and malformed citations failed closed, and independent QA found no blocker. |
-| M0-05 | Dependency and license decision | Open source | In progress | Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker. |
-| M0-06 | M0 review gate | Product | Pending | The validation set, all spike results, risks, and M1 implementation decision are reviewed against the M0 exit criteria. |
+| M0-05 | Dependency and license decision | Open source | Completed | Self-check passed: Fifteen candidates passed the frozen decision audit; adopted items are PostgreSQL 18.4, pgvector 0.8.6, and Procrastinate 3.9.0, while deferred and rejected boundaries remain explicit. Independent review found and then confirmed closure of report/JSON drift and checker coverage gaps. |
+| M0-06 | M0 review gate | Product | In progress | The validation set, all spike results, risks, and M1 implementation decision are reviewed against the M0 exit criteria. |
 
 ## M1: Proposal-to-schedule vertical slice
 
@@ -148,6 +148,9 @@ Use paid or repeated use to decide what to build next.
 | M0-04 | file | `docs/M0_HYBRID_RETRIEVAL_SPIKE.md` | Records the deterministic retrieval contract, confirmed English and Chinese behavior, explicit production limitations, and M0-05 decision inputs. |
 | M0-04 | file | `validation/results/m0-04-hybrid-retrieval.json` | Records fresh hashes and outcomes for 16 English and Chinese oracle queries, scope-order, citation freshness, malformed citation, and CLI checks. |
 | M0-04 | file | `scripts/check_hybrid_retrieval.py` | Independently recomputes oracle outcomes, customer and workspace isolation, deterministic ordering, citation validity, and failure behavior in CI. |
+| M0-05 | file | `docs/M0_05_DEPENDENCY_DECISION.md` | Records the frozen 15-candidate decision matrix, version and license facts, integration boundaries, fallbacks, and unresolved product-quality unknowns. |
+| M0-05 | file | `validation/results/m0-05-dependency-audit.json` | Binds the decision to five input hashes and records 3 adopted, 6 deferred, and 6 rejected candidates with official sources and maintenance signals. |
+| M0-05 | file | `scripts/check_dependency_decision.mjs` | Checks input freshness, exact candidate decisions and versions, license gates, report consistency, Docling isolation, fallbacks, and empty blockers in CI. |
 
 ## Completion Log
 
@@ -168,6 +171,7 @@ Use paid or repeated use to decide what to build next.
 | 2026-08-08 | M0-02 | Document parsing spike | `docs/M0_DOCUMENT_PARSING_SPIKE.md`<br>`validation/results/m0-02-document-parser.json`<br>`scripts/check_document_parser.py`<br>`validation/results/m0-02-docx-components.json`<br>`scripts/audit_docx_components.py` | Passed |
 | 2026-08-08 | M0-03 | Scheduling and critical-path spike | `docs/M0_SCHEDULING_SPIKE.md`<br>`validation/results/m0-03-schedule.json`<br>`scripts/check_schedule_spike.py` | Passed |
 | 2026-08-08 | M0-04 | Hybrid retrieval and citation spike | `docs/M0_HYBRID_RETRIEVAL_SPIKE.md`<br>`validation/results/m0-04-hybrid-retrieval.json`<br>`scripts/check_hybrid_retrieval.py` | Passed |
+| 2026-08-08 | M0-05 | Dependency and license decision | `docs/M0_05_DEPENDENCY_DECISION.md`<br>`validation/results/m0-05-dependency-audit.json`<br>`scripts/check_dependency_decision.mjs` | Passed |
 
 ## Update Protocol
 

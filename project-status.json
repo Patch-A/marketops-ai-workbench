@@ -214,15 +214,21 @@
           "id": "M0-05",
           "title": "Dependency and license decision",
           "owner": "Open source",
-          "status": "in_progress",
+          "status": "completed",
           "dependsOn": ["M0-02", "M0-03", "M0-04"],
-          "acceptance": "Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker."
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M0_05_DEPENDENCY_DECISION.md", "note": "Records the frozen 15-candidate decision matrix, version and license facts, integration boundaries, fallbacks, and unresolved product-quality unknowns." },
+            { "kind": "file", "ref": "validation/results/m0-05-dependency-audit.json", "note": "Binds the decision to five input hashes and records 3 adopted, 6 deferred, and 6 rejected candidates with official sources and maintenance signals." },
+            { "kind": "file", "ref": "scripts/check_dependency_decision.mjs", "note": "Checks input freshness, exact candidate decisions and versions, license gates, report consistency, Docling isolation, fallbacks, and empty blockers in CI." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Fifteen candidates passed the frozen decision audit; adopted items are PostgreSQL 18.4, pgvector 0.8.6, and Procrastinate 3.9.0, while deferred and rejected boundaries remain explicit. Independent review found and then confirmed closure of report/JSON drift and checker coverage gaps." }
         },
         {
           "id": "M0-06",
           "title": "M0 review gate",
           "owner": "Product",
-          "status": "pending",
+          "status": "in_progress",
           "dependsOn": ["M0-05"],
           "acceptance": "The validation set, all spike results, risks, and M1 implementation decision are reviewed against the M0 exit criteria."
         }

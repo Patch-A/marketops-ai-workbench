@@ -1,0 +1,747 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-08T22:43:34+08:00",
+  "inputs": [
+    {
+      "path": "docs/OPEN_SOURCE_REVIEW.md",
+      "sha256": "f101234d5b97391fe2fddb011dc8e0c5e7bc092219613c0a951114dd9a8502c9"
+    },
+    {
+      "path": "docs/M0_DOCUMENT_PARSING_SPIKE.md",
+      "sha256": "bd8b5fcb94753a975d51400063c486ca2aca9cc51e34e82cd2ff9f172adfbd66"
+    },
+    {
+      "path": "docs/M0_SCHEDULING_SPIKE.md",
+      "sha256": "ea1b912a48c414f917232cd8dd9c29ce6221f428f9008b167fb05488740adf3f"
+    },
+    {
+      "path": "docs/M0_HYBRID_RETRIEVAL_SPIKE.md",
+      "sha256": "bc6d61a21effeb8de4b30565edfe809967dd6c1e3dbb7bcfc73e93001ee481fa"
+    },
+    {
+      "path": "docs/M0_05_DEPENDENCY_DECISION.md",
+      "sha256": "6a014aa4cc7fb8b6158754904b71705dea415ffd7b28a82267444dd5f38550a0"
+    }
+  ],
+  "candidates": [
+    {
+      "id": "postgresql-fts",
+      "name": "PostgreSQL full-text search",
+      "category": "lexical-index",
+      "decision": "adopted",
+      "version": "18.4",
+      "license": {
+        "spdx": "PostgreSQL",
+        "status": "verified",
+        "sourceUrl": "https://github.com/postgres/postgres/blob/REL_18_4/COPYRIGHT",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/postgres/postgres",
+        "releaseUrl": "https://www.postgresql.org/docs/release/18.4/"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-05-14",
+        "repositoryArchived": false,
+        "signals": [
+          "The official PostgreSQL versions feed marks major 18 current and supported through 2030-11-14.",
+          "Full-text search is shipped in PostgreSQL, so it does not add a separately distributed search server."
+        ],
+        "assessment": "active-supported"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "PostgreSQL 18.4 and its built-in full-text search are available under the PostgreSQL License."
+        },
+        {
+          "classification": "inference",
+          "text": "Using the same database for records and lexical indexing reduces P0 operational surface while preserving transaction and backup boundaries."
+        },
+        {
+          "classification": "unknown",
+          "text": "Chinese tokenization and ranking quality on real marketing documents has not been measured."
+        }
+      ],
+      "alternatives": [
+        "OpenSearch behind a replaceable search adapter",
+        "Current deterministic standard-library lexical fallback"
+      ],
+      "fallback": "Keep the deterministic lexical fallback for degraded-mode retrieval and fixture tests.",
+      "privateDeployment": "Supported in the project Docker deployment; no hosted search service is required.",
+      "coreIntegration": {
+        "mode": "core_dependency",
+        "boundary": "Execute workspace, client, project, and visibility predicates in SQL before ranking; expose retrieval through a replaceable repository interface."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "pgvector",
+      "name": "pgvector",
+      "category": "vector-index",
+      "decision": "adopted",
+      "version": "0.8.6",
+      "license": {
+        "spdx": "PostgreSQL",
+        "status": "verified",
+        "sourceUrl": "https://github.com/pgvector/pgvector/blob/v0.8.6/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/pgvector/pgvector",
+        "releaseUrl": "https://github.com/pgvector/pgvector/releases/tag/v0.8.6"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-07-29",
+        "repositoryArchived": false,
+        "signals": [
+          "The official repository tag feed identifies v0.8.6 on 2026-07-29.",
+          "The repository LICENSE is the permissive PostgreSQL License."
+        ],
+        "assessment": "active"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "pgvector is a PostgreSQL extension and can be deployed with the same private PostgreSQL service."
+        },
+        {
+          "classification": "inference",
+          "text": "It is the narrowest current vector-index candidate and avoids a second database in M2."
+        },
+        {
+          "classification": "unknown",
+          "text": "Index choice, embedding model, recall, latency, memory, rebuild, deletion propagation, and Chinese retrieval quality remain unbenchmarked."
+        }
+      ],
+      "alternatives": [
+        "PostgreSQL FTS only",
+        "Qdrant behind a vector-store adapter if measured scale or recall requires it"
+      ],
+      "fallback": "Disable semantic scoring and retain scoped PostgreSQL FTS plus deterministic lexical retrieval.",
+      "privateDeployment": "Supported as an extension in the private PostgreSQL container; pin both image digest and extension version before M2 implementation.",
+      "coreIntegration": {
+        "mode": "optional_adapter",
+        "boundary": "Application query builder must apply authorization predicates before vector distance ordering; embeddings and source versions remain application-owned."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "procrastinate",
+      "name": "Procrastinate",
+      "category": "job-queue",
+      "decision": "adopted",
+      "version": "3.9.0",
+      "license": {
+        "spdx": "MIT",
+        "status": "verified",
+        "sourceUrl": "https://github.com/procrastinate-org/procrastinate/blob/3.9.0/LICENSE.md",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/procrastinate-org/procrastinate",
+        "releaseUrl": "https://github.com/procrastinate-org/procrastinate/releases/tag/3.9.0"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-06-20",
+        "repositoryArchived": false,
+        "signals": [
+          "The official repository publishes release 3.9.0 and remains unarchived.",
+          "The README documents PostgreSQL-backed retries, periodic tasks, and task locking while also requesting additional maintainers."
+        ],
+        "assessment": "active-with-maintainer-concentration-risk"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "Procrastinate 3.9.0 is MIT-licensed and uses PostgreSQL as its task queue backend."
+        },
+        {
+          "classification": "inference",
+          "text": "Using the existing PostgreSQL service avoids adding a broker to the first private-deployment topology."
+        },
+        {
+          "classification": "unknown",
+          "text": "Crash recovery, cancellation, orphan-lock handling, and PostgreSQL 18.4 compatibility have not yet passed MarketOps integration tests."
+        }
+      ],
+      "alternatives": [
+        "Project-owned PostgreSQL job table and worker",
+        "Celery behind the same JobQueue adapter if a separate broker becomes justified"
+      ],
+      "fallback": "Keep business job state and replayable inputs outside queue-owned tables so the adapter can be replaced without changing project audit history.",
+      "privateDeployment": "Run in the existing private PostgreSQL network; job payloads contain immutable artifact IDs and scope IDs rather than raw customer text.",
+      "coreIntegration": {
+        "mode": "optional_adapter",
+        "boundary": "All queue calls pass through a MarketOps JobQueue interface; canonical task states, permissions, idempotency keys, and audit events remain application-owned."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "docling",
+      "name": "Docling",
+      "category": "document-parser",
+      "decision": "deferred",
+      "version": "2.118.1",
+      "license": {
+        "spdx": "MIT",
+        "status": "verified",
+        "sourceUrl": "https://github.com/docling-project/docling/blob/v2.118.1/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/docling-project/docling",
+        "releaseUrl": "https://github.com/docling-project/docling/releases/tag/v2.118.1"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-08-07",
+        "repositoryArchived": false,
+        "signals": [
+          "The official release feed identifies v2.118.1 on 2026-08-07.",
+          "The repository LICENSE is MIT."
+        ],
+        "assessment": "active"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "Docling is locally runnable and MIT-licensed, so its top-level license does not conflict with this Apache-2.0 repository."
+        },
+        {
+          "classification": "inference",
+          "text": "An isolated parser adapter can extend PDF and complex document coverage without assigning source storage, citation identity, or permissions to Docling."
+        },
+        {
+          "classification": "unknown",
+          "text": "Chinese PDF/DOCX fidelity, OCR behavior, stable coordinates, transitive model licenses, download size, CPU and memory are not yet validated."
+        }
+      ],
+      "alternatives": [
+        "Unstructured 0.25.2",
+        "Apache Tika 3.3.2",
+        "Format-specific standard-library parsers"
+      ],
+      "fallback": "Retain the validated Markdown, CSV, and basic DOCX parser and return explicit unsupported-format errors.",
+      "privateDeployment": "Run inside a private parser worker with network egress disabled by default; model artifacts require a separate license and hash inventory.",
+      "coreIntegration": {
+        "mode": "optional_adapter",
+        "boundary": "Run Docling only in an isolated parser Worker process with network egress disabled by default; the application owns source bytes, SHA-256 identity, authorization, citations, audit, and failure semantics."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "langgraph",
+      "name": "LangGraph",
+      "category": "workflow-orchestration",
+      "decision": "deferred",
+      "version": "1.2.10",
+      "license": {
+        "spdx": "MIT",
+        "status": "verified",
+        "sourceUrl": "https://github.com/langchain-ai/langgraph/blob/main/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/langchain-ai/langgraph",
+        "releaseUrl": "https://github.com/langchain-ai/langgraph/releases/tag/checkpointpostgres%3D%3D3.1.2"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-08-07",
+        "repositoryArchived": false,
+        "signals": [
+          "The official release feed was updated on 2026-08-07.",
+          "The repository publishes multiple independently versioned packages, so the repository latest-release redirect is not a safe pin for the core LangGraph package."
+        ],
+        "assessment": "active-version-selection-deferred"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "The repository is MIT-licensed and actively publishes package releases."
+        },
+        {
+          "classification": "inference",
+          "text": "M1 deterministic scheduling, approvals, and audit do not yet require a general agent state-machine framework."
+        },
+        {
+          "classification": "unknown",
+          "text": "No measured workflow complexity or recovery requirement currently justifies its runtime and migration cost."
+        }
+      ],
+      "alternatives": [
+        "Explicit application services and database state transitions",
+        "A small internal job runner with idempotency keys"
+      ],
+      "fallback": "Continue with deterministic services; re-evaluate only when a tested multi-step recovery scenario cannot be expressed clearly.",
+      "privateDeployment": "Possible, but no deployment is approved at M0-05.",
+      "coreIntegration": {
+        "mode": "reference_only",
+        "boundary": "If adopted later, it may orchestrate jobs but must not own permission decisions, canonical project state, or irreversible external actions."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "unstructured",
+      "name": "Unstructured",
+      "category": "document-parser-alternative",
+      "decision": "deferred",
+      "version": "0.25.2",
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://github.com/Unstructured-IO/unstructured/blob/main/LICENSE.md",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/Unstructured-IO/unstructured",
+        "releaseUrl": "https://github.com/Unstructured-IO/unstructured/releases/tag/0.25.2"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-08-03",
+        "repositoryArchived": false,
+        "signals": [
+          "The official release feed identifies 0.25.2 on 2026-08-03.",
+          "The top-level repository license is Apache-2.0."
+        ],
+        "assessment": "active-alternative"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "Its top-level license is compatible with this repository's Apache-2.0 license."
+        },
+        {
+          "classification": "inference",
+          "text": "Selecting two broad parser stacks before a real corpus benchmark would add duplicate supply-chain and operational cost."
+        },
+        {
+          "classification": "unknown",
+          "text": "Partition strategy, optional extras, transitive licenses, local model downloads, and Chinese fidelity are not audited here."
+        }
+      ],
+      "alternatives": [
+        "Docling v2.118.1",
+        "Apache Tika 3.3.2",
+        "Format-specific parsers"
+      ],
+      "fallback": "Use the validated basic parser or compare against Docling on the same private benchmark corpus.",
+      "privateDeployment": "Possible; optional extras and model downloads must be enumerated before enabling them.",
+      "coreIntegration": {
+        "mode": "reference_only",
+        "boundary": "May only be introduced behind the same parser contract and source-hash/citation controls."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "sentence-transformers",
+      "name": "Sentence Transformers",
+      "category": "embedding-runtime",
+      "decision": "deferred",
+      "version": "5.7.0",
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://github.com/huggingface/sentence-transformers/blob/v5.7.0/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/huggingface/sentence-transformers",
+        "releaseUrl": "https://github.com/huggingface/sentence-transformers/releases/tag/v5.7.0"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-08-06",
+        "repositoryArchived": false,
+        "signals": ["The official repository publishes v5.7.0 and is not archived."],
+        "assessment": "active-runtime-model-selection-deferred"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "The runtime code is Apache-2.0 licensed." },
+        { "classification": "inference", "text": "A replaceable embedding adapter can use this runtime after a model-specific benchmark." },
+        { "classification": "unknown", "text": "No model weight, training-data statement, Chinese quality, or resource profile has been approved." }
+      ],
+      "alternatives": ["FlagEmbedding 1.4.0", "A BYOK embedding API behind the same adapter"],
+      "fallback": "Use scoped lexical retrieval when no approved embedding implementation is configured.",
+      "privateDeployment": "Possible only with separately pinned and licensed model weights.",
+      "coreIntegration": { "mode": "reference_only", "boundary": "Evaluation candidate only; model artifacts and vectors remain versioned behind the Embedding Adapter." },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "flagembedding",
+      "name": "FlagEmbedding",
+      "category": "embedding-runtime",
+      "decision": "deferred",
+      "version": "1.4.0",
+      "license": {
+        "spdx": "MIT",
+        "status": "verified",
+        "sourceUrl": "https://github.com/FlagOpen/FlagEmbedding/blob/v1.4.0/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/FlagOpen/FlagEmbedding",
+        "releaseUrl": "https://github.com/FlagOpen/FlagEmbedding/releases/tag/v1.4.0"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-04-22",
+        "repositoryArchived": false,
+        "signals": ["The official repository publishes v1.4.0 and is not archived."],
+        "assessment": "active-runtime-model-selection-deferred"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "The runtime code is MIT licensed." },
+        { "classification": "inference", "text": "Its multilingual model entry points make it a relevant benchmark candidate for Chinese and mixed-language retrieval." },
+        { "classification": "unknown", "text": "Upstream capability claims, model-weight licensing, retrieval quality, and resource use have not been independently validated." }
+      ],
+      "alternatives": ["Sentence Transformers 5.7.0", "A BYOK embedding API behind the same adapter"],
+      "fallback": "Use scoped lexical retrieval when no approved embedding implementation is configured.",
+      "privateDeployment": "Possible only after model weights, download hashes, offline behavior, and resource limits are approved.",
+      "coreIntegration": { "mode": "reference_only", "boundary": "Evaluation candidate only; model artifacts and vectors remain versioned behind the Embedding Adapter." },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "or-tools",
+      "name": "OR-Tools",
+      "category": "resource-optimization",
+      "decision": "deferred",
+      "version": "9.15",
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://github.com/google/or-tools/blob/v9.15/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/google/or-tools",
+        "releaseUrl": "https://github.com/google/or-tools/releases/tag/v9.15"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-01-12",
+        "repositoryArchived": false,
+        "signals": ["The official repository publishes v9.15 and is not archived."],
+        "assessment": "active-demand-not-established"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "OR-Tools is Apache-2.0 licensed and provides constraint-solving capabilities." },
+        { "classification": "inference", "text": "The current deterministic finish-to-start schedule does not justify a general optimizer." },
+        { "classification": "unknown", "text": "No observed user project has established a resource-leveling or optimization requirement." }
+      ],
+      "alternatives": ["Current deterministic scheduling engine", "A later narrow resource-leveling implementation"],
+      "fallback": "Keep the M0-03 deterministic scheduling semantics and expose unsupported resource constraints explicitly.",
+      "privateDeployment": "Possible, but no runtime is approved until a real optimization requirement and benchmark exist.",
+      "coreIntegration": { "mode": "reference_only", "boundary": "Evaluation candidate only; formal schedule state and conflict explanations remain application-owned." },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "apache-tika",
+      "name": "Apache Tika",
+      "category": "document-parser-alternative",
+      "decision": "rejected",
+      "version": "3.3.2",
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://github.com/apache/tika/blob/main/LICENSE.txt",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/apache/tika",
+        "releaseUrl": "https://github.com/apache/tika/releases/tag/3.3.2"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-07-21",
+        "repositoryArchived": false,
+        "signals": [
+          "The official repository tag feed identifies 3.3.2 on 2026-07-21.",
+          "The repository LICENSE is Apache-2.0."
+        ],
+        "assessment": "active-alternative"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "Apache Tika is Apache-2.0 licensed and can run as a local Java service."
+        },
+        {
+          "classification": "inference",
+          "text": "Its separate JVM/service footprint is not justified before the chosen parser fails a measured format case."
+        },
+        {
+          "classification": "unknown",
+          "text": "Source-coordinate fidelity, table semantics, OCR configuration, and resource use on the target corpus are not measured."
+        }
+      ],
+      "alternatives": [
+        "Docling v2.118.1",
+        "Unstructured 0.25.2",
+        "Format-specific parsers"
+      ],
+      "fallback": "Use it only as a quarantined fallback for formats not handled by the primary parser.",
+      "privateDeployment": "Possible as a separate local process with explicit time, memory, file-size, and network limits.",
+      "coreIntegration": {
+        "mode": "reference_only",
+        "boundary": "Any later adapter must preserve application-owned file hashes, coordinates, warnings, and explicit failure behavior."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "qdrant",
+      "name": "Qdrant",
+      "category": "vector-database",
+      "decision": "rejected",
+      "version": "1.19.0",
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://github.com/qdrant/qdrant/blob/v1.19.0/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/qdrant/qdrant",
+        "releaseUrl": "https://github.com/qdrant/qdrant/releases/tag/v1.19.0"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2026-08-05",
+        "repositoryArchived": false,
+        "signals": ["The official repository publishes v1.19.0 and is not archived."],
+        "assessment": "active-but-unjustified-for-p0"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "Qdrant is Apache-2.0 licensed and provides filtered dense, sparse, and hybrid retrieval features." },
+        { "classification": "inference", "text": "A second database would add backup, restore, migration, and tenant-configuration cost before scale requires it." },
+        { "classification": "unknown", "text": "No MarketOps benchmark shows PostgreSQL exact vector search is insufficient." }
+      ],
+      "alternatives": ["PostgreSQL FTS plus pgvector", "Re-evaluate Qdrant behind a vector-store adapter after measured thresholds fail"],
+      "fallback": "Use scoped PostgreSQL retrieval and keep vector-store calls behind an application-owned adapter.",
+      "privateDeployment": "Not included in P0 Docker topology; later evaluation must include backup, restore, deletion propagation, and isolation tests.",
+      "coreIntegration": { "mode": "reference_only", "boundary": "No bundled service in P0; any future trial must preserve application-owned scope filtering and citation contracts." },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "dify",
+      "name": "Dify",
+      "category": "large-agent-platform",
+      "decision": "rejected",
+      "version": "1.16.1",
+      "license": {
+        "spdx": "LicenseRef-Dify-Open-Source-License",
+        "status": "verified-non-standard",
+        "sourceUrl": "https://github.com/langgenius/dify/blob/main/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/langgenius/dify",
+        "releaseUrl": "https://github.com/langgenius/dify/releases/tag/1.16.1"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": null,
+        "repositoryArchived": false,
+        "signals": [
+          "The official latest-release redirect resolves to 1.16.1.",
+          "The LICENSE adds a commercial-license trigger for multi-tenant operation and frontend logo/copyright restrictions to a modified Apache-2.0 base."
+        ],
+        "assessment": "active-but-license-restricted-for-core-use"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "Dify's repository license is not plain Apache-2.0 and contains additional multi-tenant and frontend conditions."
+        },
+        {
+          "classification": "inference",
+          "text": "Embedding or forking the platform would create avoidable licensing, branding, upgrade, and product-boundary risk."
+        },
+        {
+          "classification": "unknown",
+          "text": "A separately negotiated commercial license was not evaluated."
+        }
+      ],
+      "alternatives": [
+        "Narrow MIT/Apache/PostgreSQL components behind project-owned interfaces",
+        "Use an external Dify deployment only through a user-configured API after separate terms review"
+      ],
+      "fallback": "Keep project state, RAG isolation, workflow approvals, and model adapters in the MarketOps application.",
+      "privateDeployment": "Technically self-hostable, but not approved as a bundled or embedded dependency.",
+      "coreIntegration": {
+        "mode": "reference_only",
+        "boundary": "No source embedding, fork, bundled container, or frontend reuse."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "n8n",
+      "name": "n8n",
+      "category": "large-automation-platform",
+      "decision": "rejected",
+      "version": "n8n@2.33.7",
+      "license": {
+        "spdx": "LicenseRef-n8n-Sustainable-Use-License",
+        "status": "verified-source-available",
+        "sourceUrl": "https://github.com/n8n-io/n8n/blob/master/LICENSE.md",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/n8n-io/n8n",
+        "releaseUrl": "https://github.com/n8n-io/n8n/releases/tag/n8n%402.33.7"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": null,
+        "repositoryArchived": false,
+        "signals": [
+          "The official latest-release redirect resolves to n8n@2.33.7.",
+          "The repository distinguishes Sustainable Use licensed files from separately licensed enterprise files."
+        ],
+        "assessment": "active-but-not-open-source-core-license"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "The Sustainable Use License limits use and distribution and is not Apache-2.0."
+        },
+        {
+          "classification": "inference",
+          "text": "Bundling n8n as the workbench's automation engine would conflict with the desired independently redistributable Apache-2.0 core."
+        },
+        {
+          "classification": "unknown",
+          "text": "Commercial enterprise terms were not requested or evaluated."
+        }
+      ],
+      "alternatives": [
+        "Project-owned job runner",
+        "Optional user-operated n8n connector over an API after separate license review"
+      ],
+      "fallback": "Implement only the small number of deterministic M1 jobs and external-action approvals required by the product.",
+      "privateDeployment": "Self-hostable under its terms, but not approved for bundling or core redistribution.",
+      "coreIntegration": {
+        "mode": "reference_only",
+        "boundary": "No bundled runtime or copied nodes; a future connector must be optional and independently configured."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "minio",
+      "name": "MinIO Community Edition",
+      "category": "object-storage-server",
+      "decision": "rejected",
+      "version": "RELEASE.2025-10-15T17-29-55Z",
+      "license": {
+        "spdx": "AGPL-3.0-only",
+        "status": "verified-strong-copyleft",
+        "sourceUrl": "https://github.com/minio/minio/blob/master/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/minio/minio",
+        "releaseUrl": "https://github.com/minio/minio/releases/tag/RELEASE.2025-10-15T17-29-55Z"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": "2025-10-15",
+        "repositoryArchived": true,
+        "signals": [
+          "GitHub states that the repository was archived on 2026-04-25 and is read-only.",
+          "The repository README states that it is no longer maintained and community edition is source-only.",
+          "The repository LICENSE is AGPL-3.0."
+        ],
+        "assessment": "archived-reject"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "The repository is archived, unmaintained, and AGPL-3.0 licensed."
+        },
+        {
+          "classification": "inference",
+          "text": "Bundling it would add both maintenance and network-copyleft review risk without being required for the first single-user deployment."
+        },
+        {
+          "classification": "unknown",
+          "text": "The successor AIStor license and commercial terms were not evaluated."
+        }
+      ],
+      "alternatives": [
+        "Local filesystem storage behind an object-store interface",
+        "User-supplied S3-compatible service",
+        "Apache-2.0 licensed SeaweedFS after a separate audit"
+      ],
+      "fallback": "Store source files on a private local volume with hashes, backup documentation, and a replaceable object-store interface.",
+      "privateDeployment": "Do not bundle the archived community server; permit user-supplied S3-compatible endpoints later.",
+      "coreIntegration": {
+        "mode": "reference_only",
+        "boundary": "Depend only on a narrow object-storage interface, never MinIO-specific behavior."
+      },
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "rsshub",
+      "name": "RSSHub",
+      "category": "external-source-aggregator",
+      "decision": "rejected",
+      "version": "not-pinned",
+      "license": {
+        "spdx": "AGPL-3.0-only",
+        "status": "verified-strong-copyleft",
+        "sourceUrl": "https://github.com/DIYgod/RSSHub/blob/master/LICENSE",
+        "verifiedAt": "2026-08-08"
+      },
+      "source": {
+        "repositoryUrl": "https://github.com/DIYgod/RSSHub",
+        "releaseUrl": "https://github.com/DIYgod/RSSHub/releases"
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-08",
+        "latestReleaseAt": null,
+        "repositoryArchived": false,
+        "signals": [
+          "The official repository LICENSE is AGPL-3.0.",
+          "No stable release pin was established from the official releases page during this audit."
+        ],
+        "assessment": "license-clear-version-unknown"
+      },
+      "rationale": [
+        {
+          "classification": "fact",
+          "text": "RSSHub is AGPL-3.0 licensed."
+        },
+        {
+          "classification": "inference",
+          "text": "Bundling or modifying it for M3 source ingestion would require avoidable AGPL compliance analysis and would couple the product to a broad route ecosystem."
+        },
+        {
+          "classification": "unknown",
+          "text": "A future separately operated, unmodified RSSHub service and its precise network boundary were not evaluated."
+        }
+      ],
+      "alternatives": [
+        "Direct RSS/Atom reader using standard protocols",
+        "User-configured external RSSHub endpoint after separate terms review"
+      ],
+      "fallback": "M3 begins with user-approved RSS/Atom URLs and official APIs through narrow source adapters.",
+      "privateDeployment": "Not approved as a bundled service; an independently operated endpoint may be considered later.",
+      "coreIntegration": {
+        "mode": "reference_only",
+        "boundary": "No bundled code or copied routes; source adapters consume standard feed output only."
+      },
+      "starPolicy": "not_a_decision_factor"
+    }
+  ],
+  "summary": {
+    "adopted": 3,
+    "deferred": 6,
+    "rejected": 6,
+    "blockers": []
+  }
+}
