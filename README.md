@@ -2,7 +2,7 @@
 
 一个面向活动、品牌与 B2B 营销项目的开源 AI 项目运营工作台。
 
-> 当前状态：产品定义与架构阶段。仓库根目录中的静态页面是早期探索原型，不代表后端、知识库、连接器或自动化已经完成。
+> 当前状态：M1 纵向切片进行中。根目录页面已提供浏览器端的项目/原文件/已批准方案导入交互，用于验证数据契约和失败路径；它不代表 PostgreSQL 事实来源、后端 API、知识库、连接器或自动化已经完成。
 
 ## 产品目标
 
@@ -45,6 +45,8 @@ MarketOps 将营销项目的 Brief、证据、方案、排期、执行、外部�
 - [路线图](docs/ROADMAP.md)
 - [项目执行方案](docs/PROJECT_EXECUTION_PLAN.md)
 - [项目进度与完成纪要](docs/PROJECT_STATUS.md)
+- [M0 技术退出评审](docs/M0_REVIEW_GATE.md)
+- [M1-01 项目导入切片](docs/M1_01_PROJECT_IMPORT_SPIKE.md)
 - [M0 验证样本集](validation/README.md)
 - [公开活动案例参考库](docs/PUBLIC_CASE_REFERENCES.md)
 - [验收标准](docs/ACCEPTANCE_CRITERIA.md)
@@ -54,7 +56,7 @@ MarketOps 将营销项目的 Brief、证据、方案、排期、执行、外部�
 
 ## 本地查看探索原型
 
-当前原型是纯静态页面，可直接打开 `index.html`。它用于讨论信息架构和视觉方向，不是可用于真实客户资料的系统。
+当前原型是浏览器本地的交互切片，可在本地服务中打开 `index.html`。它用于验证导入交互、文件哈希和失败状态，不是可用于真实客户资料的服务器系统。M1-01 的 PostgreSQL、API 和权限验收仍未完成。
 
 ## 开源与数据
 

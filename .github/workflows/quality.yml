@@ -21,7 +21,11 @@ jobs:
         with:
           python-version: "3.12"
       - name: Check JavaScript syntax
-        run: node --check app.js
+        run: |
+          node --check app.js
+          node --check project-import.js
+      - name: Check project import contract
+        run: node scripts/check_project_import.mjs
       - name: Check documentation links and encoding
         run: node scripts/check-docs.mjs
       - name: Check project progress registry
