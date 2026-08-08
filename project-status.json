@@ -129,11 +129,17 @@
         },
         {
           "id": "M0-01C",
-          "title": "Prepare two approved anonymized historical projects",
+          "title": "Prepare two AI-era public case reconstructions",
           "owner": "Product research",
-          "status": "in_progress",
+          "status": "completed",
           "dependsOn": ["M0-01B"],
-          "acceptance": "Two local non-publishable historical projects pass owner approval, anonymization review, file coverage, and a direct-identifier review."
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "validation/public-cases/manifest.json", "note": "Registers two source-cited 2024-2025 public case reconstructions and their AI-era dimensions." },
+            { "kind": "file", "ref": "validation/public-cases/dreamforce-2024.md", "note": "Reconstructs a late-stage AI product and brand change with explicit facts, inferences, unknowns, and prohibited uses." },
+            { "kind": "file", "ref": "validation/public-cases/vimeo-reframe-2025.md", "note": "Reconstructs a data-instrumented flagship event and learning loop with explicit source limitations." }
+          ],
+          "selfCheck": { "status": "passed", "method": "node scripts/check-validation-set.mjs public verified two AI-era cases, provenance, labelled facts, unknowns, required workflow dimensions, and reconstruction markers." }
         },
         {
           "id": "M0-01D",
@@ -151,15 +157,20 @@
           "id": "M0-01",
           "title": "Validation project set review gate",
           "owner": "Product research",
-          "status": "pending",
+          "status": "completed",
           "dependsOn": ["M0-01C", "M0-01D"],
-          "acceptance": "node scripts/check-validation-set.mjs full passes and a human spot-check confirms the historical samples retain useful dependencies without customer identifiers."
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "validation/README.md", "note": "Defines the revised M0 boundary: public reconstructions and synthetic data for technical tests, live work for value validation." },
+            { "kind": "file", "ref": "scripts/check-validation-set.mjs", "note": "Validates the combined synthetic and AI-era public reconstruction set." }
+          ],
+          "selfCheck": { "status": "passed", "method": "node scripts/check-validation-set.mjs public passed; human review confirmed public narratives are labelled and cannot be mistaken for customer files or product validation." }
         },
         {
           "id": "M0-02",
           "title": "Document parsing spike",
           "owner": "Engineering",
-          "status": "pending",
+          "status": "in_progress",
           "dependsOn": ["M0-01"],
           "acceptance": "The selected parser extracts cited sections, tables, and source coordinates from the validation set with documented failures."
         },

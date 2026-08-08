@@ -2,22 +2,22 @@
 # Project Status
 
 Source registry updated: 2026-08-08
-Source hash: `cfe44b905d30`
+Source hash: `bda41be46acc`
 
 ## Progress
 
-Task-count completion: **10/38 (26.3%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
+Task-count completion: **12/38 (31.6%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
 
-Current work: `M0-01C` Prepare two approved anonymized historical projects
+Current work: `M0-02` Document parsing spike
 
-Next action: `M0-01C` Prepare two approved anonymized historical projects
+Next action: `M0-02` Document parsing spike
 
 ## Milestones
 
 | Milestone | Goal | Completed | Active |
 | --- | --- | ---: | ---: |
 | Foundation | Establish the product contract, architecture, safety boundaries, and open-source baseline. | 7/7 | 0 |
-| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 3/10 | 1 |
+| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 5/10 | 1 |
 | M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 0/5 | 0 |
 | M2: Knowledge base and project learning | Make approved historical knowledge reusable without leaking customer material. | 0/4 | 0 |
 | M3: Market signals and impact analysis | Connect observed external changes to confirmed project assumptions and work. | 0/4 | 0 |
@@ -46,10 +46,10 @@ Prove the riskiest inputs and deterministic engines before feature development.
 | --- | --- | --- | --- | --- |
 | M0-01A | Define validation-set contract and data-use gate | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public passed; full mode correctly rejects a missing private historical set. |
 | M0-01B | Create executable synthetic B2B event fixture | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public verified file coverage, task IDs, locked tasks, and fixture identity. |
-| M0-01C | Prepare two approved anonymized historical projects | Product research | In progress | Two local non-publishable historical projects pass owner approval, anonymization review, file coverage, and a direct-identifier review. |
+| M0-01C | Prepare two AI-era public case reconstructions | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public verified two AI-era cases, provenance, labelled facts, unknowns, required workflow dimensions, and reconstruction markers. |
 | M0-01D | Curate public event case references | Product research | Completed | Self-check passed: Official source pages were accessed on 2026-08-08; each reference distinguishes confirmed public description, inference, and unavailable project data. |
-| M0-01 | Validation project set review gate | Product research | Pending | node scripts/check-validation-set.mjs full passes and a human spot-check confirms the historical samples retain useful dependencies without customer identifiers. |
-| M0-02 | Document parsing spike | Engineering | Pending | The selected parser extracts cited sections, tables, and source coordinates from the validation set with documented failures. |
+| M0-01 | Validation project set review gate | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public passed; human review confirmed public narratives are labelled and cannot be mistaken for customer files or product validation. |
+| M0-02 | Document parsing spike | Engineering | In progress | The selected parser extracts cited sections, tables, and source coordinates from the validation set with documented failures. |
 | M0-03 | Scheduling and critical-path spike | Engineering | Pending | A deterministic prototype recalculates dependencies, workdays, buffers, and critical path for the executable test project. |
 | M0-04 | Hybrid retrieval and citation spike | Engineering | Pending | Representative queries return workspace-scoped, cited results; an isolation test finds no cross-customer result. |
 | M0-05 | Dependency and license decision | Open source | Pending | Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker. |
@@ -125,12 +125,17 @@ Use paid or repeated use to decide what to build next.
 | FND-07 | file | `LICENSE` | Apache License 2.0. |
 | FND-07 | git_commit | `1386079` | Public-plan baseline commit. |
 | FND-07 | url | `https://github.com/Patch-A/marketops-ai-workbench` | Public repository. |
+| M0-01 | file | `validation/README.md` | Defines the revised M0 boundary: public reconstructions and synthetic data for technical tests, live work for value validation. |
+| M0-01 | file | `scripts/check-validation-set.mjs` | Validates the combined synthetic and AI-era public reconstruction set. |
 | M0-01A | file | `validation/README.md` | Defines sample scope, anonymization workflow, private-data boundary, and full acceptance gate. |
 | M0-01A | file | `validation/templates/historical-project-record.json` | Provides the required data-use and anonymization record for historical projects. |
 | M0-01A | file | `scripts/check-validation-set.mjs` | Validates approval and identifier-review status, coverage, referenced files, and sample counts. |
 | M0-01B | file | `validation/manifest.json` | Registers one approved, public, synthetic validation project with all required coverage. |
 | M0-01B | file | `validation/fixtures/synthetic-b2b-event-001/ground-truth.json` | Defines required sources, assumptions, decisions, deliverables, tasks, change impacts, and forbidden claims. |
 | M0-01B | file | `validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv` | Provides an executable task and dependency baseline for later scheduling tests. |
+| M0-01C | file | `validation/public-cases/manifest.json` | Registers two source-cited 2024-2025 public case reconstructions and their AI-era dimensions. |
+| M0-01C | file | `validation/public-cases/dreamforce-2024.md` | Reconstructs a late-stage AI product and brand change with explicit facts, inferences, unknowns, and prohibited uses. |
+| M0-01C | file | `validation/public-cases/vimeo-reframe-2025.md` | Reconstructs a data-instrumented flagship event and learning loop with explicit source limitations. |
 | M0-01D | file | `docs/PUBLIC_CASE_REFERENCES.md` | Records three source-checked public cases, their usable workflow insights, source limitations, and copyright boundary. |
 
 ## Completion Log
@@ -144,8 +149,10 @@ Use paid or repeated use to decide what to build next.
 | 2026-08-08 | FND-05 | Milestone acceptance criteria | `docs/ACCEPTANCE_CRITERIA.md` | Passed |
 | 2026-08-08 | FND-06 | Open-source and dependency review | `docs/OPEN_SOURCE_REVIEW.md`<br>`THIRD_PARTY_NOTICES.md` | Passed |
 | 2026-08-08 | FND-07 | Public repository and Apache-2.0 baseline | `LICENSE`<br>`1386079`<br>`https://github.com/Patch-A/marketops-ai-workbench` | Passed |
+| 2026-08-08 | M0-01 | Validation project set review gate | `validation/README.md`<br>`scripts/check-validation-set.mjs` | Passed |
 | 2026-08-08 | M0-01A | Define validation-set contract and data-use gate | `validation/README.md`<br>`validation/templates/historical-project-record.json`<br>`scripts/check-validation-set.mjs` | Passed |
 | 2026-08-08 | M0-01B | Create executable synthetic B2B event fixture | `validation/manifest.json`<br>`validation/fixtures/synthetic-b2b-event-001/ground-truth.json`<br>`validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv` | Passed |
+| 2026-08-08 | M0-01C | Prepare two AI-era public case reconstructions | `validation/public-cases/manifest.json`<br>`validation/public-cases/dreamforce-2024.md`<br>`validation/public-cases/vimeo-reframe-2025.md` | Passed |
 | 2026-08-08 | M0-01D | Curate public event case references | `docs/PUBLIC_CASE_REFERENCES.md` | Passed |
 
 ## Update Protocol

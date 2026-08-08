@@ -4,6 +4,7 @@ import path from 'node:path';
 const root = process.cwd();
 const mode = process.argv[2] ?? 'public';
 const publicManifestPath = path.join(root, 'validation', 'manifest.json');
+const publicCaseManifestPath = path.join(root, 'validation', 'public-cases', 'manifest.json');
 const privateManifestPath = path.join(root, 'validation', 'private', 'manifest.json');
 const requiredCoverage = ['proposal', 'schedule', 'change', 'retrospective'];
 
@@ -61,17 +62,45 @@ function validateFixture(samples) {
   }
 }
 
+function validatePublicCases(manifest) {
+  if (manifest.schemaVersion !== 1 || !Array.isArray(manifest.cases)) fail('public case manifest must use schemaVersion 1 and contain cases.');
+  if (manifest.cases.length < 2) fail('at least two public case reconstructions are required.');
+  const dimensions = new Set();
+  for (const item of manifest.cases) {
+    if (!item.id || item.type !== 'public_case_reconstruction' || !item.title) fail('public case manifest contains an invalid case.');
+    if (!Number.isInteger(item.eventYear) || item.eventYear < 2024) fail(`${item.id} is not an AI-era case.`);
+    if (!item.source?.publisher || !/^https:\/\//.test(item.source?.url ?? '') || !/^\d{4}-\d{2}-\d{2}$/.test(item.source?.accessedAt ?? '')) fail(`${item.id} lacks source provenance.`);
+    if (!Array.isArray(item.aiEraDimensions) || item.aiEraDimensions.length < 3) fail(`${item.id} lacks AI-era workflow dimensions.`);
+    item.aiEraDimensions.forEach((dimension) => dimensions.add(dimension));
+    if (!Array.isArray(item.facts) || item.facts.length < 3) fail(`${item.id} lacks enough source-labelled facts.`);
+    if (!Array.isArray(item.unknowns) || item.unknowns.length < 3) fail(`${item.id} does not expose enough unknowns.`);
+    const normalized = (item.file ?? '').replaceAll('\\', '/');
+    if (!normalized.startsWith('validation/public-cases/') || !fs.existsSync(path.resolve(root, normalized))) fail(`${item.id} reconstruction file is missing or outside validation/public-cases/.`);
+    const text = fs.readFileSync(path.resolve(root, normalized), 'utf8');
+    for (const marker of ['PUBLIC CASE RECONSTRUCTION', '已确认的公开描述', '合理重构', '无法验证', '禁止用途']) {
+      if (!text.includes(marker)) fail(`${item.id} reconstruction is missing marker ${marker}.`);
+    }
+    for (const fact of item.facts) if (!text.includes(fact)) fail(`${item.id} reconstruction is missing ${fact}.`);
+  }
+  for (const required of ['late_stage_change', 'human_approval', 'behavioral_instrumentation', 'evidence_based_iteration']) {
+    if (!dimensions.has(required)) fail(`public case set lacks AI-era dimension ${required}.`);
+  }
+  return manifest.cases;
+}
+
 if (!['public', 'full'].includes(mode)) fail('use public or full mode.');
 if (!fs.existsSync(publicManifestPath)) fail('validation/manifest.json is missing.');
+if (!fs.existsSync(publicCaseManifestPath)) fail('validation/public-cases/manifest.json is missing.');
 
 const publicSamples = validateManifest(loadJson(publicManifestPath), 'validation/manifest.json');
 validateFixture(publicSamples);
+const publicCases = validatePublicCases(loadJson(publicCaseManifestPath));
 
 if (mode === 'full') {
   if (!fs.existsSync(privateManifestPath)) fail('validation/private/manifest.json is missing; add two approved anonymized historical projects locally.');
   const privateSamples = validateManifest(loadJson(privateManifestPath), 'validation/private/manifest.json', { isPrivate: true });
   if (privateSamples.filter((sample) => sample.type === 'historical').length < 2) fail('full validation requires at least two historical projects.');
-  console.log(`Full validation set is valid: ${publicSamples.length} public and ${privateSamples.length} private samples.`);
+  console.log(`Full validation set is valid: ${publicSamples.length} synthetic, ${publicCases.length} public-case, and ${privateSamples.length} private samples.`);
 } else {
-  console.log(`Public validation set is valid: ${publicSamples.length} synthetic sample.`);
+  console.log(`Public validation set is valid: ${publicSamples.length} synthetic sample and ${publicCases.length} AI-era public-case reconstructions.`);
 }

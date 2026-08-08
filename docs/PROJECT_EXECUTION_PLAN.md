@@ -43,7 +43,7 @@ The [data model](DATA_MODEL.md), [architecture](ARCHITECTURE.md), and [knowledge
 | Milestone | Primary deliverable | Gate to continue |
 | --- | --- | --- |
 | Foundation | Product contract, architecture, data model, acceptance criteria, OSS baseline | Documentation is consistent and reviewable. Complete. |
-| M0 | Anonymized validation set plus parsing, scheduling, retrieval, and license spikes | Risks are evidenced, dependencies have no unresolved license blocker. |
+| M0 | Two source-cited AI-era public reconstructions, one executable synthetic fixture, plus parsing, scheduling, retrieval, and license spikes | Technical risks are evidenced and dependencies have no unresolved license blocker; no demand claim is made. |
 | M1 | Approved proposal to editable WBS, schedule, task state, export, and audit | One validation project reaches an accepted executable schedule. |
 | M2 | Cited, isolated retrieval and human-approved project learning | Project B reuses approved Project A knowledge without leakage. |
 | M3 | Source-managed market signals and human-approved impact changes | A real case produces a useful and explainable action at an agreed noise level. |
@@ -65,7 +65,7 @@ P0 excludes generic companion chat, automatic external messages, personal WeChat
 
 ## Validation Design
 
-The first market test is not a demand survey for “an AI workbench.” It asks participants to run a representative approved proposal through a prototype and compare it with their current documents, spreadsheets, and chat workflow.
+M0 technical testing uses public reconstructions and synthetic data because a solo builder may not have complete historical archives. The first market test remains a current real task: participants run a de-identified live Brief or project step through a prototype and compare it with their current documents, spreadsheets, chat, and generic AI workflow.
 
 | Question | Evidence | Go / no-go signal |
 | --- | --- | --- |
@@ -74,7 +74,7 @@ The first market test is not a demand survey for “an AI workbench.” It asks 
 | Are alerts useful rather than distracting? | Source logs, action rate, false-positive review | Alerts create explainable human actions at the agreed threshold. |
 | Is there willingness to pay? | Repeat use plus payment/deposit experiment | Actual payment or deposit, not verbal intent or page traffic. |
 
-The detailed interview, prototype, and evidence process remains in [market-validation-playbook.md](market-validation-playbook.md). Network examples and desk research can identify hypotheses; they cannot replace these behavioral tests.
+The detailed interview, prototype, and evidence process remains in [market-validation-playbook.md](market-validation-playbook.md). Network examples and desk research can supply technical scenarios; they cannot establish time savings, repeat use, willingness to pay, or causality.
 
 ## Safety and Data Boundaries
 
@@ -97,6 +97,6 @@ This mechanism provides accountability, not an autonomous truth detector. A scri
 | --- | --- | --- |
 | Scope drifts into a general AI assistant | Keep the approved-proposal-to-project-state loop as the sole P0 spine | Any feature that cannot strengthen the loop is deferred. |
 | Generic models erode value | Validate persistent project state, deterministic scheduling, traceability, and controlled reuse | Users return to Agent + Skill workflows after prototype use. |
-| Customer data cannot be used safely | Use anonymized examples, explicit permissions, and isolated workspaces | A validation set lacks approved data handling. |
+| Customer data is incomplete or cannot be used safely | Use cited public reconstructions and synthetic fixtures for engineering; reserve real data for consented live pilots | A live pilot lacks approved data handling. |
 | Retrieval introduces leakage or confident errors | Require citations, isolation tests, and human knowledge approval | Any cross-customer result or uncited high-impact output. |
 | Alerts create noise | Begin with user-selected sources and manual impact review | Action rate stays below the agreed threshold. |

@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 1,
+  "cases": [
+    {
+      "id": "PUB-DREAMFORCE-2024",
+      "type": "public_case_reconstruction",
+      "title": "Dreamforce 2024 Agentforce late-stage brand change",
+      "eventYear": 2024,
+      "source": {
+        "publisher": "George P. Johnson",
+        "publisherRole": "agency_of_record",
+        "url": "https://www.gpj.com/case-study/agentforce-activated-a-brand-evolution-at-dreamforce-scale/",
+        "accessedAt": "2026-08-08"
+      },
+      "aiEraDimensions": [
+        "ai_product_launch",
+        "late_stage_change",
+        "impact_mapping",
+        "human_approval",
+        "multi_touchpoint_versioning"
+      ],
+      "facts": ["FACT-DF-01", "FACT-DF-02", "FACT-DF-03", "FACT-DF-04"],
+      "unknowns": ["original_brief", "wbs_and_dependencies", "change_approval_log", "resource_and_cost_delta", "measurement_method"],
+      "file": "validation/public-cases/dreamforce-2024.md"
+    },
+    {
+      "id": "PUB-REFRAME-2025",
+      "type": "public_case_reconstruction",
+      "title": "Vimeo REFRAME 2025 data-instrumented flagship event",
+      "eventYear": 2025,
+      "source": {
+        "publisher": "Bizzabo",
+        "publisherRole": "technology_vendor",
+        "url": "https://www.bizzabo.com/customer-stories/vimeo-data-driven-flagship-event",
+        "accessedAt": "2026-08-08"
+      },
+      "aiEraDimensions": [
+        "behavioral_instrumentation",
+        "cross_system_integration",
+        "evidence_based_iteration",
+        "human_review",
+        "content_reuse"
+      ],
+      "facts": ["FACT-RF-01", "FACT-RF-02", "FACT-RF-03", "FACT-RF-04"],
+      "unknowns": ["original_brief", "complete_schedule", "raw_event_data", "roi_formula", "independent_outcome_verification"],
+      "file": "validation/public-cases/vimeo-reframe-2025.md"
+    }
+  ]
+}

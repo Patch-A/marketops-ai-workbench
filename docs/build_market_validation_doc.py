@@ -482,7 +482,7 @@ def add_masthead(doc):
     set_run_font(r, size=11, bold=True, color="000000")
     for item in (
         "是否同意以活动/品牌代理公司为主组、B2B 企业市场为对照组？",
-        "是否能在两周内取得 3 个历史项目和 1 个实时脱敏 brief？",
+        "是否能在两周内完成 3 次当前真实任务测试，并让至少 1 人完成第二次使用？",
         "测试阈值和人民币 299/699 元的付费锚点是否需要调整？",
     ):
         p = doc.add_paragraph()
