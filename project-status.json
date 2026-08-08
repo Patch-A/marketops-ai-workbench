@@ -136,11 +136,23 @@
           "acceptance": "Two local non-publishable historical projects pass owner approval, anonymization review, file coverage, and a direct-identifier review."
         },
         {
+          "id": "M0-01D",
+          "title": "Curate public event case references",
+          "owner": "Product research",
+          "status": "completed",
+          "dependsOn": ["M0-01B"],
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/PUBLIC_CASE_REFERENCES.md", "note": "Records three source-checked public cases, their usable workflow insights, source limitations, and copyright boundary." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Official source pages were accessed on 2026-08-08; each reference distinguishes confirmed public description, inference, and unavailable project data." }
+        },
+        {
           "id": "M0-01",
           "title": "Validation project set review gate",
           "owner": "Product research",
           "status": "pending",
-          "dependsOn": ["M0-01C"],
+          "dependsOn": ["M0-01C", "M0-01D"],
           "acceptance": "node scripts/check-validation-set.mjs full passes and a human spot-check confirms the historical samples retain useful dependencies without customer identifiers."
         },
         {

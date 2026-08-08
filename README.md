@@ -46,6 +46,7 @@ MarketOps 将营销项目的 Brief、证据、方案、排期、执行、外部�
 - [项目执行方案](docs/PROJECT_EXECUTION_PLAN.md)
 - [项目进度与完成纪要](docs/PROJECT_STATUS.md)
 - [M0 验证样本集](validation/README.md)
+- [公开活动案例参考库](docs/PUBLIC_CASE_REFERENCES.md)
 - [验收标准](docs/ACCEPTANCE_CRITERIA.md)
 - [开源组件与 Skill 审查](docs/OPEN_SOURCE_REVIEW.md)
 - [市场验证执行包](docs/market-validation-playbook.md)
