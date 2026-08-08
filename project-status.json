@@ -228,9 +228,15 @@
           "id": "M0-06",
           "title": "M0 review gate",
           "owner": "Product",
-          "status": "in_progress",
+          "status": "completed",
           "dependsOn": ["M0-05"],
-          "acceptance": "The validation set, all spike results, risks, and M1 implementation decision are reviewed against the M0 exit criteria."
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M0_REVIEW_GATE.md", "note": "Independent review records a conditional technical Go to M1, separates engineering evidence from unverified commercial claims, and freezes M1 constraints and required pilot evidence." },
+            { "kind": "file", "ref": "docs/MULTI_AGENT_EXECUTION.md", "note": "The independent-review role and M0-06 review gate require a non-implementer review before completion." },
+            { "kind": "file", "ref": "scripts/progress.mjs", "note": "Registry and generated status consistency are checked by the repository progress gate." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Independent reviewer reran node, Python, parser, DOCX, scheduling, retrieval, dependency, documentation, and progress checks; all exited 0 with no P0/P1 finding." }
         }
       ]
     },
@@ -239,7 +245,7 @@
       "name": "M1: Proposal-to-schedule vertical slice",
       "goal": "Turn an approved proposal into a usable, reviewable execution plan.",
       "tasks": [
-        { "id": "M1-01", "title": "Project, file, and approved-proposal import", "owner": "Engineering", "status": "pending", "dependsOn": ["M0-06"], "acceptance": "A user can create a project, retain the source file, and select an approved proposal version." },
+        { "id": "M1-01", "title": "Project, file, and approved-proposal import", "owner": "Engineering", "status": "in_progress", "dependsOn": ["M0-06"], "acceptance": "A user can create a project, retain the source file, and select an approved proposal version." },
         { "id": "M1-02", "title": "Deliverable extraction and review", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-01"], "acceptance": "Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval." },
         { "id": "M1-03", "title": "Editable WBS and deterministic schedule", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-02"], "acceptance": "A user can edit WBS, dependencies, dates, and buffers; schedule changes recalculate deterministically." },
         { "id": "M1-04", "title": "Execution state, export, and audit", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-03"], "acceptance": "Task status, blockers, actual dates, CSV/XLSX export, audit entries, and error recovery work for the validation project." },

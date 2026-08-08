@@ -2,23 +2,23 @@
 # Project Status
 
 Source registry updated: 2026-08-08
-Source hash: `6fd4bdc508a0`
+Source hash: `cc59c80d0ef6`
 
 ## Progress
 
-Task-count completion: **16/38 (42.1%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
+Task-count completion: **17/38 (44.7%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
 
-Current work: `M0-06` M0 review gate
+Current work: `M1-01` Project, file, and approved-proposal import
 
-Next action: `M0-06` M0 review gate
+Next action: `M1-01` Project, file, and approved-proposal import
 
 ## Milestones
 
 | Milestone | Goal | Completed | Active |
 | --- | --- | ---: | ---: |
 | Foundation | Establish the product contract, architecture, safety boundaries, and open-source baseline. | 7/7 | 0 |
-| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 9/10 | 1 |
-| M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 0/5 | 0 |
+| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 10/10 | 0 |
+| M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 0/5 | 1 |
 | M2: Knowledge base and project learning | Make approved historical knowledge reusable without leaking customer material. | 0/4 | 0 |
 | M3: Market signals and impact analysis | Connect observed external changes to confirmed project assumptions and work. | 0/4 | 0 |
 | M4: Reporting, Feishu, and team operation | Support small-team operation while preserving the independent core product. | 0/5 | 0 |
@@ -53,7 +53,7 @@ Prove the riskiest inputs and deterministic engines before feature development.
 | M0-03 | Scheduling and critical-path spike | Engineering | Completed | Self-check passed: Four deterministic scenarios passed; three invalid-input paths were rejected; locked dependency conflicts and deadline misses were reported without moving locked dates. |
 | M0-04 | Hybrid retrieval and citation spike | Engineering | Completed | Self-check passed: Sixteen synthetic oracle cases passed, including three Chinese cases; scope filtering preceded scoring, cross-customer and cross-workspace decoys were excluded, stale and malformed citations failed closed, and independent QA found no blocker. |
 | M0-05 | Dependency and license decision | Open source | Completed | Self-check passed: Fifteen candidates passed the frozen decision audit; adopted items are PostgreSQL 18.4, pgvector 0.8.6, and Procrastinate 3.9.0, while deferred and rejected boundaries remain explicit. Independent review found and then confirmed closure of report/JSON drift and checker coverage gaps. |
-| M0-06 | M0 review gate | Product | In progress | The validation set, all spike results, risks, and M1 implementation decision are reviewed against the M0 exit criteria. |
+| M0-06 | M0 review gate | Product | Completed | Self-check passed: Independent reviewer reran node, Python, parser, DOCX, scheduling, retrieval, dependency, documentation, and progress checks; all exited 0 with no P0/P1 finding. |
 
 ## M1: Proposal-to-schedule vertical slice
 
@@ -61,7 +61,7 @@ Turn an approved proposal into a usable, reviewable execution plan.
 
 | ID | Task | Owner | Status | Acceptance / self-check |
 | --- | --- | --- | --- | --- |
-| M1-01 | Project, file, and approved-proposal import | Engineering | Pending | A user can create a project, retain the source file, and select an approved proposal version. |
+| M1-01 | Project, file, and approved-proposal import | Engineering | In progress | A user can create a project, retain the source file, and select an approved proposal version. |
 | M1-02 | Deliverable extraction and review | Engineering | Pending | Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval. |
 | M1-03 | Editable WBS and deterministic schedule | Engineering | Pending | A user can edit WBS, dependencies, dates, and buffers; schedule changes recalculate deterministically. |
 | M1-04 | Execution state, export, and audit | Engineering | Pending | Task status, blockers, actual dates, CSV/XLSX export, audit entries, and error recovery work for the validation project. |
@@ -151,6 +151,9 @@ Use paid or repeated use to decide what to build next.
 | M0-05 | file | `docs/M0_05_DEPENDENCY_DECISION.md` | Records the frozen 15-candidate decision matrix, version and license facts, integration boundaries, fallbacks, and unresolved product-quality unknowns. |
 | M0-05 | file | `validation/results/m0-05-dependency-audit.json` | Binds the decision to five input hashes and records 3 adopted, 6 deferred, and 6 rejected candidates with official sources and maintenance signals. |
 | M0-05 | file | `scripts/check_dependency_decision.mjs` | Checks input freshness, exact candidate decisions and versions, license gates, report consistency, Docling isolation, fallbacks, and empty blockers in CI. |
+| M0-06 | file | `docs/M0_REVIEW_GATE.md` | Independent review records a conditional technical Go to M1, separates engineering evidence from unverified commercial claims, and freezes M1 constraints and required pilot evidence. |
+| M0-06 | file | `docs/MULTI_AGENT_EXECUTION.md` | The independent-review role and M0-06 review gate require a non-implementer review before completion. |
+| M0-06 | file | `scripts/progress.mjs` | Registry and generated status consistency are checked by the repository progress gate. |
 
 ## Completion Log
 
@@ -172,6 +175,7 @@ Use paid or repeated use to decide what to build next.
 | 2026-08-08 | M0-03 | Scheduling and critical-path spike | `docs/M0_SCHEDULING_SPIKE.md`<br>`validation/results/m0-03-schedule.json`<br>`scripts/check_schedule_spike.py` | Passed |
 | 2026-08-08 | M0-04 | Hybrid retrieval and citation spike | `docs/M0_HYBRID_RETRIEVAL_SPIKE.md`<br>`validation/results/m0-04-hybrid-retrieval.json`<br>`scripts/check_hybrid_retrieval.py` | Passed |
 | 2026-08-08 | M0-05 | Dependency and license decision | `docs/M0_05_DEPENDENCY_DECISION.md`<br>`validation/results/m0-05-dependency-audit.json`<br>`scripts/check_dependency_decision.mjs` | Passed |
+| 2026-08-08 | M0-06 | M0 review gate | `docs/M0_REVIEW_GATE.md`<br>`docs/MULTI_AGENT_EXECUTION.md`<br>`scripts/progress.mjs` | Passed |
 
 ## Update Protocol
 
