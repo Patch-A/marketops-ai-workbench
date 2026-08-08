@@ -186,15 +186,21 @@
           "id": "M0-03",
           "title": "Scheduling and critical-path spike",
           "owner": "Engineering",
-          "status": "in_progress",
+          "status": "completed",
           "dependsOn": ["M0-01"],
-          "acceptance": "A deterministic prototype recalculates dependencies, workdays, buffers, and critical path for the executable test project."
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M0_SCHEDULING_SPIKE.md", "note": "Defines deterministic scheduling semantics, confirmed scenario results, failure behavior, and production limitations." },
+            { "kind": "file", "ref": "validation/results/m0-03-schedule.json", "note": "Records source-bound results for baseline, duration change, locked conflict, and holiday scenarios." },
+            { "kind": "file", "ref": "scripts/check_schedule_spike.py", "note": "Recalculates four scenarios, rejects malformed schedules, and checks committed result freshness in CI." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Four deterministic scenarios passed; three invalid-input paths were rejected; locked dependency conflicts and deadline misses were reported without moving locked dates." }
         },
         {
           "id": "M0-04",
           "title": "Hybrid retrieval and citation spike",
           "owner": "Engineering",
-          "status": "pending",
+          "status": "in_progress",
           "dependsOn": ["M0-01"],
           "acceptance": "Representative queries return workspace-scoped, cited results; an isolation test finds no cross-customer result."
         },

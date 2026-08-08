@@ -32,3 +32,5 @@ jobs:
         run: |
           python scripts/check_document_parser.py --check
           python scripts/audit_docx_components.py validation/fixtures/document-parser-spike-001/ai-event-brief.docx --check validation/results/m0-02-docx-components.json
+      - name: Check scheduling spike
+        run: python scripts/check_schedule_spike.py --check

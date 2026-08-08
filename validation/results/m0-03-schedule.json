@@ -1,0 +1,310 @@
+{
+  "schemaVersion": 1,
+  "spikeId": "M0-03",
+  "source": {
+    "path": "validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv",
+    "sha256": "8cdc33b8d7e3e86b24aafb56df43b350a176b501c62c5fc9ef8430735fd2d7a3"
+  },
+  "scenarioConfig": {
+    "path": "validation/fixtures/synthetic-b2b-event-001/schedule-scenarios.json",
+    "sha256": "6e7d821958745aa7c4cb9e2b449a1a1908ef926358bd4e803fed1c9a4709b602"
+  },
+  "calendarSemantics": {
+    "workweek": "monday-friday",
+    "duration": "inclusive_workdays",
+    "dependency": "finish_to_start",
+    "buffer": "explicit_full_workdays_between_predecessor_finish_and_successor_start"
+  },
+  "scenarios": [
+    {
+      "scenarioId": "baseline",
+      "projectFinish": "2026-10-30",
+      "criticalTaskIds": [
+        "TASK-010",
+        "TASK-020",
+        "TASK-030",
+        "TASK-060",
+        "TASK-070",
+        "TASK-090",
+        "TASK-110",
+        "TASK-120",
+        "TASK-130",
+        "TASK-140",
+        "TASK-150"
+      ],
+      "criticalChains": [
+        [
+          "TASK-010",
+          "TASK-020",
+          "TASK-030",
+          "TASK-070",
+          "TASK-110",
+          "TASK-130",
+          "TASK-140",
+          "TASK-150"
+        ],
+        [
+          "TASK-010",
+          "TASK-020",
+          "TASK-060",
+          "TASK-070",
+          "TASK-110",
+          "TASK-130",
+          "TASK-140",
+          "TASK-150"
+        ],
+        [
+          "TASK-090",
+          "TASK-120",
+          "TASK-130",
+          "TASK-140",
+          "TASK-150"
+        ]
+      ],
+      "conflicts": [],
+      "deadlineMisses": [],
+      "sourceDateDriftTaskIds": []
+    },
+    {
+      "scenarioId": "invitation-extension",
+      "projectFinish": "2026-11-06",
+      "criticalTaskIds": [
+        "TASK-010",
+        "TASK-020",
+        "TASK-030",
+        "TASK-050",
+        "TASK-060",
+        "TASK-070",
+        "TASK-090",
+        "TASK-110",
+        "TASK-120",
+        "TASK-130",
+        "TASK-140",
+        "TASK-150"
+      ],
+      "criticalChains": [
+        [
+          "TASK-010",
+          "TASK-020",
+          "TASK-030",
+          "TASK-070",
+          "TASK-110",
+          "TASK-130",
+          "TASK-140",
+          "TASK-150"
+        ],
+        [
+          "TASK-010",
+          "TASK-020",
+          "TASK-060",
+          "TASK-070",
+          "TASK-110",
+          "TASK-130",
+          "TASK-140",
+          "TASK-150"
+        ],
+        [
+          "TASK-010",
+          "TASK-050"
+        ],
+        [
+          "TASK-090",
+          "TASK-120"
+        ]
+      ],
+      "conflicts": [],
+      "deadlineMisses": [
+        {
+          "code": "hard_deadline_miss",
+          "taskId": "TASK-110",
+          "calculatedFinish": "2026-10-30",
+          "hardDeadline": "2026-10-23"
+        },
+        {
+          "code": "hard_deadline_miss",
+          "taskId": "TASK-150",
+          "calculatedFinish": "2026-11-06",
+          "hardDeadline": "2026-10-30"
+        }
+      ],
+      "sourceDateDriftTaskIds": [
+        "TASK-070",
+        "TASK-110",
+        "TASK-130",
+        "TASK-140",
+        "TASK-150"
+      ]
+    },
+    {
+      "scenarioId": "locked-date-conflict",
+      "projectFinish": "2026-11-18",
+      "criticalTaskIds": [
+        "TASK-010",
+        "TASK-020",
+        "TASK-030",
+        "TASK-060",
+        "TASK-070",
+        "TASK-080",
+        "TASK-090",
+        "TASK-100",
+        "TASK-110",
+        "TASK-120",
+        "TASK-130",
+        "TASK-140",
+        "TASK-150"
+      ],
+      "criticalChains": [
+        [
+          "TASK-010",
+          "TASK-020",
+          "TASK-030",
+          "TASK-070",
+          "TASK-110"
+        ],
+        [
+          "TASK-010",
+          "TASK-020",
+          "TASK-060",
+          "TASK-070",
+          "TASK-110"
+        ],
+        [
+          "TASK-010",
+          "TASK-080",
+          "TASK-100",
+          "TASK-120",
+          "TASK-130",
+          "TASK-140",
+          "TASK-150"
+        ],
+        [
+          "TASK-090"
+        ]
+      ],
+      "conflicts": [
+        {
+          "code": "locked_dependency_conflict",
+          "taskId": "TASK-090",
+          "lockedStart": "2026-10-12",
+          "requiredStart": "2026-10-15",
+          "predecessors": [
+            "TASK-040",
+            "TASK-080"
+          ]
+        }
+      ],
+      "deadlineMisses": [
+        {
+          "code": "hard_deadline_miss",
+          "taskId": "TASK-100",
+          "calculatedFinish": "2026-11-04",
+          "hardDeadline": "2026-10-09"
+        },
+        {
+          "code": "hard_deadline_miss",
+          "taskId": "TASK-120",
+          "calculatedFinish": "2026-11-11",
+          "hardDeadline": "2026-10-23"
+        },
+        {
+          "code": "hard_deadline_miss",
+          "taskId": "TASK-150",
+          "calculatedFinish": "2026-11-18",
+          "hardDeadline": "2026-10-30"
+        }
+      ],
+      "sourceDateDriftTaskIds": [
+        "TASK-080",
+        "TASK-100",
+        "TASK-120",
+        "TASK-130",
+        "TASK-140",
+        "TASK-150"
+      ]
+    },
+    {
+      "scenarioId": "weekday-holiday",
+      "projectFinish": "2026-11-02",
+      "criticalTaskIds": [
+        "TASK-010",
+        "TASK-020",
+        "TASK-030",
+        "TASK-060",
+        "TASK-070",
+        "TASK-090",
+        "TASK-110",
+        "TASK-120",
+        "TASK-130",
+        "TASK-140",
+        "TASK-150"
+      ],
+      "criticalChains": [
+        [
+          "TASK-010",
+          "TASK-020",
+          "TASK-030",
+          "TASK-070",
+          "TASK-110",
+          "TASK-130",
+          "TASK-140",
+          "TASK-150"
+        ],
+        [
+          "TASK-010",
+          "TASK-020",
+          "TASK-060",
+          "TASK-070",
+          "TASK-110",
+          "TASK-130",
+          "TASK-140",
+          "TASK-150"
+        ],
+        [
+          "TASK-090",
+          "TASK-120"
+        ]
+      ],
+      "conflicts": [],
+      "deadlineMisses": [
+        {
+          "code": "hard_deadline_miss",
+          "taskId": "TASK-030",
+          "calculatedFinish": "2026-09-14",
+          "hardDeadline": "2026-09-11"
+        },
+        {
+          "code": "hard_deadline_miss",
+          "taskId": "TASK-110",
+          "calculatedFinish": "2026-10-26",
+          "hardDeadline": "2026-10-23"
+        },
+        {
+          "code": "hard_deadline_miss",
+          "taskId": "TASK-150",
+          "calculatedFinish": "2026-11-02",
+          "hardDeadline": "2026-10-30"
+        }
+      ],
+      "sourceDateDriftTaskIds": [
+        "TASK-030",
+        "TASK-060",
+        "TASK-070",
+        "TASK-080",
+        "TASK-100",
+        "TASK-110",
+        "TASK-130",
+        "TASK-140",
+        "TASK-150"
+      ]
+    }
+  ],
+  "failureCodesVerified": [
+    "missing_predecessor",
+    "dependency_cycle",
+    "locked_duration_mismatch"
+  ],
+  "reportedIssueCodesVerified": [
+    "locked_dependency_conflict",
+    "hard_deadline_miss"
+  ]
+}

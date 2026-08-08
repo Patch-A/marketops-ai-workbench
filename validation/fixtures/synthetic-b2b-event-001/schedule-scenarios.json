@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "defaults": {
+    "sourcePath": "validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv",
+    "projectStart": "2026-08-24",
+    "holidays": [],
+    "approvedBuffersWorkdays": {
+      "TASK-040": 2,
+      "TASK-100": 7,
+      "TASK-120": 3
+    },
+    "taskOverrides": {}
+  },
+  "scenarios": [
+    {
+      "id": "baseline",
+      "description": "Reproduce the approved synthetic baseline without changing its source dates."
+    },
+    {
+      "id": "invitation-extension",
+      "description": "Extend TASK-070 from 25 to 30 workdays and observe deadline propagation.",
+      "taskOverrides": {"TASK-070": {"durationWorkdays": 30}}
+    },
+    {
+      "id": "locked-date-conflict",
+      "description": "Extend TASK-080 past the locked TASK-090 start; retain the lock and report the conflict.",
+      "taskOverrides": {"TASK-080": {"durationWorkdays": 35}}
+    },
+    {
+      "id": "weekday-holiday",
+      "description": "Add one explicit weekday holiday and deterministically propagate its effect.",
+      "holidays": ["2026-09-08"]
+    }
+  ]
+}
