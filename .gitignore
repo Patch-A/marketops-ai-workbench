@@ -1,0 +1,36 @@
+# Local secrets and model credentials
+.env
+.env.*
+!.env.example
+
+# Dependencies and build output
+node_modules/
+.next/
+dist/
+build/
+coverage/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+
+# Local data and uploads
+data/
+uploads/
+storage/
+*.sqlite
+*.sqlite3
+
+# Research source files are retained locally but are not redistributed.
+research-temp/
+AI市场工作台_二手证据与市场验证执行包_审阅版.docx
+
+# Third-party local design skill. The public repository documents the source
+# and license without redistributing the vendored examples and libraries.
+.agents/skills/finesse-ui/
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

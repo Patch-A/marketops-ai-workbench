@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workbench Requirements"
+  short_description: "Turn product ideas into validated requirements and task plans."
+  default_prompt: "Use $workbench-requirements to turn this request into a scoped product requirement and implementation plan."

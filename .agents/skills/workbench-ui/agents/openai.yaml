@@ -1,0 +1,4 @@
+interface:
+  display_name: "Workbench UI"
+  short_description: "Design a coherent, implementation-ready AI workbench interface."
+  default_prompt: "Use $workbench-ui to design or refine this AI workbench interface."
