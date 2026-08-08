@@ -2,22 +2,22 @@
 # Project Status
 
 Source registry updated: 2026-08-08
-Source hash: `bda41be46acc`
+Source hash: `9118237372f1`
 
 ## Progress
 
-Task-count completion: **12/38 (31.6%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
+Task-count completion: **13/38 (34.2%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
 
-Current work: `M0-02` Document parsing spike
+Current work: `M0-03` Scheduling and critical-path spike
 
-Next action: `M0-02` Document parsing spike
+Next action: `M0-03` Scheduling and critical-path spike
 
 ## Milestones
 
 | Milestone | Goal | Completed | Active |
 | --- | --- | ---: | ---: |
 | Foundation | Establish the product contract, architecture, safety boundaries, and open-source baseline. | 7/7 | 0 |
-| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 5/10 | 1 |
+| M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 6/10 | 1 |
 | M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 0/5 | 0 |
 | M2: Knowledge base and project learning | Make approved historical knowledge reusable without leaking customer material. | 0/4 | 0 |
 | M3: Market signals and impact analysis | Connect observed external changes to confirmed project assumptions and work. | 0/4 | 0 |
@@ -49,8 +49,8 @@ Prove the riskiest inputs and deterministic engines before feature development.
 | M0-01C | Prepare two AI-era public case reconstructions | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public verified two AI-era cases, provenance, labelled facts, unknowns, required workflow dimensions, and reconstruction markers. |
 | M0-01D | Curate public event case references | Product research | Completed | Self-check passed: Official source pages were accessed on 2026-08-08; each reference distinguishes confirmed public description, inference, and unavailable project data. |
 | M0-01 | Validation project set review gate | Product research | Completed | Self-check passed: node scripts/check-validation-set.mjs public passed; human review confirmed public narratives are labelled and cannot be mistaken for customer files or product validation. |
-| M0-02 | Document parsing spike | Engineering | In progress | The selected parser extracts cited sections, tables, and source coordinates from the validation set with documented failures. |
-| M0-03 | Scheduling and critical-path spike | Engineering | Pending | A deterministic prototype recalculates dependencies, workdays, buffers, and critical path for the executable test project. |
+| M0-02 | Document parsing spike | Engineering | Completed | Self-check passed: python scripts/check_document_parser.py --check passed 4 input cases and 3 failure paths; DOCX table geometry and reproducible SHA-256 passed. Visual rendering remains explicitly unverified because no working renderer was available. |
+| M0-03 | Scheduling and critical-path spike | Engineering | In progress | A deterministic prototype recalculates dependencies, workdays, buffers, and critical path for the executable test project. |
 | M0-04 | Hybrid retrieval and citation spike | Engineering | Pending | Representative queries return workspace-scoped, cited results; an isolation test finds no cross-customer result. |
 | M0-05 | Dependency and license decision | Open source | Pending | Chosen dependencies, versions, licenses, maintenance signals, and alternatives are recorded with no unresolved blocker. |
 | M0-06 | M0 review gate | Product | Pending | The validation set, all spike results, risks, and M1 implementation decision are reviewed against the M0 exit criteria. |
@@ -137,6 +137,9 @@ Use paid or repeated use to decide what to build next.
 | M0-01C | file | `validation/public-cases/dreamforce-2024.md` | Reconstructs a late-stage AI product and brand change with explicit facts, inferences, unknowns, and prohibited uses. |
 | M0-01C | file | `validation/public-cases/vimeo-reframe-2025.md` | Reconstructs a data-instrumented flagship event and learning loop with explicit source limitations. |
 | M0-01D | file | `docs/PUBLIC_CASE_REFERENCES.md` | Records three source-checked public cases, their usable workflow insights, source limitations, and copyright boundary. |
+| M0-02 | file | `docs/M0_DOCUMENT_PARSING_SPIKE.md` | Records the parser contract, confirmed results, explicit unsupported formats, visual-QA limitation, and production dependency decision boundary. |
+| M0-02 | file | `validation/results/m0-02-document-parser.json` | Records deterministic hashes, block counts, warnings, and verified failure codes for Markdown, CSV, public-case Markdown, and synthetic DOCX inputs. |
+| M0-02 | file | `scripts/check_document_parser.py` | Checks headings, tables, section paths, source coordinates, failure behavior, and committed result freshness in CI. |
 
 ## Completion Log
 
@@ -154,6 +157,7 @@ Use paid or repeated use to decide what to build next.
 | 2026-08-08 | M0-01B | Create executable synthetic B2B event fixture | `validation/manifest.json`<br>`validation/fixtures/synthetic-b2b-event-001/ground-truth.json`<br>`validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv` | Passed |
 | 2026-08-08 | M0-01C | Prepare two AI-era public case reconstructions | `validation/public-cases/manifest.json`<br>`validation/public-cases/dreamforce-2024.md`<br>`validation/public-cases/vimeo-reframe-2025.md` | Passed |
 | 2026-08-08 | M0-01D | Curate public event case references | `docs/PUBLIC_CASE_REFERENCES.md` | Passed |
+| 2026-08-08 | M0-02 | Document parsing spike | `docs/M0_DOCUMENT_PARSING_SPIKE.md`<br>`validation/results/m0-02-document-parser.json`<br>`scripts/check_document_parser.py` | Passed |
 
 ## Update Protocol
 

@@ -1,0 +1,17 @@
+{
+  "fixtureId": "DOC-PARSER-001",
+  "fixtureType": "synthetic",
+  "expectedHeadings": [
+    "1. 已确认项目输入",
+    "1.1 活动目标",
+    "2. 执行约束",
+    "3. 变更审批"
+  ],
+  "expectedTableCount": 2,
+  "coordinateChecks": {
+    "sourceId": "SRC-DOCX-02",
+    "changeId": "CHG-DOCX-01"
+  },
+  "containsPersonalData": false,
+  "allowedUses": ["public_fixture", "automated_testing"]
+}

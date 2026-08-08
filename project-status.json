@@ -170,15 +170,21 @@
           "id": "M0-02",
           "title": "Document parsing spike",
           "owner": "Engineering",
-          "status": "in_progress",
+          "status": "completed",
           "dependsOn": ["M0-01"],
-          "acceptance": "The selected parser extracts cited sections, tables, and source coordinates from the validation set with documented failures."
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M0_DOCUMENT_PARSING_SPIKE.md", "note": "Records the parser contract, confirmed results, explicit unsupported formats, visual-QA limitation, and production dependency decision boundary." },
+            { "kind": "file", "ref": "validation/results/m0-02-document-parser.json", "note": "Records deterministic hashes, block counts, warnings, and verified failure codes for Markdown, CSV, public-case Markdown, and synthetic DOCX inputs." },
+            { "kind": "file", "ref": "scripts/check_document_parser.py", "note": "Checks headings, tables, section paths, source coordinates, failure behavior, and committed result freshness in CI." }
+          ],
+          "selfCheck": { "status": "passed", "method": "python scripts/check_document_parser.py --check passed 4 input cases and 3 failure paths; DOCX table geometry and reproducible SHA-256 passed. Visual rendering remains explicitly unverified because no working renderer was available." }
         },
         {
           "id": "M0-03",
           "title": "Scheduling and critical-path spike",
           "owner": "Engineering",
-          "status": "pending",
+          "status": "in_progress",
           "dependsOn": ["M0-01"],
           "acceptance": "A deterministic prototype recalculates dependencies, workdays, buffers, and critical path for the executable test project."
         },

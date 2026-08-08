@@ -1,0 +1,107 @@
+{
+  "schemaVersion": 1,
+  "spikeId": "M0-02",
+  "cases": [
+    {
+      "path": "validation/fixtures/synthetic-b2b-event-001/proposal.md",
+      "format": "markdown",
+      "sha256": "f56bfb58af3b451c09c5d8c2faf1d6ae81c65a134c784c00b2871933348a1af1",
+      "blockCounts": {
+        "heading": 7,
+        "paragraph": 3,
+        "table": 4
+      },
+      "warningCodes": [],
+      "verifiedCoordinate": {
+        "value": "SRC-01",
+        "sectionPath": [
+          "凌川工业增长峰会方案",
+          "1. 已确认输入"
+        ],
+        "location": {
+          "kind": "markdown_table_cell",
+          "line": 9,
+          "columnIndex": 1
+        }
+      }
+    },
+    {
+      "path": "validation/public-cases/dreamforce-2024.md",
+      "format": "markdown",
+      "sha256": "fe065f74c4daa01ca8180763c36638284936df64950f543fb47634552bcc62bb",
+      "blockCounts": {
+        "heading": 8,
+        "paragraph": 8,
+        "table": 1
+      },
+      "warningCodes": [],
+      "verifiedCoordinate": {
+        "value": "FACT-DF-03",
+        "sectionPath": [
+          "Dreamforce 2024 Agentforce 品牌变更重构",
+          "已确认的公开描述"
+        ],
+        "location": {
+          "kind": "line_range",
+          "startLine": 9,
+          "endLine": 12
+        }
+      }
+    },
+    {
+      "path": "validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv",
+      "format": "csv",
+      "sha256": "8cdc33b8d7e3e86b24aafb56df43b350a176b501c62c5fc9ef8430735fd2d7a3",
+      "blockCounts": {
+        "table": 1
+      },
+      "warningCodes": [],
+      "verifiedCoordinate": {
+        "value": "TASK-090",
+        "sectionPath": [],
+        "location": {
+          "kind": "csv_cell",
+          "row": 10,
+          "columnIndex": 1,
+          "columnName": "task_id"
+        }
+      }
+    },
+    {
+      "path": "validation/fixtures/document-parser-spike-001/ai-event-brief.docx",
+      "format": "docx",
+      "sha256": "50bf8a73b660ef83a0ae5b7dea22f575e4a22a1c866fc945f4aee691031aa982",
+      "blockCounts": {
+        "heading": 4,
+        "paragraph": 7,
+        "table": 2
+      },
+      "warningCodes": [],
+      "verifiedCoordinate": {
+        "value": "CHG-DOCX-01",
+        "sectionPath": [
+          "3. 变更审批"
+        ],
+        "location": {
+          "kind": "docx_table_cell",
+          "part": "word/document.xml",
+          "table": 2,
+          "row": 2,
+          "column": 1
+        }
+      }
+    }
+  ],
+  "failureCodesVerified": [
+    "empty_file",
+    "unsupported_format",
+    "invalid_docx"
+  ],
+  "explicitlyUnsupported": [
+    "pdf_and_ocr",
+    "images_and_charts",
+    "headers_footers_footnotes_endnotes",
+    "comments_and_full_revision_semantics",
+    "page_number_coordinates"
+  ]
+}

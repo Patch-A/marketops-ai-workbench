@@ -19,7 +19,9 @@ M0-01 的完整退出条件是：
 validation/
   manifest.json                         公开样本清单
   fixtures/synthetic-b2b-event-001/    合成测试项目
+  fixtures/document-parser-spike-001/  可复现 DOCX 解析测试件
   public-cases/                         来源可核对的公开案例重构
+  results/                              技术探针的可重复结果摘要
   templates/historical-project-record.json
   private/                              可选的本地真实资料，始终忽略
 ```
@@ -43,3 +45,5 @@ node scripts/check-validation-set.mjs full
 - `full`：可选的本地增强检查，在 `public` 基础上要求至少两份获批、脱敏的真实历史项目；不再是 M0 退出条件。
 
 脚本只能验证记录和文件是否符合契约，不能判断网页陈述是否独立真实，也不能替代资料所有者授权。公开案例用于技术基准，实时 Brief/项目用于价值验证，两者不能混为一谈。
+
+M0-02 的文档解析结果、边界和复现方法见 [`M0_DOCUMENT_PARSING_SPIKE.md`](../docs/M0_DOCUMENT_PARSING_SPIKE.md)。
