@@ -23,3 +23,5 @@ jobs:
         run: node scripts/check-docs.mjs
       - name: Check project progress registry
         run: node scripts/progress.mjs check
+      - name: Check public validation fixture
+        run: node scripts/check-validation-set.mjs public

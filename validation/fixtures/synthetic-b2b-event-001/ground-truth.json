@@ -1,0 +1,25 @@
+{
+  "fixtureId": "SYN-B2B-EVENT-001",
+  "fixtureType": "synthetic",
+  "eventDate": "2026-10-23",
+  "requiredSourceIds": ["SRC-01", "SRC-02", "SRC-03"],
+  "requiredAssumptionIds": ["ASM-01", "ASM-02", "ASM-03"],
+  "requiredDecisionIds": ["DEC-01", "DEC-02", "DEC-03"],
+  "requiredDeliverableIds": ["DEL-01", "DEL-02", "DEL-03", "DEL-04", "DEL-05", "DEL-06"],
+  "requiredTaskIds": ["TASK-010", "TASK-020", "TASK-030", "TASK-040", "TASK-050", "TASK-060", "TASK-070", "TASK-080", "TASK-090", "TASK-100", "TASK-110", "TASK-120", "TASK-130", "TASK-140", "TASK-150"],
+  "lockedTaskIds": ["TASK-040", "TASK-090"],
+  "changeCases": [
+    {
+      "id": "CHG-001",
+      "expectedAffectedIds": ["ASM-01", "DEL-03", "TASK-080", "TASK-100", "TASK-110"],
+      "requiresHumanApproval": true
+    },
+    {
+      "id": "CHG-002",
+      "expectedAffectedIds": [],
+      "requiresHumanApproval": false
+    }
+  ],
+  "forbiddenClaims": ["ROI", "revenue attribution", "causal lift from follow-up timing"],
+  "knowledgeCandidates": ["KNOW-01", "KNOW-02", "KNOW-03"]
+}

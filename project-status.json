@@ -100,12 +100,48 @@
       "goal": "Prove the riskiest inputs and deterministic engines before feature development.",
       "tasks": [
         {
-          "id": "M0-01",
-          "title": "Prepare validation project set",
+          "id": "M0-01A",
+          "title": "Define validation-set contract and data-use gate",
+          "owner": "Product research",
+          "status": "completed",
+          "dependsOn": ["FND-01", "FND-03"],
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "validation/README.md", "note": "Defines sample scope, anonymization workflow, private-data boundary, and full acceptance gate." },
+            { "kind": "file", "ref": "validation/templates/historical-project-record.json", "note": "Provides the required data-use and anonymization record for historical projects." },
+            { "kind": "file", "ref": "scripts/check-validation-set.mjs", "note": "Validates approval and identifier-review status, coverage, referenced files, and sample counts." }
+          ],
+          "selfCheck": { "status": "passed", "method": "node scripts/check-validation-set.mjs public passed; full mode correctly rejects a missing private historical set." }
+        },
+        {
+          "id": "M0-01B",
+          "title": "Create executable synthetic B2B event fixture",
+          "owner": "Product research",
+          "status": "completed",
+          "dependsOn": ["M0-01A"],
+          "completedAt": "2026-08-08",
+          "evidence": [
+            { "kind": "file", "ref": "validation/manifest.json", "note": "Registers one approved, public, synthetic validation project with all required coverage." },
+            { "kind": "file", "ref": "validation/fixtures/synthetic-b2b-event-001/ground-truth.json", "note": "Defines required sources, assumptions, decisions, deliverables, tasks, change impacts, and forbidden claims." },
+            { "kind": "file", "ref": "validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv", "note": "Provides an executable task and dependency baseline for later scheduling tests." }
+          ],
+          "selfCheck": { "status": "passed", "method": "node scripts/check-validation-set.mjs public verified file coverage, task IDs, locked tasks, and fixture identity." }
+        },
+        {
+          "id": "M0-01C",
+          "title": "Prepare two approved anonymized historical projects",
           "owner": "Product research",
           "status": "in_progress",
-          "dependsOn": ["FND-01", "FND-03"],
-          "acceptance": "Two anonymized historical projects and one executable test project have an approved data-use record and cover proposal, schedule, change, and retrospective inputs."
+          "dependsOn": ["M0-01B"],
+          "acceptance": "Two local non-publishable historical projects pass owner approval, anonymization review, file coverage, and a direct-identifier review."
+        },
+        {
+          "id": "M0-01",
+          "title": "Validation project set review gate",
+          "owner": "Product research",
+          "status": "pending",
+          "dependsOn": ["M0-01C"],
+          "acceptance": "node scripts/check-validation-set.mjs full passes and a human spot-check confirms the historical samples retain useful dependencies without customer identifiers."
         },
         {
           "id": "M0-02",

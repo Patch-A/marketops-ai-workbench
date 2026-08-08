@@ -1,0 +1,35 @@
+{
+  "schemaVersion": 1,
+  "samples": [
+    {
+      "id": "HIST-REPLACE-001",
+      "type": "historical",
+      "title": "已脱敏项目代号",
+      "publishable": false,
+      "dataUse": {
+        "status": "pending",
+        "approvedAt": null,
+        "approvedByRole": "material_owner",
+        "allowedUses": ["local_product_evaluation"],
+        "containsPersonalData": false
+      },
+      "anonymization": {
+        "status": "pending",
+        "containsDirectIdentifiers": false,
+        "reviewedAt": null
+      },
+      "coverage": {
+        "proposal": false,
+        "schedule": false,
+        "change": false,
+        "retrospective": false
+      },
+      "files": [
+        "validation/private/HIST-REPLACE-001/proposal.md",
+        "validation/private/HIST-REPLACE-001/schedule.csv",
+        "validation/private/HIST-REPLACE-001/change-log.md",
+        "validation/private/HIST-REPLACE-001/retrospective.md"
+      ]
+    }
+  ]
+}

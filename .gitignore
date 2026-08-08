@@ -20,6 +20,7 @@ uploads/
 storage/
 *.sqlite
 *.sqlite3
+validation/private/
 
 # Research source files are retained locally but are not redistributed.
 research-temp/

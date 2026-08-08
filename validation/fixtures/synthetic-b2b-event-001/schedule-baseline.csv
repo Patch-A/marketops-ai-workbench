@@ -1,0 +1,16 @@
+task_id,deliverable_id,task_name,duration_workdays,predecessors,owner_role,planned_start,planned_finish,hard_deadline,is_locked,status
+TASK-010,DEL-01,确认活动信息架构与报名字段,3,,市场策划,2026-08-24,2026-08-26,,false,completed
+TASK-020,DEL-01,完成主视觉与延展规范,7,TASK-010,品牌设计,2026-08-27,2026-09-04,,false,completed
+TASK-030,DEL-01,开发并验收报名页,5,TASK-020,数字营销,2026-09-07,2026-09-11,2026-09-11,false,completed
+TASK-040,DEL-04,锁定主舞台搭建范围,4,TASK-010,活动执行,2026-08-31,2026-09-03,2026-09-04,true,completed
+TASK-050,DEL-02,确认重点账户与邀约分工,5,TASK-010,销售运营,2026-08-27,2026-09-02,,false,completed
+TASK-060,DEL-02,制作并批准邀约包,5,TASK-020|TASK-050,内容营销,2026-09-07,2026-09-11,,false,completed
+TASK-070,DEL-02,启动定向邀约与每周跟进,25,TASK-030|TASK-060,销售运营,2026-09-14,2026-10-16,,false,in_progress
+TASK-080,DEL-03,确认议程与嘉宾,15,TASK-010,内容负责人,2026-08-27,2026-09-16,,false,completed
+TASK-090,DEL-04,提交最终进场清单,5,TASK-040|TASK-080,活动执行,2026-10-12,2026-10-16,2026-10-16,true,not_started
+TASK-100,DEL-03,完成主持稿与嘉宾手册,8,TASK-080,内容负责人,2026-09-28,2026-10-07,2026-10-09,false,not_started
+TASK-110,DEL-05,完成签到与客户会面排布,5,TASK-070|TASK-080,市场运营,2026-10-19,2026-10-23,2026-10-23,false,not_started
+TASK-120,DEL-04,现场搭建彩排与活动执行,2,TASK-090|TASK-100,活动执行,2026-10-22,2026-10-23,2026-10-23,false,not_started
+TASK-130,DEL-06,完成线索清洗与分层,2,TASK-110|TASK-120,市场运营,2026-10-26,2026-10-27,,false,not_started
+TASK-140,DEL-06,发送分层跟进材料,2,TASK-130,销售运营,2026-10-28,2026-10-29,,false,not_started
+TASK-150,DEL-06,完成项目复盘,1,TASK-140,项目负责人,2026-10-30,2026-10-30,2026-10-30,false,not_started

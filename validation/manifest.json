@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "samples": [
+    {
+      "id": "SYN-B2B-EVENT-001",
+      "type": "synthetic",
+      "title": "凌川工业增长峰会（合成测试项目）",
+      "publishable": true,
+      "dataUse": {
+        "status": "approved",
+        "approvedAt": "2026-08-08",
+        "approvedByRole": "repository_maintainer",
+        "allowedUses": ["public_fixture", "automated_testing", "product_demo"],
+        "containsPersonalData": false
+      },
+      "anonymization": {
+        "status": "not_applicable",
+        "containsDirectIdentifiers": false,
+        "reviewedAt": "2026-08-08"
+      },
+      "coverage": {
+        "proposal": true,
+        "schedule": true,
+        "change": true,
+        "retrospective": true
+      },
+      "files": [
+        "validation/fixtures/synthetic-b2b-event-001/proposal.md",
+        "validation/fixtures/synthetic-b2b-event-001/schedule-baseline.csv",
+        "validation/fixtures/synthetic-b2b-event-001/change-log.md",
+        "validation/fixtures/synthetic-b2b-event-001/retrospective.md",
+        "validation/fixtures/synthetic-b2b-event-001/ground-truth.json"
+      ]
+    }
+  ]
+}
