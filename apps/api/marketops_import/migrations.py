@@ -128,7 +128,42 @@ SELECT
         )
         FROM pg_catalog.pg_constraint AS constraint_record
         WHERE constraint_record.conrelid = registry.oid
+          AND constraint_record.contype <> 'n'
     ) AS constraints,
+    (
+        SELECT count(*)::integer
+        FROM pg_catalog.pg_constraint AS constraint_record
+        WHERE constraint_record.conrelid = registry.oid
+          AND constraint_record.contype = 'n'
+    ) AS not_null_constraint_count,
+    (
+        SELECT pg_catalog.array_agg(attribute.attname ORDER BY attribute.attnum)
+        FROM pg_catalog.pg_constraint AS constraint_record
+        JOIN pg_catalog.pg_attribute AS attribute
+          ON attribute.attrelid = registry.oid
+         AND attribute.attnum = constraint_record.conkey[1]
+        WHERE constraint_record.conrelid = registry.oid
+          AND constraint_record.contype = 'n'
+          AND pg_catalog.cardinality(constraint_record.conkey) = 1
+    ) AS not_null_columns,
+    (
+        SELECT count(*)::integer
+        FROM pg_catalog.pg_constraint AS constraint_record
+        WHERE constraint_record.conrelid = registry.oid
+          AND constraint_record.contype = 'n'
+          AND pg_catalog.cardinality(constraint_record.conkey) = 1
+          AND constraint_record.convalidated
+          AND constraint_record.conenforced
+          AND constraint_record.conislocal
+          AND constraint_record.coninhcount = 0
+          AND NOT constraint_record.condeferrable
+          AND NOT constraint_record.condeferred
+          AND NOT constraint_record.connoinherit
+          AND NOT constraint_record.conperiod
+          AND constraint_record.conparentid = 0
+          AND constraint_record.conindid = 0
+          AND constraint_record.conbin IS NULL
+    ) AS not_null_shape_count,
     (
         SELECT count(*)::integer
         FROM pg_catalog.pg_trigger AS trigger_record
@@ -274,6 +309,11 @@ EXPECTED_REGISTRY_COLUMNS = (
 EXPECTED_REGISTRY_CONSTRAINTS = (
     "schema_migrations_pkey:PRIMARY KEY (migration_name):validated",
     "schema_migrations_sha256_32:CHECK ((octet_length(sha256) = 32)):validated",
+)
+EXPECTED_REGISTRY_NOT_NULL_COLUMNS = (
+    "migration_name",
+    "sha256",
+    "applied_at",
 )
 # Callers name application roles explicitly. The runner itself derives the only
 # allowed ACL shape: non-grantable USAGE on the application schema.
@@ -577,6 +617,8 @@ def validate_registry_contract(
         "rls_enabled": False,
         "force_rls_enabled": False,
         "inheritance_edge_count": 0,
+        "not_null_constraint_count": 3,
+        "not_null_shape_count": 3,
         "trigger_count": 2,
         "row_trigger_count": 1,
         "truncate_trigger_count": 1,
@@ -615,6 +657,16 @@ def validate_registry_contract(
         raise RegistryContractError(
             "registry constraints do not match the frozen shape: "
             f"expected={EXPECTED_REGISTRY_CONSTRAINTS!r}, observed={constraints!r}"
+        )
+    not_null_columns = _row_value(row, "not_null_columns")
+    if (
+        not isinstance(not_null_columns, (list, tuple))
+        or tuple(not_null_columns) != EXPECTED_REGISTRY_NOT_NULL_COLUMNS
+    ):
+        raise RegistryContractError(
+            "registry NOT NULL columns do not match the frozen shape: "
+            f"expected={EXPECTED_REGISTRY_NOT_NULL_COLUMNS!r}, "
+            f"observed={not_null_columns!r}"
         )
 
 

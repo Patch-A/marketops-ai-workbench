@@ -15,6 +15,7 @@ sys.path.insert(0, str(API_ROOT))
 from marketops_import.migrations import (  # noqa: E402
     EXPECTED_REGISTRY_COLUMNS,
     EXPECTED_REGISTRY_CONSTRAINTS,
+    EXPECTED_REGISTRY_NOT_NULL_COLUMNS,
     DEFAULT_ALLOWED_SCHEMA_USAGE_ROLES,
     INSERT_REGISTRY_SQL,
     LOCK_SQL,
@@ -45,6 +46,9 @@ def valid_registry_attestation() -> dict[str, Any]:
         "inheritance_edge_count": 0,
         "columns": list(EXPECTED_REGISTRY_COLUMNS),
         "constraints": list(EXPECTED_REGISTRY_CONSTRAINTS),
+        "not_null_constraint_count": 3,
+        "not_null_columns": list(EXPECTED_REGISTRY_NOT_NULL_COLUMNS),
+        "not_null_shape_count": 3,
         "trigger_count": 2,
         "row_trigger_count": 1,
         "truncate_trigger_count": 1,
@@ -430,6 +434,17 @@ END;
             constraints=[EXPECTED_REGISTRY_CONSTRAINTS[0]]
         )
 
+    async def test_registry_not_null_count_mismatch_fails_closed(self) -> None:
+        await self._assert_registry_rejected(not_null_constraint_count=2)
+
+    async def test_registry_not_null_column_mismatch_fails_closed(self) -> None:
+        await self._assert_registry_rejected(
+            not_null_columns=["migration_name", "sha256"]
+        )
+
+    async def test_registry_not_null_shape_mismatch_fails_closed(self) -> None:
+        await self._assert_registry_rejected(not_null_shape_count=2)
+
     async def test_registry_trigger_mismatch_fails_closed(self) -> None:
         await self._assert_registry_rejected(row_trigger_count=0)
 
@@ -509,6 +524,17 @@ END;
             "trigger_record.tgattr = ''::pg_catalog.int2vector",
             REGISTRY_ATTESTATION_SQL,
         )
+
+    def test_registry_not_null_constraints_are_attested_structurally(self) -> None:
+        for marker in (
+            "constraint_record.contype <> 'n'",
+            ") AS not_null_constraint_count",
+            ") AS not_null_columns",
+            "constraint_record.convalidated",
+            "constraint_record.conenforced",
+            ") AS not_null_shape_count",
+        ):
+            self.assertIn(marker, REGISTRY_ATTESTATION_SQL)
 
     def test_registry_column_acl_does_not_expand_a_dimensionless_empty_array(self) -> None:
         self.assertNotIn("ARRAY[]::aclitem[]", REGISTRY_ATTESTATION_SQL)
