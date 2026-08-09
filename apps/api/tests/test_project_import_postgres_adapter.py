@@ -29,6 +29,11 @@ class DriverFailure(RuntimeError):
         super().__init__(sensitive)
 
 
+AsyncpgInterfaceError = type(
+    "InterfaceError", (RuntimeError,), {"__module__": "asyncpg.exceptions._base"}
+)
+
+
 class FakeDatabaseTransaction:
     def __init__(self, connection):
         self.connection = connection
@@ -40,6 +45,8 @@ class FakeDatabaseTransaction:
     async def __aexit__(self, error_type, error, traceback):
         if error_type is None:
             if self.connection.transaction_exit_failure is not None:
+                if self.connection.detach_before_transaction_exit:
+                    self.connection.detached = True
                 raise self.connection.transaction_exit_failure
             self.connection.commits += 1
         else:
@@ -91,6 +98,7 @@ class FakeConnection:
         self.transaction_exit_failure = None
         self.closed = False
         self.detached = False
+        self.detach_before_transaction_exit = False
 
     def is_closed(self):
         if self.detached:
@@ -341,6 +349,41 @@ class AsyncpgImportRepositoryTests(unittest.IsolatedAsyncioTestCase):
         connection = FakeConnection()
         connection.transaction_exit_failure = DriverFailure(
             None, "interface error with secret-dsn"
+        )
+        repository = AsyncpgImportRepository(FakePool(connection))
+
+        with self.assertRaises(PostgresAdapterError) as caught:
+            async with repository.transaction(self.scope):
+                pass
+
+        self.assertNotIsInstance(caught.exception, PostgresUnavailableError)
+        self.assertFalse(caught.exception.retryable)
+        self.assert_sanitized_exception(caught.exception)
+
+    async def test_asyncpg_connection_loss_messages_are_retryable_and_sanitized(self):
+        messages = (
+            "cannot call Transaction.__aexit__(): the underlying connection is closed",
+            "cannot call Connection.is_closed(): connection has been released back to the pool",
+        )
+        for message in messages:
+            with self.subTest(message=message):
+                connection = FakeConnection()
+                connection.detach_before_transaction_exit = True
+                connection.transaction_exit_failure = AsyncpgInterfaceError(message)
+                repository = AsyncpgImportRepository(FakePool(connection))
+
+                with self.assertRaises(PostgresUnavailableError) as caught:
+                    async with repository.transaction(self.scope):
+                        pass
+
+                self.assertTrue(connection.detached)
+                self.assertTrue(caught.exception.retryable)
+                self.assert_sanitized_exception(caught.exception)
+
+    async def test_unrelated_asyncpg_interface_error_remains_nonretryable(self):
+        connection = FakeConnection()
+        connection.transaction_exit_failure = AsyncpgInterfaceError(
+            "cannot perform operation: another operation is in progress"
         )
         repository = AsyncpgImportRepository(FakePool(connection))
 

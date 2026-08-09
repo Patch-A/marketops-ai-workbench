@@ -176,7 +176,9 @@ class AsyncpgImportRepository:
                 except (ImportFailure, PostgresAdapterError):
                     raise
                 except Exception as error:
-                    if _connection_is_closed(connection):
+                    if _connection_is_closed(connection) or _is_asyncpg_connection_loss(
+                        error
+                    ):
                         transaction_error = PostgresUnavailableError(
                             "database operation is temporarily unavailable"
                         )
@@ -454,6 +456,20 @@ def _connection_is_closed(connection: Any) -> bool:
         return is_closed() is True
     except Exception:
         return False
+
+
+def _is_asyncpg_connection_loss(error: Exception) -> bool:
+    error_type = type(error)
+    if (
+        error_type.__name__ != "InterfaceError"
+        or not error_type.__module__.startswith("asyncpg.")
+    ):
+        return False
+    message = str(error)
+    return (
+        "the underlying connection is closed" in message
+        or "connection has been released back to the pool" in message
+    )
 
 
 def _translate_driver_error(error: Exception) -> PostgresAdapterError:
