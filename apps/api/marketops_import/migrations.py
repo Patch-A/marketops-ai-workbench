@@ -603,13 +603,19 @@ def validate_registry_contract(
 
     columns = _row_value(row, "columns")
     if not isinstance(columns, (list, tuple)) or tuple(columns) != EXPECTED_REGISTRY_COLUMNS:
-        raise RegistryContractError("registry columns do not match the frozen shape")
+        raise RegistryContractError(
+            "registry columns do not match the frozen shape: "
+            f"expected={EXPECTED_REGISTRY_COLUMNS!r}, observed={columns!r}"
+        )
     constraints = _row_value(row, "constraints")
     if (
         not isinstance(constraints, (list, tuple))
         or tuple(constraints) != EXPECTED_REGISTRY_CONSTRAINTS
     ):
-        raise RegistryContractError("registry constraints do not match the frozen shape")
+        raise RegistryContractError(
+            "registry constraints do not match the frozen shape: "
+            f"expected={EXPECTED_REGISTRY_CONSTRAINTS!r}, observed={constraints!r}"
+        )
 
 
 def validate_history(migrations: Sequence[Migration], rows: Sequence[Any]) -> int:
