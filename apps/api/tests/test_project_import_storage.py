@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from uuid import uuid4
 
+from apps.api.marketops_import.service import StoredObject
 from apps.api.marketops_import.storage import LocalObjectStore
 
 
@@ -57,6 +58,26 @@ class LocalObjectStoreTests(unittest.IsolatedAsyncioTestCase):
         self.source.write_bytes(b"different")
         replayed = await self.put(source_path=self.source)
         self.assertEqual(replayed.sha256, self.sha256)
+
+    async def test_read_only_verification_accepts_retained_content(self):
+        stored = await self.put()
+
+        await self.store.verify_immutable(kind="source", stored=stored)
+
+    async def test_read_only_verification_does_not_recreate_a_missing_object(self):
+        stored = StoredObject(self.key, len(self.content), self.sha256)
+
+        with self.assertRaisesRegex(ValueError, "object is missing"):
+            await self.store.verify_immutable(kind="source", stored=stored)
+
+        self.assertFalse(self.destination().exists())
+
+    async def test_read_only_verification_rejects_corruption(self):
+        stored = await self.put()
+        self.destination().write_bytes(b"different")
+
+        with self.assertRaisesRegex(ValueError, "different content"):
+            await self.store.verify_immutable(kind="source", stored=stored)
 
     async def test_existing_different_content_fails_closed(self):
         destination = self.destination()

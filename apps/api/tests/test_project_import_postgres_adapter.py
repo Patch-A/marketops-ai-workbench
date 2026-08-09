@@ -10,6 +10,7 @@ from uuid import uuid4
 
 from apps.api.marketops_import.postgres import (
     AsyncpgImportRepository,
+    PostgresAdapterError,
     PostgresAuthorizationError,
     PostgresConstraintError,
     PostgresUnavailableError,
@@ -46,24 +47,30 @@ class FakeDatabaseTransaction:
 
 
 class FakeAcquire:
-    def __init__(self, connection):
+    def __init__(self, connection, *, detach_on_exit=False):
         self.connection = connection
+        self.detach_on_exit = detach_on_exit
 
     async def __aenter__(self):
         return self.connection
 
     async def __aexit__(self, *_):
+        if self.detach_on_exit:
+            self.connection.detached = True
         return None
 
 
 class FakePool:
-    def __init__(self, connection, *, close_failure=None):
+    def __init__(self, connection, *, close_failure=None, detach_on_release=False):
         self.connection = connection
         self.closed = False
         self.close_failure = close_failure
+        self.detach_on_release = detach_on_release
 
     def acquire(self):
-        return FakeAcquire(self.connection)
+        return FakeAcquire(
+            self.connection, detach_on_exit=self.detach_on_release
+        )
 
     async def close(self):
         if self.close_failure is not None:
@@ -82,6 +89,13 @@ class FakeConnection:
         self.rollbacks = 0
         self.failure = None
         self.transaction_exit_failure = None
+        self.closed = False
+        self.detached = False
+
+    def is_closed(self):
+        if self.detached:
+            raise DriverFailure(None, "detached proxy with secret-dsn")
+        return self.closed
 
     def transaction(self):
         return FakeDatabaseTransaction(self)
@@ -303,6 +317,39 @@ class AsyncpgImportRepositoryTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PostgresConstraintError) as caught:
             async with repository.transaction(self.scope):
                 pass
+        self.assert_sanitized_exception(caught.exception)
+
+    async def test_closed_connection_without_sqlstate_is_retryable_and_sanitized(self):
+        connection = FakeConnection()
+        connection.closed = True
+        connection.transaction_exit_failure = DriverFailure(
+            None, "interface error with secret-dsn"
+        )
+        repository = AsyncpgImportRepository(
+            FakePool(connection, detach_on_release=True)
+        )
+
+        with self.assertRaises(PostgresUnavailableError) as caught:
+            async with repository.transaction(self.scope):
+                pass
+
+        self.assertTrue(caught.exception.retryable)
+        self.assertTrue(connection.detached)
+        self.assert_sanitized_exception(caught.exception)
+
+    async def test_open_connection_error_without_sqlstate_remains_nonretryable(self):
+        connection = FakeConnection()
+        connection.transaction_exit_failure = DriverFailure(
+            None, "interface error with secret-dsn"
+        )
+        repository = AsyncpgImportRepository(FakePool(connection))
+
+        with self.assertRaises(PostgresAdapterError) as caught:
+            async with repository.transaction(self.scope):
+                pass
+
+        self.assertNotIsInstance(caught.exception, PostgresUnavailableError)
+        self.assertFalse(caught.exception.retryable)
         self.assert_sanitized_exception(caught.exception)
 
     async def test_claim_driver_error_has_no_sensitive_exception_chain(self):

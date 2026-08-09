@@ -161,14 +161,29 @@ class AsyncpgImportRepository:
         translated_error: PostgresAdapterError | None = None
         try:
             async with self._pool.acquire() as connection:
-                async with connection.transaction():
-                    await connection.fetchrow(
-                        _SET_SCOPE_SQL,
-                        scope.workspace_id,
-                        scope.client_id,
-                        scope.actor_id,
-                    )
-                    yield AsyncpgImportTransaction(connection, scope)
+                transaction_error: PostgresAdapterError | None = None
+                try:
+                    async with connection.transaction():
+                        await connection.fetchrow(
+                            _SET_SCOPE_SQL,
+                            scope.workspace_id,
+                            scope.client_id,
+                            scope.actor_id,
+                        )
+                        yield AsyncpgImportTransaction(connection, scope)
+                except asyncio.CancelledError:
+                    raise
+                except (ImportFailure, PostgresAdapterError):
+                    raise
+                except Exception as error:
+                    if _connection_is_closed(connection):
+                        transaction_error = PostgresUnavailableError(
+                            "database operation is temporarily unavailable"
+                        )
+                    else:
+                        transaction_error = _translate_driver_error(error)
+                if transaction_error is not None:
+                    raise transaction_error
         except asyncio.CancelledError:
             raise
         except (ImportFailure, PostgresAdapterError):
@@ -429,6 +444,16 @@ def _hex(value: Any) -> str:
     if not isinstance(value, (bytes, bytearray, memoryview)):
         raise PostgresDataError("database hash has an invalid representation")
     return bytes(value).hex()
+
+
+def _connection_is_closed(connection: Any) -> bool:
+    is_closed = getattr(connection, "is_closed", None)
+    if not callable(is_closed):
+        return False
+    try:
+        return is_closed() is True
+    except Exception:
+        return False
 
 
 def _translate_driver_error(error: Exception) -> PostgresAdapterError:

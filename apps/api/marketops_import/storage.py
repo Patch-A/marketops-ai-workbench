@@ -83,6 +83,15 @@ class LocalObjectStore:
             if temp_path is not None:
                 temp_path.unlink(missing_ok=True)
 
+    async def verify_immutable(self, *, kind: str, stored: StoredObject) -> None:
+        """Verify an already-retained object without creating or replacing it."""
+        self._validate_expected(stored.size_bytes, stored.sha256)
+        destination = self._destination(kind, stored.storage_key, stored.sha256)
+        self._reject_symlink_components(destination)
+        if not destination.is_file():
+            raise ValueError("immutable object is missing")
+        await self._verify(destination, stored.size_bytes, stored.sha256)
+
     def _destination(self, kind: str, storage_key: str, sha256: str) -> Path:
         if not isinstance(storage_key, str) or not _STORAGE_KEY.fullmatch(storage_key):
             raise ValueError("storage key is outside the project import namespace")

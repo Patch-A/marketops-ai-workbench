@@ -87,9 +87,9 @@ Owned paths: `.python-version`, `requirements/**`, `scripts/check_m1_01_python_l
 - [x] Freeze Python `3.12.13`, pip resolver version, Linux x86-64 wheel target, exact URLs, and SHA-256 hashes.
 - [x] Reject sdists, extras, unexpected packages, inactive platform dependencies presented as mandatory, and audit/lock drift.
 - [x] Inspect the selected wheels, including native `asyncpg` and `pydantic-core` artifacts, and retain required license/NOTICE material.
-- [ ] Install from the hashed lock in a clean Linux environment and run `pip check`.
+- [x] Install from the hashed lock in a clean Linux environment and run `pip check`.
 
-Package evidence: the static lock audit covers 15 exact wheels, 15 retained licenses, seven fail-closed gates, and 19 weakening mutations; an independent reviewer returned `CLEAN APPROVE` for the evidence design. All committed gates remain `blocked`, the default acceptance command exits nonzero, and only explicit `--static` exits zero. Clean Linux installation, imports, and `pip check` still require GitHub Actions evidence.
+Package evidence: the static lock audit covers 15 exact wheels, 15 retained licenses, seven fail-closed gates, and 19 weakening mutations; an independent reviewer returned `CLEAN APPROVE` for the evidence design. GitHub Actions run [31313732611](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31313732611) installed the hashed lock in a fresh Linux Python 3.12 environment, verified imports, and passed `pip check` on commit `fde58e91e69d57088a13cd22554b7173210c03ce`. This closes WP3 only; it does not establish recovery, production readiness, or M1-01 completion.
 
 Acceptance:
 
@@ -141,6 +141,17 @@ Integrator-owned CI path: `.github/workflows/quality.yml`. Evidence paths will b
 - [ ] Switch the browser import path to the server API and verify the retained project survives a browser refresh without localStorage/IndexedDB as the fact source.
 
 Bootstrap evidence: GitHub Actions run [31313551057](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31313551057) passed on remote commit `c6ce370b43ef44dbf5ff0bc5155dd91daf1e5701`. It validated the pinned PostgreSQL RepoDigest `postgres@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636` against the actual `linux/amd64` service container, installed the fresh hashed Python runtime with `pip check`, and passed `15/15` HTTP, `9/9` asyncpg adapter, and `4/4` PostgreSQL/RLS/concurrency tests. Restart persistence, backup/restore, orphan cleanup, browser cutover, production readiness, and the overall M1-01 acceptance remain unverified.
+
+#### WP5A: Restart Persistence And Connection-Loss Experiment
+
+- Task ID: `M1-01`; baseline commit: `fde58e91e69d57088a13cd22554b7173210c03ce`.
+- Owned paths: `apps/api/marketops_import/postgres.py`, `apps/api/marketops_import/storage.py`, `apps/api/tests/test_project_import_postgres_adapter.py`, `apps/api/tests/test_project_import_storage.py`, `scripts/run_m1_01_restart_recovery_gate.py`, `apps/api/tests/test_m1_01_restart_recovery_gate.py`, `.github/workflows/quality.yml`, and this plan. The PostgreSQL adapter paths were added after independent review identified asyncpg's closed-connection `InterfaceError` as a retryability gap.
+- Forbidden paths: `project-status.json`, `docs/PROJECT_STATUS.md`, database migrations, browser code, real customer files, credentials, local databases, and uploaded object bytes.
+- Frozen input: the reviewed PostgreSQL 18.4 Linux/amd64 service image, test-only admin and application DSNs, one committed synthetic import, one distinct uncommitted synthetic import, and a runner-temporary local object-store root.
+- Frozen output: after an actual service-container restart, a fresh Python process, pool, and service recover the committed project, both artifact versions, audit event, approved-proposal selection, and both immutable objects; separately terminating the unique backend of an open transaction leaves no project, artifact, version, or audit rows, and the same import can then be retried successfully. Evidence is a non-sensitive JSON record printed by CI.
+- Claim boundary: this experiment establishes behavior for one isolated GitHub Actions service container and runner-local object root only. It does not establish host restart recovery, durable-volume configuration, backup/restore, production RPO/RTO, browser recovery, demand, ROI, repeat use, payment, or M1-01 completion.
+- Acceptance commands: `python -m unittest apps.api.tests.test_m1_01_restart_recovery_gate -v`; the `m1-01-runtime` GitHub Actions job must then run the gate's `prepare`, `restart`, `verify`, and `connection-loss` phases in separate Python processes with the actual service-container ID, and every phase must exit zero.
+- Reviewer role: a non-implementer operations/recovery reviewer must inspect the restart boundary, full-row absence checks, object verification, credential redaction, and CI evidence before WP5A is checked complete.
 
 ## Completion Gate
 
