@@ -134,13 +134,13 @@ python -m unittest discover -s apps/api/tests/postgres -p 'test_*.py' -v
 
 Integrator-owned CI path: `.github/workflows/quality.yml`. Evidence paths will be frozen before results are committed.
 
-- [ ] Resolve the official `postgres:18.4` Linux/amd64 manifest in a bootstrap CI run, record upstream source and platform, then pin the service by immutable digest.
-- [ ] Assert server version `18.4`, role attributes, grants, migration checksum, forced RLS, tenant/project rejection, pool-scope reset, deferred constraints, append-only behavior, and concurrent idempotency.
+- [x] Resolve the official `postgres:18.4` Linux/amd64 manifest in a bootstrap CI run, record upstream source and platform, then pin the service by immutable digest.
+- [x] Assert server version `18.4`, role attributes, grants, migration checksum, forced RLS, tenant/project rejection, pool-scope reset, deferred constraints, append-only behavior, and concurrent idempotency.
 - [ ] Test committed restart persistence separately from uncommitted connection loss.
 - [ ] Test database plus object-store backup/restore and a dry-run-first, race-safe orphan cleanup policy.
 - [ ] Switch the browser import path to the server API and verify the retained project survives a browser refresh without localStorage/IndexedDB as the fact source.
 
-The PostgreSQL image digest is currently unverified because direct Docker Hub registry access timed out. A mutable tag must not be accepted as final evidence.
+Bootstrap evidence: GitHub Actions run [31313551057](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31313551057) passed on remote commit `c6ce370b43ef44dbf5ff0bc5155dd91daf1e5701`. It validated the pinned PostgreSQL RepoDigest `postgres@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636` against the actual `linux/amd64` service container, installed the fresh hashed Python runtime with `pip check`, and passed `15/15` HTTP, `9/9` asyncpg adapter, and `4/4` PostgreSQL/RLS/concurrency tests. Restart persistence, backup/restore, orphan cleanup, browser cutover, production readiness, and the overall M1-01 acceptance remain unverified.
 
 ## Completion Gate
 
