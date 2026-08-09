@@ -250,6 +250,36 @@ def has_exact_registry_acl_predicates(source: str) -> bool:
     )
 
 
+def has_exact_registry_not_null_contract(source: str) -> bool:
+    compact = normalized(source)
+    required = (
+        "where constraint_record.conrelid = registry.oid "
+        "and constraint_record.contype = 'n' "
+        ") as not_null_constraint_count",
+        "attribute.attnum = constraint_record.conkey[1]",
+        "and pg_catalog.cardinality(constraint_record.conkey) = 1 "
+        ") as not_null_columns",
+        "and constraint_record.convalidated",
+        "and constraint_record.conenforced",
+        "and constraint_record.conislocal",
+        "and constraint_record.coninhcount = 0",
+        "and not constraint_record.condeferrable",
+        "and not constraint_record.condeferred",
+        "and not constraint_record.connoinherit",
+        "and not constraint_record.conperiod",
+        "and constraint_record.conparentid = 0",
+        "and constraint_record.conindid = 0",
+        "and constraint_record.conbin is null",
+        ") as not_null_shape_count",
+        '"not_null_constraint_count": 3',
+        '"not_null_shape_count": 3',
+    )
+    return (
+        all(fragment in compact for fragment in required)
+        and "EXPECTED_REGISTRY_NOT_NULL_COLUMNS = (" in source
+    )
+
+
 def has_rls_for_all_tables(sql: str) -> bool:
     for table in TENANT_TABLES:
         if not re.search(
@@ -500,6 +530,11 @@ RUNNER_GUARDS = (
         r"trigger_record\.tgattr\s*=\s*''::pg_catalog\.int2vector",
     ),
     Guard(
+        "registry structurally attests PostgreSQL 18 NOT NULL constraints",
+        has_exact_registry_not_null_contract,
+        r"\)\s+AS\s+not_null_shape_count",
+    ),
+    Guard(
         "registry schema and column ACL attestation",
         lambda source: (
             all(
@@ -700,6 +735,44 @@ def acl_predicate_mutation_failures(source: str) -> list[str]:
     return failures
 
 
+def not_null_constraint_mutation_failures(source: str) -> list[str]:
+    guard_name = "registry structurally attests PostgreSQL 18 NOT NULL constraints"
+    mutations = (
+        (
+            "NOT NULL count hides extra catalog rows",
+            "AND constraint_record.contype = 'n'\n"
+            "    ) AS not_null_constraint_count",
+            "AND constraint_record.contype = 'n'\n"
+            "          AND constraint_record.conname LIKE 'schema_migrations_%'\n"
+            "    ) AS not_null_constraint_count",
+        ),
+        (
+            "NOT NULL shape accepts unvalidated records",
+            "AND constraint_record.convalidated\n",
+            "",
+        ),
+        (
+            "NOT NULL shape accepts unenforced records",
+            "AND constraint_record.conenforced\n",
+            "",
+        ),
+        (
+            "NOT NULL expected count is weakened",
+            '"not_null_constraint_count": 3,',
+            '"not_null_constraint_count": 2,',
+        ),
+    )
+    failures: list[str] = []
+    for name, target, replacement in mutations:
+        if source.count(target) != 1:
+            failures.append(f"{name}: mutation target did not match exactly once")
+            continue
+        mutated = source.replace(target, replacement, 1)
+        if guard_name not in validate_guards(mutated, RUNNER_GUARDS):
+            failures.append(f"{name}: checker accepted weakened NOT NULL attestation")
+    return failures
+
+
 def main() -> int:
     if not MIGRATION.is_file():
         print(f"FAIL: migration not found: {MIGRATION.relative_to(ROOT)}", file=sys.stderr)
@@ -729,6 +802,7 @@ def main() -> int:
         f"runner {name}" for name in mutation_failures_for(runner, RUNNER_GUARDS)
     )
     failures.extend(acl_predicate_mutation_failures(runner))
+    failures.extend(not_null_constraint_mutation_failures(runner))
     if failures:
         print("FAIL: PostgreSQL contract checks failed:", file=sys.stderr)
         for failure in failures:
