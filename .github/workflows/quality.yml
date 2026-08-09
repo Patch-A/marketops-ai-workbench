@@ -108,19 +108,22 @@ jobs:
           python -m unittest apps.api.tests.test_project_import_http -v
           python -m unittest apps.api.tests.test_project_import_postgres_adapter -v
           python -m unittest discover -s apps/api/tests/postgres -p 'test_*.py' -v
-      - name: Verify restart persistence and connection-loss rollback
+      - name: Verify restart, backup restore, and connection-loss rollback
         env:
           MARKETOPS_TEST_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
         run: |
           recovery_root="$RUNNER_TEMP/m1-01-restart"
           recovery_state="$recovery_root/state.json"
           recovery_output="$RUNNER_TEMP/m1-01-restart-recovery.json"
+          backup_output="$RUNNER_TEMP/m1-01-backup-restore.json"
           python scripts/run_m1_01_restart_recovery_gate.py prepare --work-root "$recovery_root" --state "$recovery_state"
           python scripts/run_m1_01_restart_recovery_gate.py restart
           python scripts/run_m1_01_restart_recovery_gate.py verify --work-root "$recovery_root" --state "$recovery_state" --output "$recovery_output"
+          python scripts/run_m1_01_backup_restore_gate.py --work-root "$recovery_root" --state "$recovery_state" --output "$backup_output"
           python scripts/run_m1_01_restart_recovery_gate.py connection-loss --work-root "$recovery_root" --state "$recovery_state" --output "$recovery_output"
       - name: Show non-sensitive runtime evidence
         if: always()
         run: |
           test ! -f "$RUNNER_TEMP/m1-01-postgres-gate.json" || cat "$RUNNER_TEMP/m1-01-postgres-gate.json"
           test ! -f "$RUNNER_TEMP/m1-01-restart-recovery.json" || cat "$RUNNER_TEMP/m1-01-restart-recovery.json"
+          test ! -f "$RUNNER_TEMP/m1-01-backup-restore.json" || cat "$RUNNER_TEMP/m1-01-backup-restore.json"
