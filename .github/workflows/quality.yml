@@ -31,6 +31,7 @@ jobs:
           python scripts/check_m1_01_postgres_contract.py
           python -m unittest discover -s apps/api/tests -p 'test_*.py' -v
           python scripts/check_m1_01_openapi_contract.py
+          python scripts/check_m1_01_python_lock.py --static
           node scripts/check_m1_01_runtime_dependencies.mjs
       - name: Check documentation links and encoding
         run: node scripts/check-docs.mjs
@@ -48,3 +49,65 @@ jobs:
         run: python scripts/check_hybrid_retrieval.py --check
       - name: Check dependency decision
         run: node scripts/check_dependency_decision.mjs
+
+  m1-01-runtime:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18.4
+        env:
+          POSTGRES_DB: marketops_test
+          POSTGRES_PASSWORD: marketops-ci-admin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d marketops_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      MARKETOPS_TEST_ADMIN_DATABASE_URL: postgresql://postgres:marketops-ci-admin@127.0.0.1:5432/marketops_test
+      MARKETOPS_TEST_MIGRATOR_DATABASE_URL: postgresql://marketops_migrator:marketops-ci-migrator@127.0.0.1:5432/marketops_test
+      MARKETOPS_TEST_DATABASE_URL: postgresql://marketops_app:marketops-ci-app@127.0.0.1:5432/marketops_test
+      MARKETOPS_TEST_MIGRATOR_PASSWORD: marketops-ci-migrator
+      MARKETOPS_TEST_APP_PASSWORD: marketops-ci-app
+      MARKETOPS_POSTGRES_IMAGE: postgres:18.4
+      MARKETOPS_REQUIRE_TEST_PREREQUISITES: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+      - name: Install the hashed Linux runtime
+        run: |
+          python scripts/check_m1_01_python_lock.py --static
+          python -m venv "$RUNNER_TEMP/m1-01-venv"
+          runtime_python="$RUNNER_TEMP/m1-01-venv/bin/python"
+          "$runtime_python" -m pip install pip==26.0.1
+          "$runtime_python" -m pip install --force-reinstall --no-deps --require-hashes --only-binary=:all: -r requirements/m1-01-runtime.txt
+          "$runtime_python" scripts/check_m1_01_python_lock.py --installed
+          "$runtime_python" -m pip check
+          echo "$RUNNER_TEMP/m1-01-venv/bin" >> "$GITHUB_PATH"
+      - name: Discover the official Linux amd64 PostgreSQL digest
+        run: |
+          service_container="${{ job.services.postgres.id }}"
+          test -n "$service_container"
+          image_id="$(docker container inspect "$service_container" --format '{{.Image}}')"
+          test -n "$image_id"
+          test "$(docker image inspect "$image_id" --format '{{.Os}}/{{.Architecture}}')" = "linux/amd64"
+          digest="$(docker image inspect "$image_id" --format '{{range .RepoDigests}}{{println .}}{{end}}' | grep -E '^postgres@sha256:[0-9a-f]{64}$' | head -n 1)"
+          test -n "$digest"
+          echo "MARKETOPS_POSTGRES_REPO_DIGEST=$digest" >> "$GITHUB_ENV"
+          echo "PostgreSQL image: $digest"
+      - name: Provision and attest PostgreSQL 18.4
+        run: python scripts/run_m1_01_postgres_gate.py --output "$RUNNER_TEMP/m1-01-postgres-gate.json"
+      - name: Run server-backed import tests
+        run: |
+          python -m unittest apps.api.tests.test_project_import_http -v
+          python -m unittest apps.api.tests.test_project_import_postgres_adapter -v
+          python -m unittest discover -s apps/api/tests/postgres -p 'test_*.py' -v
+      - name: Show non-sensitive runtime evidence
+        if: always()
+        run: test ! -f "$RUNNER_TEMP/m1-01-postgres-gate.json" || cat "$RUNNER_TEMP/m1-01-postgres-gate.json"

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import copy
 import hashlib
 import json
 import sys
 import tempfile
 import unittest
-from contextlib import contextmanager
-from dataclasses import fields
+from contextlib import asynccontextmanager
+from dataclasses import fields, replace
 from datetime import datetime, timezone
 from pathlib import Path
 from uuid import UUID
@@ -20,6 +21,7 @@ sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from marketops_import.service import (  # noqa: E402
     FilePayload,
+    ImportClaim,
     ImportFailure,
     ImportRequest,
     MAX_FILE_SIZE_BYTES,
@@ -48,14 +50,23 @@ STABLE_ERROR_CODES = {
 
 
 class FakeObjectStore:
-    def __init__(self, fail_on: str | None = None, corrupt_on: str | None = None):
+    def __init__(
+        self,
+        fail_on: str | None = None,
+        corrupt_on: str | None = None,
+        cancel_on: str | None = None,
+    ):
         self.fail_on = fail_on
         self.corrupt_on = corrupt_on
+        self.cancel_on = cancel_on
         self.calls: list[tuple[str, str]] = []
         self.objects: dict[str, bytes] = {}
 
-    def put_immutable(self, *, kind: str, storage_key: str, source_path: Path, size_bytes: int, sha256: str) -> StoredObject:
+    async def put_immutable(self, *, kind: str, storage_key: str, source_path: Path, size_bytes: int, sha256: str) -> StoredObject:
         self.calls.append((kind, storage_key))
+        await asyncio.sleep(0)
+        if kind == self.cancel_on:
+            raise asyncio.CancelledError
         if kind == self.fail_on:
             raise OSError(f"failed to store {kind}")
         content = source_path.read_bytes()
@@ -71,7 +82,7 @@ class FakeTransaction:
         self.pending_project = None
         self.pending_audit = None
 
-    def find_by_idempotency_key(self, key):
+    def _find_by_idempotency_key(self, key):
         if self.repository.scope_leak:
             return next(
                 (
@@ -85,12 +96,31 @@ class FakeTransaction:
             (self.scope.workspace_id, self.scope.client_id, key)
         )
 
-    def create_project_import(self, record):
+    async def try_create_project_import(self, record):
+        self.repository.claim_calls += 1
+        if self.repository.cancel_on_claim:
+            raise asyncio.CancelledError
         if self.repository.fail_database:
             raise RuntimeError("database unavailable")
+        existing = self._find_by_idempotency_key(record.idempotency_key)
+        if existing is not None:
+            return ImportClaim(record=existing, created=False)
         self.pending_project = record
+        if self.repository.invalid_created_claim == "record":
+            return ImportClaim(
+                record=replace(
+                    record,
+                    project_id="00000000-0000-4000-8000-000000000099",
+                ),
+                created=True,
+            )
+        if self.repository.invalid_created_claim == "created_type":
+            return ImportClaim(record=record, created=1)  # type: ignore[arg-type]
+        return ImportClaim(record=record, created=True)
 
-    def append_audit_event(self, event):
+    async def append_audit_event(self, event):
+        if self.repository.cancel_on_audit:
+            raise asyncio.CancelledError
         if self.repository.fail_audit:
             raise RuntimeError("audit unavailable")
         self.pending_audit = event
@@ -108,27 +138,49 @@ class FakeTransaction:
 
 
 class FakeRepository:
-    def __init__(self, fail_database=False, fail_audit=False, scope_leak=False):
+    def __init__(
+        self,
+        fail_database=False,
+        fail_audit=False,
+        scope_leak=False,
+        cancel_on_claim=False,
+        cancel_on_audit=False,
+        fail_on_commit=False,
+        cancel_on_commit=False,
+        invalid_created_claim=None,
+    ):
         self.fail_database = fail_database
         self.fail_audit = fail_audit
         self.scope_leak = scope_leak
+        self.cancel_on_claim = cancel_on_claim
+        self.cancel_on_audit = cancel_on_audit
+        self.fail_on_commit = fail_on_commit
+        self.cancel_on_commit = cancel_on_commit
+        self.invalid_created_claim = invalid_created_claim
         self.transaction_count = 0
+        self.claim_calls = 0
         self.rollbacks = 0
         self.scopes = []
         self.imports = {}
         self.audit_events = []
+        self.claim_lock = asyncio.Lock()
 
-    @contextmanager
-    def transaction(self, scope):
+    @asynccontextmanager
+    async def transaction(self, scope):
         self.transaction_count += 1
         self.scopes.append(scope)
         transaction = FakeTransaction(self, scope)
-        try:
-            yield transaction
-            transaction.commit()
-        except Exception:
-            self.rollbacks += 1
-            raise
+        async with self.claim_lock:
+            try:
+                yield transaction
+                if self.cancel_on_commit:
+                    raise asyncio.CancelledError
+                if self.fail_on_commit:
+                    raise RuntimeError("commit failed")
+                transaction.commit()
+            except BaseException:
+                self.rollbacks += 1
+                raise
 
 
 class SequentialIds:
@@ -140,7 +192,7 @@ class SequentialIds:
         return str(UUID(int=self.value, version=4))
 
 
-class ProjectImportServiceTests(unittest.TestCase):
+class ProjectImportServiceTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.temp_directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp_directory.cleanup)
@@ -187,10 +239,12 @@ class ProjectImportServiceTests(unittest.TestCase):
             clock=lambda: datetime(2026, 8, 9, 4, 0, tzinfo=timezone.utc),
         )
 
-    def test_valid_import_persists_files_before_atomic_project_and_audit(self):
+    async def test_valid_import_persists_files_before_atomic_project_and_audit(self):
         store = FakeObjectStore()
         repository = FakeRepository()
-        result = self.build_service(store, repository).import_project(self.valid_request(), self.scope)
+        result = await self.build_service(store, repository).import_project(
+            self.valid_request(), self.scope
+        )
 
         self.assertFalse(result.replayed)
         self.assertTrue(result.source_artifact_id)
@@ -207,43 +261,86 @@ class ProjectImportServiceTests(unittest.TestCase):
         self.assertEqual(record.approved_at, datetime(2026, 8, 9, 4, 0, tzinfo=timezone.utc))
         self.assertEqual(repository.audit_events[0].actor_id, self.scope.actor_id)
 
-    def test_same_idempotency_key_and_manifest_replays_existing_project(self):
+    async def test_same_idempotency_key_and_manifest_replays_existing_project(self):
         repository = FakeRepository()
         service = self.build_service(repository=repository)
-        first = service.import_project(self.valid_request(), self.scope)
-        second = service.import_project(self.valid_request(), self.scope)
+        first = await service.import_project(self.valid_request(), self.scope)
+        second = await service.import_project(self.valid_request(), self.scope)
 
         self.assertEqual(second.project_id, first.project_id)
         self.assertTrue(second.replayed)
         self.assertEqual(len(repository.imports), 1)
         self.assertEqual(len(repository.audit_events), 1)
+        self.assertEqual(repository.claim_calls, 2)
 
-    def test_idempotency_key_is_normalized_consistently_for_lookup_and_write(self):
+    async def test_concurrent_same_manifest_uses_one_atomic_claim_and_replays_winner(self):
+        repository = FakeRepository()
+        store = FakeObjectStore()
+        service = self.build_service(store=store, repository=repository)
+
+        first, second = await asyncio.gather(
+            service.import_project(self.valid_request(), self.scope),
+            service.import_project(self.valid_request(), self.scope),
+        )
+
+        self.assertEqual(first.project_id, second.project_id)
+        self.assertEqual(sorted((first.replayed, second.replayed)), [False, True])
+        self.assertEqual(repository.claim_calls, 2)
+        self.assertEqual(len(repository.imports), 1)
+        self.assertEqual(len(repository.audit_events), 1)
+
+    async def test_concurrent_different_manifest_has_one_winner_and_one_conflict(self):
         repository = FakeRepository()
         service = self.build_service(repository=repository)
-        first = service.import_project(
+
+        outcomes = await asyncio.gather(
+            service.import_project(self.valid_request(), self.scope),
+            service.import_project(
+                self.valid_request(project_name="Different project"), self.scope
+            ),
+            return_exceptions=True,
+        )
+
+        results = [outcome for outcome in outcomes if not isinstance(outcome, BaseException)]
+        failures = [outcome for outcome in outcomes if isinstance(outcome, ImportFailure)]
+        self.assertEqual(len(results), 1)
+        self.assertFalse(results[0].replayed)
+        self.assertEqual(len(failures), 1)
+        self.assertEqual(failures[0].code, "IDEMPOTENCY_CONFLICT")
+        self.assertEqual(repository.claim_calls, 2)
+        self.assertEqual(len(repository.imports), 1)
+        self.assertEqual(len(repository.audit_events), 1)
+
+    async def test_idempotency_key_is_normalized_consistently_for_lookup_and_write(self):
+        repository = FakeRepository()
+        service = self.build_service(repository=repository)
+        first = await service.import_project(
             self.valid_request(idempotency_key="  request-003  "), self.scope
         )
-        second = service.import_project(
+        second = await service.import_project(
             self.valid_request(idempotency_key="  request-003  "), self.scope
         )
         self.assertEqual(second.project_id, first.project_id)
         self.assertTrue(second.replayed)
         self.assertEqual(len(repository.imports), 1)
 
-    def test_same_idempotency_key_with_different_manifest_conflicts(self):
+    async def test_same_idempotency_key_with_different_manifest_conflicts(self):
         repository = FakeRepository()
         service = self.build_service(repository=repository)
-        service.import_project(self.valid_request(), self.scope)
+        await service.import_project(self.valid_request(), self.scope)
 
         with self.assertRaisesRegex(ImportFailure, "IDEMPOTENCY_CONFLICT"):
-            service.import_project(self.valid_request(project_name="Different project"), self.scope)
+            await service.import_project(
+                self.valid_request(project_name="Different project"), self.scope
+            )
         self.assertEqual(len(repository.imports), 1)
 
-    def test_repository_scope_leak_cannot_replay_another_clients_project(self):
+    async def test_repository_scope_leak_cannot_replay_another_clients_project(self):
         repository = FakeRepository(scope_leak=True)
         service = self.build_service(repository=repository)
-        service.import_project(self.valid_request(idempotency_key="request-004"), self.scope)
+        await service.import_project(
+            self.valid_request(idempotency_key="request-004"), self.scope
+        )
         mismatched_scopes = {
             "organization": ScopeContext(
                 "00000000-0000-4000-8000-000000000091",
@@ -268,12 +365,12 @@ class ProjectImportServiceTests(unittest.TestCase):
             with self.subTest(dimension=dimension), self.assertRaisesRegex(
                 ImportFailure, "IDEMPOTENCY_CONFLICT"
             ):
-                service.import_project(
+                await service.import_project(
                     self.valid_request(idempotency_key="request-004"),
                     mismatched_scope,
                 )
 
-    def test_same_key_and_manifest_have_disjoint_storage_keys_across_tenant_scopes(self):
+    async def test_same_key_and_manifest_have_disjoint_storage_keys_across_tenant_scopes(self):
         for dimension, different_scope in {
             "workspace": ScopeContext(
                 self.scope.organization_id,
@@ -291,46 +388,54 @@ class ProjectImportServiceTests(unittest.TestCase):
             with self.subTest(dimension=dimension):
                 store = FakeObjectStore()
                 service = self.build_service(store=store)
-                service.import_project(self.valid_request(), self.scope)
-                service.import_project(self.valid_request(), different_scope)
+                await service.import_project(self.valid_request(), self.scope)
+                await service.import_project(self.valid_request(), different_scope)
                 first_keys = {key for _, key in store.calls[:2]}
                 second_keys = {key for _, key in store.calls[2:]}
                 self.assertTrue(first_keys.isdisjoint(second_keys))
 
-    def test_same_manifest_with_different_keys_uses_distinct_storage_keys(self):
+    async def test_same_manifest_with_different_keys_uses_distinct_storage_keys(self):
         store = FakeObjectStore()
         service = self.build_service(store=store)
-        service.import_project(self.valid_request(idempotency_key="request-005"), self.scope)
-        service.import_project(self.valid_request(idempotency_key="request-006"), self.scope)
+        await service.import_project(
+            self.valid_request(idempotency_key="request-005"), self.scope
+        )
+        await service.import_project(
+            self.valid_request(idempotency_key="request-006"), self.scope
+        )
         first_keys = {key for _, key in store.calls[:2]}
         second_keys = {key for _, key in store.calls[2:]}
         self.assertTrue(first_keys.isdisjoint(second_keys))
 
-    def test_unsupported_source_format_fails_before_storage_or_database(self):
+    async def test_unsupported_source_format_fails_before_storage_or_database(self):
         store = FakeObjectStore()
         repository = FakeRepository()
         request = self.valid_request(source=self.payload("brief.pdf", "application/pdf", b"%PDF"))
 
         with self.assertRaisesRegex(ImportFailure, "UNSUPPORTED_FORMAT"):
-            self.build_service(store, repository).import_project(request, self.scope)
+            await self.build_service(store, repository).import_project(
+                request, self.scope
+            )
         self.assertEqual(store.calls, [])
         self.assertEqual(repository.transaction_count, 0)
 
-    def test_invalid_proposal_version_fails_before_storage(self):
+    async def test_invalid_proposal_version_fails_before_storage(self):
         store = FakeObjectStore()
         with self.assertRaisesRegex(ImportFailure, "INVALID_INPUT"):
-            self.build_service(store=store).import_project(self.valid_request(proposal_version=0), self.scope)
+            await self.build_service(store=store).import_project(
+                self.valid_request(proposal_version=0), self.scope
+            )
         self.assertEqual(store.calls, [])
 
-    def test_explicit_approval_is_required_before_storage(self):
+    async def test_explicit_approval_is_required_before_storage(self):
         store = FakeObjectStore()
         with self.assertRaisesRegex(ImportFailure, "APPROVAL_REQUIRED"):
-            self.build_service(store=store).import_project(
+            await self.build_service(store=store).import_project(
                 self.valid_request(approval_confirmed=False), self.scope
             )
         self.assertEqual(store.calls, [])
 
-    def test_invalid_docx_package_is_rejected_before_storage(self):
+    async def test_invalid_docx_package_is_rejected_before_storage(self):
         store = FakeObjectStore()
         request = self.valid_request(
             proposal=self.payload(
@@ -340,33 +445,35 @@ class ProjectImportServiceTests(unittest.TestCase):
             )
         )
         with self.assertRaisesRegex(ImportFailure, "INVALID_DOCUMENT"):
-            self.build_service(store=store).import_project(request, self.scope)
+            await self.build_service(store=store).import_project(request, self.scope)
         self.assertEqual(store.calls, [])
 
-    def test_verified_basic_docx_and_csv_are_accepted(self):
+    async def test_verified_basic_docx_and_csv_are_accepted(self):
         docx = REPOSITORY_ROOT / "validation" / "fixtures" / "document-parser-spike-001" / "ai-event-brief.docx"
         source = FilePayload(
             "ai-event-brief.docx",
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
             docx,
         )
-        result = self.build_service().import_project(self.valid_request(source=source), self.scope)
+        result = await self.build_service().import_project(
+            self.valid_request(source=source), self.scope
+        )
         self.assertTrue(result.source_version_id)
 
         csv_source = self.payload("schedule.csv", "text/csv", b"task_id,name\nT-1,Brief\n")
-        csv_result = self.build_service().import_project(
+        csv_result = await self.build_service().import_project(
             self.valid_request(idempotency_key="request-002", source=csv_source), self.scope
         )
         self.assertTrue(csv_result.source_version_id)
 
-    def test_empty_media_type_is_rejected_before_storage(self):
+    async def test_empty_media_type_is_rejected_before_storage(self):
         store = FakeObjectStore()
         request = self.valid_request(source=self.payload("brief.md", "", b"# Brief"))
         with self.assertRaisesRegex(ImportFailure, "INVALID_MEDIA_TYPE"):
-            self.build_service(store=store).import_project(request, self.scope)
+            await self.build_service(store=store).import_project(request, self.scope)
         self.assertEqual(store.calls, [])
 
-    def test_invalid_utf8_after_valid_markdown_or_csv_prefix_is_rejected(self):
+    async def test_invalid_utf8_after_valid_markdown_or_csv_prefix_is_rejected(self):
         for filename, media_type, content in (
             ("brief.md", "text/markdown", b"# Valid prefix\n\xff"),
             ("brief.csv", "text/csv", b"id,name\n1,Valid\n\xff"),
@@ -377,10 +484,12 @@ class ProjectImportServiceTests(unittest.TestCase):
                     source=self.payload(filename, media_type, content)
                 )
                 with self.assertRaisesRegex(ImportFailure, "INVALID_DOCUMENT"):
-                    self.build_service(store=store).import_project(request, self.scope)
+                    await self.build_service(store=store).import_project(
+                        request, self.scope
+                    )
                 self.assertEqual(store.calls, [])
 
-    def test_file_size_limit_is_enforced_before_storage(self):
+    async def test_file_size_limit_is_enforced_before_storage(self):
         oversized = self.temp_path / "oversized.md"
         with oversized.open("wb") as output:
             output.seek(MAX_FILE_SIZE_BYTES)
@@ -388,66 +497,159 @@ class ProjectImportServiceTests(unittest.TestCase):
         store = FakeObjectStore()
         request = self.valid_request(source=FilePayload("oversized.md", "text/markdown", oversized))
         with self.assertRaisesRegex(ImportFailure, "PAYLOAD_TOO_LARGE"):
-            self.build_service(store=store).import_project(request, self.scope)
+            await self.build_service(store=store).import_project(request, self.scope)
         self.assertEqual(store.calls, [])
 
-    def test_object_failure_prevents_database_transaction(self):
+    async def test_object_failure_prevents_database_transaction(self):
         store = FakeObjectStore(fail_on="proposal")
         repository = FakeRepository()
 
         with self.assertRaisesRegex(ImportFailure, "OBJECT_WRITE_FAILED"):
-            self.build_service(store, repository).import_project(self.valid_request(), self.scope)
+            await self.build_service(store, repository).import_project(
+                self.valid_request(), self.scope
+            )
         self.assertEqual(repository.transaction_count, 0)
 
-    def test_stored_hash_mismatch_prevents_database_transaction(self):
+    async def test_object_store_cancellation_propagates_without_database_access(self):
+        store = FakeObjectStore(cancel_on="source")
+        repository = FakeRepository()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await self.build_service(store, repository).import_project(
+                self.valid_request(), self.scope
+            )
+
+        self.assertEqual(repository.transaction_count, 0)
+
+    async def test_stored_hash_mismatch_prevents_database_transaction(self):
         store = FakeObjectStore(corrupt_on="source")
         repository = FakeRepository()
 
         with self.assertRaisesRegex(ImportFailure, "OBJECT_INTEGRITY_MISMATCH"):
-            self.build_service(store, repository).import_project(self.valid_request(), self.scope)
+            await self.build_service(store, repository).import_project(
+                self.valid_request(), self.scope
+            )
         self.assertEqual(repository.transaction_count, 0)
 
-    def test_database_failure_rolls_back_project_and_audit_after_durable_files(self):
+    async def test_database_failure_rolls_back_project_and_audit_after_durable_files(self):
         store = FakeObjectStore()
         repository = FakeRepository(fail_database=True)
 
         with self.assertRaisesRegex(ImportFailure, "DATABASE_WRITE_FAILED"):
-            self.build_service(store, repository).import_project(self.valid_request(), self.scope)
+            await self.build_service(store, repository).import_project(
+                self.valid_request(), self.scope
+            )
         self.assertEqual(len(store.objects), 2)
         self.assertEqual(repository.imports, {})
         self.assertEqual(repository.audit_events, [])
         self.assertEqual(repository.rollbacks, 1)
 
-    def test_audit_failure_rolls_back_pending_project(self):
-        repository = FakeRepository(fail_audit=True)
+    async def test_invalid_created_claim_record_is_a_database_failure(self):
+        repository = FakeRepository(invalid_created_claim="record")
+
         with self.assertRaisesRegex(ImportFailure, "DATABASE_WRITE_FAILED"):
-            self.build_service(repository=repository).import_project(self.valid_request(), self.scope)
+            await self.build_service(repository=repository).import_project(
+                self.valid_request(), self.scope
+            )
+
         self.assertEqual(repository.imports, {})
         self.assertEqual(repository.audit_events, [])
         self.assertEqual(repository.rollbacks, 1)
 
-    def test_openapi_length_limits_are_enforced_by_core_service(self):
+    async def test_invalid_created_claim_marker_is_a_database_failure(self):
+        repository = FakeRepository(invalid_created_claim="created_type")
+
+        with self.assertRaisesRegex(ImportFailure, "DATABASE_WRITE_FAILED"):
+            await self.build_service(repository=repository).import_project(
+                self.valid_request(), self.scope
+            )
+
+        self.assertEqual(repository.imports, {})
+        self.assertEqual(repository.audit_events, [])
+        self.assertEqual(repository.rollbacks, 1)
+
+    async def test_audit_failure_rolls_back_pending_project(self):
+        repository = FakeRepository(fail_audit=True)
+        with self.assertRaisesRegex(ImportFailure, "DATABASE_WRITE_FAILED"):
+            await self.build_service(repository=repository).import_project(
+                self.valid_request(), self.scope
+            )
+        self.assertEqual(repository.imports, {})
+        self.assertEqual(repository.audit_events, [])
+        self.assertEqual(repository.rollbacks, 1)
+
+    async def test_database_claim_cancellation_propagates_and_rolls_back(self):
+        repository = FakeRepository(cancel_on_claim=True)
+
+        with self.assertRaises(asyncio.CancelledError):
+            await self.build_service(repository=repository).import_project(
+                self.valid_request(), self.scope
+            )
+
+        self.assertEqual(repository.imports, {})
+        self.assertEqual(repository.audit_events, [])
+        self.assertEqual(repository.rollbacks, 1)
+
+    async def test_audit_cancellation_propagates_and_rolls_back_claim(self):
+        repository = FakeRepository(cancel_on_audit=True)
+
+        with self.assertRaises(asyncio.CancelledError):
+            await self.build_service(repository=repository).import_project(
+                self.valid_request(), self.scope
+            )
+
+        self.assertEqual(repository.imports, {})
+        self.assertEqual(repository.audit_events, [])
+        self.assertEqual(repository.rollbacks, 1)
+
+    async def test_commit_failure_is_a_database_failure_and_rolls_back(self):
+        repository = FakeRepository(fail_on_commit=True)
+
+        with self.assertRaisesRegex(ImportFailure, "DATABASE_WRITE_FAILED"):
+            await self.build_service(repository=repository).import_project(
+                self.valid_request(), self.scope
+            )
+
+        self.assertEqual(repository.imports, {})
+        self.assertEqual(repository.audit_events, [])
+        self.assertEqual(repository.rollbacks, 1)
+
+    async def test_commit_cancellation_propagates_and_rolls_back(self):
+        repository = FakeRepository(cancel_on_commit=True)
+
+        with self.assertRaises(asyncio.CancelledError):
+            await self.build_service(repository=repository).import_project(
+                self.valid_request(), self.scope
+            )
+
+        self.assertEqual(repository.imports, {})
+        self.assertEqual(repository.audit_events, [])
+        self.assertEqual(repository.rollbacks, 1)
+
+    async def test_openapi_length_limits_are_enforced_by_core_service(self):
         with self.assertRaisesRegex(ImportFailure, "INVALID_INPUT"):
-            self.build_service().import_project(
+            await self.build_service().import_project(
                 self.valid_request(idempotency_key="short"), self.scope
             )
         with self.assertRaisesRegex(ImportFailure, "INVALID_INPUT"):
-            self.build_service().import_project(
+            await self.build_service().import_project(
                 self.valid_request(project_name="x" * 301), self.scope
             )
 
-    def test_request_cannot_supply_authorization_scope(self):
+    async def test_request_cannot_supply_authorization_scope(self):
         request_fields = {field.name for field in fields(ImportRequest)}
         self.assertTrue({"workspace_id", "client_id", "actor_id", "organization_id"}.isdisjoint(request_fields))
 
-    def test_invalid_server_scope_fails_before_storage(self):
+    async def test_invalid_server_scope_fails_before_storage(self):
         store = FakeObjectStore()
         invalid_scope = ScopeContext("org", "../workspace", "client", "actor")
         with self.assertRaisesRegex(ImportFailure, "AUTHORIZATION_REQUIRED"):
-            self.build_service(store=store).import_project(self.valid_request(), invalid_scope)
+            await self.build_service(store=store).import_project(
+                self.valid_request(), invalid_scope
+            )
         self.assertEqual(store.calls, [])
 
-    def test_id_factory_must_return_uuid_values(self):
+    async def test_id_factory_must_return_uuid_values(self):
         store = FakeObjectStore()
         repository = FakeRepository()
         generated = SequentialIds()
@@ -465,11 +667,11 @@ class ProjectImportServiceTests(unittest.TestCase):
             clock=lambda: datetime(2026, 8, 9, 4, 0, tzinfo=timezone.utc),
         )
         with self.assertRaisesRegex(ImportFailure, "INVALID_SERVER_ID"):
-            service.import_project(self.valid_request(), self.scope)
+            await service.import_project(self.valid_request(), self.scope)
         self.assertEqual(store.calls, [])
         self.assertEqual(repository.transaction_count, 0)
 
-    def test_invalid_clock_fails_before_storage_or_database(self):
+    async def test_invalid_clock_fails_before_storage_or_database(self):
         invalid_clocks = {
             "naive": lambda: datetime(2026, 8, 9, 4, 0),
             "wrong_type": lambda: "2026-08-09T04:00:00Z",
@@ -486,7 +688,7 @@ class ProjectImportServiceTests(unittest.TestCase):
                     clock=clock,
                 )
                 with self.assertRaisesRegex(ImportFailure, "INVALID_SERVER_CLOCK"):
-                    service.import_project(self.valid_request(), self.scope)
+                    await service.import_project(self.valid_request(), self.scope)
                 self.assertEqual(store.calls, [])
                 self.assertEqual(repository.transaction_count, 0)
 

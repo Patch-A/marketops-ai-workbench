@@ -1,0 +1,509 @@
+#!/usr/bin/env python3
+"""Provision and attest the isolated PostgreSQL runtime used by M1-01 CI."""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import hashlib
+import json
+import os
+import re
+import subprocess
+import sys
+from datetime import datetime, timezone
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+from apps.api.marketops_import.migrations import run_migrations  # noqa: E402
+
+
+MIGRATION = ROOT / "apps" / "api" / "migrations" / "0001_project_import.sql"
+MIGRATOR_ROLE = "marketops_migrator"
+APPLICATION_ROLE = "marketops_app"
+DATABASE_NAME = "marketops_test"
+POSTGRES_VERSION_NUM = 180004
+POSTGRES_DIGEST = re.compile(r"postgres@sha256:[0-9a-f]{64}")
+RELATION_PRIVILEGES = (
+    "SELECT",
+    "INSERT",
+    "UPDATE",
+    "DELETE",
+    "TRUNCATE",
+    "REFERENCES",
+    "TRIGGER",
+    "MAINTAIN",
+)
+COLUMN_PRIVILEGES = ("SELECT", "INSERT", "UPDATE", "REFERENCES")
+SEQUENCE_PRIVILEGES = ("SELECT", "UPDATE", "USAGE")
+EXPECTED_RELATION_PRIVILEGES = frozenset(
+    {
+        ("organizations", "SELECT"),
+        ("workspaces", "SELECT"),
+        ("clients", "SELECT"),
+        ("projects", "SELECT"),
+        ("projects", "INSERT"),
+        ("artifacts", "SELECT"),
+        ("artifacts", "INSERT"),
+        ("artifact_versions", "SELECT"),
+        ("artifact_versions", "INSERT"),
+        ("audit_events", "SELECT"),
+        ("audit_events", "INSERT"),
+    }
+)
+EXPECTED_FUNCTION_EXECUTE = frozenset(
+    {
+        "current_actor_id()",
+        "current_client_id()",
+        "current_project_id()",
+        "current_workspace_id()",
+    }
+)
+
+
+def required_environment(name: str) -> str:
+    value = os.environ.get(name, "").strip()
+    if not value:
+        raise RuntimeError(f"missing required CI environment variable: {name}")
+    return value
+
+
+async def quoted_literal(connection, value: str) -> str:
+    return await connection.fetchval("SELECT pg_catalog.quote_literal($1)", value)
+
+
+async def ensure_login_role(connection, name: str, password: str) -> None:
+    if name not in {MIGRATOR_ROLE, APPLICATION_ROLE}:
+        raise RuntimeError("refusing to provision an unexpected role")
+    literal = await quoted_literal(connection, password)
+    exists = await connection.fetchval(
+        "SELECT EXISTS (SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1)", name
+    )
+    if not exists:
+        await connection.execute(
+            f"CREATE ROLE {name} LOGIN PASSWORD {literal} "
+            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+            "NOREPLICATION NOBYPASSRLS"
+        )
+    else:
+        await connection.execute(
+            f"ALTER ROLE {name} LOGIN PASSWORD {literal} "
+            "NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT "
+            "NOREPLICATION NOBYPASSRLS"
+        )
+
+
+async def provision_roles_and_database(asyncpg, admin_dsn: str) -> tuple[str, int]:
+    connection = await asyncpg.connect(admin_dsn)
+    try:
+        version = await connection.fetchval("SHOW server_version")
+        version_num = await connection.fetchval(
+            "SELECT current_setting('server_version_num')::integer"
+        )
+        if version_num != POSTGRES_VERSION_NUM:
+            raise RuntimeError(
+                f"expected PostgreSQL server_version_num {POSTGRES_VERSION_NUM}, "
+                f"got {version_num!r}"
+            )
+        await ensure_login_role(
+            connection, MIGRATOR_ROLE, required_environment("MARKETOPS_TEST_MIGRATOR_PASSWORD")
+        )
+        await ensure_login_role(
+            connection, APPLICATION_ROLE, required_environment("MARKETOPS_TEST_APP_PASSWORD")
+        )
+        await connection.execute(f"REVOKE {MIGRATOR_ROLE} FROM {APPLICATION_ROLE}")
+        await connection.execute(f"ALTER DATABASE {DATABASE_NAME} OWNER TO {MIGRATOR_ROLE}")
+        return version, version_num
+    finally:
+        await connection.close()
+
+
+async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
+    connection = await asyncpg.connect(migrator_dsn)
+    try:
+        applied = await run_migrations(connection)
+        replayed = await run_migrations(connection)
+        if applied != ("0001_project_import.sql",) or replayed:
+            raise RuntimeError(
+                f"migration replay contract failed: first={applied!r}, second={replayed!r}"
+            )
+        await connection.execute(
+            f"""
+            GRANT USAGE ON SCHEMA marketops TO {APPLICATION_ROLE};
+            GRANT SELECT ON
+                marketops.organizations,
+                marketops.workspaces,
+                marketops.clients
+            TO {APPLICATION_ROLE};
+            GRANT SELECT, INSERT ON marketops.projects
+            TO {APPLICATION_ROLE};
+            GRANT SELECT, INSERT ON
+                marketops.artifacts,
+                marketops.artifact_versions,
+                marketops.audit_events
+            TO {APPLICATION_ROLE};
+            GRANT EXECUTE ON FUNCTION
+                marketops.current_workspace_id(),
+                marketops.current_client_id(),
+                marketops.current_project_id(),
+                marketops.current_actor_id()
+            TO {APPLICATION_ROLE};
+            """
+        )
+        post_grant_replay = await run_migrations(
+            connection,
+            allowed_schema_usage_roles=(APPLICATION_ROLE,),
+        )
+        if post_grant_replay:
+            raise RuntimeError(
+                f"post-grant migration replay unexpectedly applied {post_grant_replay!r}"
+            )
+        migration_digest = hashlib.sha256(MIGRATION.read_bytes()).digest()
+        recorded = await connection.fetchval(
+            """
+            SELECT sha256
+            FROM marketops.schema_migrations
+            WHERE migration_name = '0001_project_import.sql'
+            """
+        )
+        if bytes(recorded) != migration_digest:
+            raise RuntimeError("migration registry checksum does not match the reviewed SQL")
+        return applied
+    finally:
+        await connection.close()
+
+
+def _granted_pairs(rows, object_key: str) -> frozenset[tuple[str, str]]:
+    return frozenset(
+        (str(row[object_key]), str(row["privilege"]))
+        for row in rows
+        if row["granted"]
+    )
+
+
+def _reject_grant_options(rows, label: str, object_key: str) -> None:
+    grantable = sorted(
+        (str(row[object_key]), str(row["privilege"]))
+        for row in rows
+        if row["grantable"]
+    )
+    if grantable:
+        raise RuntimeError(
+            f"application {label} privileges include grant options: {grantable!r}"
+        )
+
+
+def _validate_application_attestation(
+    role,
+    memberships,
+    schema_privileges,
+    relation_privileges,
+    column_privileges,
+    sequence_privileges,
+    function_privileges,
+) -> dict[str, object]:
+    expected_role = {
+        "rolname": APPLICATION_ROLE,
+        "rolcanlogin": True,
+        "rolsuper": False,
+        "rolcreatedb": False,
+        "rolcreaterole": False,
+        "rolinherit": False,
+        "rolreplication": False,
+        "rolbypassrls": False,
+    }
+    observed_role = dict(role) if role is not None else {}
+    if observed_role != expected_role:
+        raise RuntimeError(f"application role attributes drifted: {observed_role!r}")
+
+    observed_memberships = sorted(str(row["granted_role"]) for row in memberships)
+    if observed_memberships:
+        raise RuntimeError(
+            "application role can SET ROLE through unexpected memberships: "
+            f"{observed_memberships!r}"
+        )
+
+    observed_schema = {
+        str(row["privilege"]): bool(row["granted"]) for row in schema_privileges
+    }
+    expected_schema = {"CREATE": False, "USAGE": True}
+    if observed_schema != expected_schema:
+        raise RuntimeError(
+            f"application schema privileges drifted: {observed_schema!r}"
+        )
+    _reject_grant_options(schema_privileges, "schema", "privilege")
+
+    observed_relations = _granted_pairs(relation_privileges, "object_name")
+    if observed_relations != EXPECTED_RELATION_PRIVILEGES:
+        missing = sorted(EXPECTED_RELATION_PRIVILEGES - observed_relations)
+        unexpected = sorted(observed_relations - EXPECTED_RELATION_PRIVILEGES)
+        raise RuntimeError(
+            "application relation privileges drifted: "
+            f"missing={missing!r}, unexpected={unexpected!r}"
+        )
+    _reject_grant_options(relation_privileges, "relation", "object_name")
+
+    observed_columns = _granted_pairs(column_privileges, "object_name")
+    unexpected_columns = sorted(observed_columns - EXPECTED_RELATION_PRIVILEGES)
+    if unexpected_columns:
+        raise RuntimeError(
+            "application column privileges exceed the table privilege matrix: "
+            f"{unexpected_columns!r}"
+        )
+    _reject_grant_options(column_privileges, "column", "object_name")
+
+    observed_sequences = _granted_pairs(sequence_privileges, "object_name")
+    if observed_sequences:
+        raise RuntimeError(
+            f"application sequence privileges drifted: {sorted(observed_sequences)!r}"
+        )
+    _reject_grant_options(sequence_privileges, "sequence", "object_name")
+
+    observed_functions = frozenset(
+        str(row["function_signature"])
+        for row in function_privileges
+        if row["granted"]
+    )
+    if observed_functions != EXPECTED_FUNCTION_EXECUTE:
+        missing = sorted(EXPECTED_FUNCTION_EXECUTE - observed_functions)
+        unexpected = sorted(observed_functions - EXPECTED_FUNCTION_EXECUTE)
+        raise RuntimeError(
+            "application function EXECUTE privileges drifted: "
+            f"missing={missing!r}, unexpected={unexpected!r}"
+        )
+    _reject_grant_options(function_privileges, "function", "function_signature")
+
+    relation_summary: dict[str, list[str]] = {}
+    for object_name, privilege in sorted(observed_relations):
+        relation_summary.setdefault(f"marketops.{object_name}", []).append(privilege)
+    return {
+        "attributes": observed_role,
+        "memberOf": observed_memberships,
+        "schemaPrivileges": ["USAGE"],
+        "relationPrivileges": relation_summary,
+        "functionExecute": sorted(observed_functions),
+        "grantOptions": [],
+        "sequencePrivileges": [],
+        "unexpectedColumnPrivileges": [],
+    }
+
+
+async def attest_application_role(asyncpg, app_dsn: str) -> dict[str, object]:
+    connection = await asyncpg.connect(app_dsn)
+    try:
+        role = await connection.fetchrow(
+            """
+            SELECT
+                rolname,
+                rolcanlogin,
+                rolsuper,
+                rolcreatedb,
+                rolcreaterole,
+                rolinherit,
+                rolreplication,
+                rolbypassrls
+            FROM pg_catalog.pg_roles
+            WHERE rolname = current_user
+            """
+        )
+        memberships = await connection.fetch(
+            """
+            SELECT granted_role.rolname AS granted_role
+            FROM pg_catalog.pg_auth_members AS membership
+            JOIN pg_catalog.pg_roles AS member_role
+              ON member_role.oid = membership.member
+            JOIN pg_catalog.pg_roles AS granted_role
+              ON granted_role.oid = membership.roleid
+            WHERE member_role.rolname = current_user
+            ORDER BY granted_role.rolname
+            """
+        )
+        schema_privileges = await connection.fetch(
+            """
+            SELECT privilege,
+                   pg_catalog.has_schema_privilege(
+                       current_user, 'marketops', privilege
+                   ) AS granted,
+                   pg_catalog.has_schema_privilege(
+                       current_user, 'marketops', privilege || ' WITH GRANT OPTION'
+                   ) AS grantable
+            FROM (VALUES ('CREATE'), ('USAGE')) AS privileges(privilege)
+            ORDER BY privilege
+            """
+        )
+        relation_privileges = await connection.fetch(
+            f"""
+            SELECT relation.relname AS object_name,
+                   privilege,
+                   pg_catalog.has_table_privilege(
+                       current_user, relation.oid, privilege
+                   ) AS granted,
+                   pg_catalog.has_table_privilege(
+                       current_user,
+                       relation.oid,
+                       privilege || ' WITH GRANT OPTION'
+                   ) AS grantable
+            FROM pg_catalog.pg_class AS relation
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = relation.relnamespace
+            CROSS JOIN (VALUES {", ".join(f"('{item}')" for item in RELATION_PRIVILEGES)})
+                AS privileges(privilege)
+            WHERE namespace.nspname = 'marketops'
+              AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+            ORDER BY relation.relname, privilege
+            """
+        )
+        column_privileges = await connection.fetch(
+            f"""
+            SELECT relation.relname AS object_name,
+                   privilege,
+                   pg_catalog.has_column_privilege(
+                       current_user, relation.oid, attribute.attnum, privilege
+                   ) AS granted,
+                   pg_catalog.has_column_privilege(
+                       current_user,
+                       relation.oid,
+                       attribute.attnum,
+                       privilege || ' WITH GRANT OPTION'
+                   ) AS grantable
+            FROM pg_catalog.pg_class AS relation
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = relation.relnamespace
+            JOIN pg_catalog.pg_attribute AS attribute
+              ON attribute.attrelid = relation.oid
+             AND attribute.attnum > 0
+             AND NOT attribute.attisdropped
+            CROSS JOIN (VALUES {", ".join(f"('{item}')" for item in COLUMN_PRIVILEGES)})
+                AS privileges(privilege)
+            WHERE namespace.nspname = 'marketops'
+              AND relation.relkind IN ('r', 'p', 'v', 'm', 'f')
+            ORDER BY relation.relname, attribute.attnum, privilege
+            """
+        )
+        sequence_privileges = await connection.fetch(
+            f"""
+            SELECT relation.relname AS object_name,
+                   privilege,
+                   pg_catalog.has_sequence_privilege(
+                       current_user, relation.oid, privilege
+                   ) AS granted,
+                   pg_catalog.has_sequence_privilege(
+                       current_user,
+                       relation.oid,
+                       privilege || ' WITH GRANT OPTION'
+                   ) AS grantable
+            FROM pg_catalog.pg_class AS relation
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = relation.relnamespace
+            CROSS JOIN (VALUES {", ".join(f"('{item}')" for item in SEQUENCE_PRIVILEGES)})
+                AS privileges(privilege)
+            WHERE namespace.nspname = 'marketops'
+              AND relation.relkind = 'S'
+            ORDER BY relation.relname, privilege
+            """
+        )
+        function_privileges = await connection.fetch(
+            """
+            SELECT routine.proname || '(' ||
+                       pg_catalog.pg_get_function_identity_arguments(routine.oid) || ')'
+                       AS function_signature,
+                   'EXECUTE' AS privilege,
+                   pg_catalog.has_function_privilege(
+                       current_user, routine.oid, 'EXECUTE'
+                   ) AS granted,
+                   pg_catalog.has_function_privilege(
+                       current_user, routine.oid, 'EXECUTE WITH GRANT OPTION'
+                   ) AS grantable
+            FROM pg_catalog.pg_proc AS routine
+            JOIN pg_catalog.pg_namespace AS namespace
+              ON namespace.oid = routine.pronamespace
+            WHERE namespace.nspname = 'marketops'
+            ORDER BY function_signature
+            """
+        )
+        return _validate_application_attestation(
+            role,
+            memberships,
+            schema_privileges,
+            relation_privileges,
+            column_privileges,
+            sequence_privileges,
+            function_privileges,
+        )
+    finally:
+        await connection.close()
+
+
+def git_head() -> str:
+    return subprocess.run(
+        ["git", "rev-parse", "HEAD"],
+        cwd=ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+    ).stdout.strip()
+
+
+async def run(output: Path | None) -> None:
+    try:
+        import asyncpg
+    except ImportError as error:
+        raise RuntimeError("asyncpg is required for the PostgreSQL runtime gate") from error
+
+    admin_dsn = required_environment("MARKETOPS_TEST_ADMIN_DATABASE_URL")
+    migrator_dsn = required_environment("MARKETOPS_TEST_MIGRATOR_DATABASE_URL")
+    app_dsn = required_environment("MARKETOPS_TEST_DATABASE_URL")
+    image_reference = required_environment("MARKETOPS_POSTGRES_IMAGE")
+    if image_reference != "postgres:18.4":
+        raise RuntimeError("PostgreSQL discovery must use the reviewed postgres:18.4 tag")
+    repo_digest = required_environment("MARKETOPS_POSTGRES_REPO_DIGEST")
+    if POSTGRES_DIGEST.fullmatch(repo_digest) is None:
+        raise RuntimeError("PostgreSQL RepoDigest is not a canonical postgres SHA-256 reference")
+    version, version_num = await provision_roles_and_database(asyncpg, admin_dsn)
+    applied = await migrate_and_grant(asyncpg, migrator_dsn)
+    role = await attest_application_role(asyncpg, app_dsn)
+    evidence = {
+        "schemaVersion": 1,
+        "taskId": "M1-01",
+        "workPackage": "WP5-bootstrap",
+        "generatedAt": datetime.now(timezone.utc).isoformat(),
+        "headSha": git_head(),
+        "postgres": {
+            "serverVersion": version,
+            "serverVersionNum": version_num,
+            "imageReference": image_reference,
+            "linuxAmd64RepoDigest": repo_digest,
+        },
+        "migration": {
+            "applied": list(applied),
+            "sha256": hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),
+            "replayApplied": [],
+            "postGrantReplayApplied": [],
+        },
+        "applicationRole": role,
+        "claimBoundary": (
+            "This isolated CI record can establish version, migration, grant, and role "
+            "behavior only; it does not establish adapter behavior, production readiness, "
+            "recovery, demand, ROI, "
+            "repeat use, payment, or M1-01 completion."
+        ),
+    }
+    rendered = json.dumps(evidence, ensure_ascii=True, indent=2, sort_keys=True) + "\n"
+    if output is not None:
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text(rendered, encoding="utf-8")
+    print(rendered, end="")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path)
+    args = parser.parse_args()
+    asyncio.run(run(args.output))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

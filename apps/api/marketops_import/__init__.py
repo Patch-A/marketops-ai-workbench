@@ -9,12 +9,14 @@ from .service import (
     ScopeContext,
     StoredObject,
 )
+from .storage import LocalObjectStore
 
 __all__ = [
     "FilePayload",
     "ImportFailure",
     "ImportRequest",
     "ImportResult",
+    "LocalObjectStore",
     "ProjectImportService",
     "ScopeContext",
     "StoredObject",

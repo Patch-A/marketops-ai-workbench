@@ -1,6 +1,4 @@
-BEGIN;
-
-CREATE SCHEMA marketops;
+CREATE SCHEMA IF NOT EXISTS marketops;
 
 CREATE TABLE marketops.organizations (
     id uuid PRIMARY KEY,
@@ -178,6 +176,25 @@ CREATE TRIGGER artifacts_identity_immutable
 BEFORE UPDATE OR DELETE ON marketops.artifacts
 FOR EACH ROW EXECUTE FUNCTION marketops.reject_immutable_row_change();
 
+CREATE FUNCTION marketops.reject_project_creator_change()
+RETURNS trigger
+LANGUAGE plpgsql
+SET search_path = pg_catalog
+AS $$
+BEGIN
+    IF NEW.created_by IS DISTINCT FROM OLD.created_by THEN
+        RAISE EXCEPTION USING
+            ERRCODE = '55000',
+            MESSAGE = 'project created_by is immutable';
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+CREATE TRIGGER projects_created_by_immutable
+BEFORE UPDATE OF created_by ON marketops.projects
+FOR EACH ROW EXECUTE FUNCTION marketops.reject_project_creator_change();
+
 CREATE TRIGGER audit_events_append_only
 BEFORE UPDATE OR DELETE ON marketops.audit_events
 FOR EACH ROW EXECUTE FUNCTION marketops.reject_immutable_row_change();
@@ -282,7 +299,8 @@ ALTER TABLE marketops.audit_events FORCE ROW LEVEL SECURITY;
 
 CREATE POLICY organizations_scope ON marketops.organizations
 USING (
-    EXISTS (
+    marketops.current_actor_id() IS NOT NULL
+    AND EXISTS (
         SELECT 1
         FROM marketops.workspaces AS workspace
         WHERE workspace.organization_id = organizations.id
@@ -290,7 +308,8 @@ USING (
     )
 )
 WITH CHECK (
-    EXISTS (
+    marketops.current_actor_id() IS NOT NULL
+    AND EXISTS (
         SELECT 1
         FROM marketops.workspaces AS workspace
         WHERE workspace.organization_id = organizations.id
@@ -299,30 +318,40 @@ WITH CHECK (
 );
 
 CREATE POLICY workspaces_scope ON marketops.workspaces
-USING (id = marketops.current_workspace_id())
-WITH CHECK (id = marketops.current_workspace_id());
+USING (
+    marketops.current_actor_id() IS NOT NULL
+    AND id = marketops.current_workspace_id()
+)
+WITH CHECK (
+    marketops.current_actor_id() IS NOT NULL
+    AND id = marketops.current_workspace_id()
+);
 
 CREATE POLICY clients_scope ON marketops.clients
 USING (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND id = marketops.current_client_id()
 )
 WITH CHECK (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND id = marketops.current_client_id()
 );
 
 CREATE POLICY projects_scope_select ON marketops.projects
 FOR SELECT
 USING (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
 );
 
 CREATE POLICY projects_scope_insert ON marketops.projects
 FOR INSERT
 WITH CHECK (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND id = marketops.current_project_id()
     AND created_by = marketops.current_actor_id()
@@ -331,12 +360,14 @@ WITH CHECK (
 CREATE POLICY projects_scope_update ON marketops.projects
 FOR UPDATE
 USING (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND id = marketops.current_project_id()
 )
 WITH CHECK (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND id = marketops.current_project_id()
 );
@@ -344,19 +375,22 @@ WITH CHECK (
 CREATE POLICY projects_scope_delete ON marketops.projects
 FOR DELETE
 USING (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND id = marketops.current_project_id()
 );
 
 CREATE POLICY artifacts_scope ON marketops.artifacts
 USING (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND project_id = marketops.current_project_id()
 )
 WITH CHECK (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND project_id = marketops.current_project_id()
     AND created_by = marketops.current_actor_id()
@@ -364,12 +398,14 @@ WITH CHECK (
 
 CREATE POLICY artifact_versions_scope ON marketops.artifact_versions
 USING (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND project_id = marketops.current_project_id()
 )
 WITH CHECK (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND project_id = marketops.current_project_id()
     AND created_by = marketops.current_actor_id()
@@ -377,12 +413,14 @@ WITH CHECK (
 
 CREATE POLICY audit_events_scope ON marketops.audit_events
 USING (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND project_id = marketops.current_project_id()
 )
 WITH CHECK (
-    workspace_id = marketops.current_workspace_id()
+    marketops.current_actor_id() IS NOT NULL
+    AND workspace_id = marketops.current_workspace_id()
     AND client_id = marketops.current_client_id()
     AND project_id = marketops.current_project_id()
     AND actor_id = marketops.current_actor_id()
@@ -391,5 +429,3 @@ WITH CHECK (
 REVOKE ALL ON SCHEMA marketops FROM PUBLIC;
 REVOKE ALL ON ALL TABLES IN SCHEMA marketops FROM PUBLIC;
 REVOKE ALL ON ALL FUNCTIONS IN SCHEMA marketops FROM PUBLIC;
-
-COMMIT;

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import codecs
 import csv
 import hashlib
@@ -10,7 +11,7 @@ import zipfile
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path, PurePath
-from typing import Callable, ContextManager, Protocol
+from typing import AsyncContextManager, Callable, Protocol
 from uuid import UUID
 from xml.etree import ElementTree
 
@@ -120,6 +121,14 @@ class ImportResult:
 
 
 @dataclass(frozen=True)
+class ImportClaim:
+    """Database-arbitrated result for one scoped idempotency key."""
+
+    record: ProjectImportRecord
+    created: bool
+
+
+@dataclass(frozen=True)
 class _ImportIdentifiers:
     project_id: str
     source_artifact_id: str
@@ -130,7 +139,7 @@ class _ImportIdentifiers:
 
 
 class ObjectStore(Protocol):
-    def put_immutable(
+    async def put_immutable(
         self,
         *,
         kind: str,
@@ -142,15 +151,19 @@ class ObjectStore(Protocol):
 
 
 class ImportTransaction(Protocol):
-    def find_by_idempotency_key(self, key: str) -> ProjectImportRecord | None: ...
+    async def try_create_project_import(
+        self, record: ProjectImportRecord
+    ) -> ImportClaim:
+        """Insert atomically, or return the record that won the unique-key race."""
+        ...
 
-    def create_project_import(self, record: ProjectImportRecord) -> None: ...
-
-    def append_audit_event(self, event: AuditEvent) -> None: ...
+    async def append_audit_event(self, event: AuditEvent) -> None: ...
 
 
 class ImportRepository(Protocol):
-    def transaction(self, scope: ScopeContext) -> ContextManager[ImportTransaction]: ...
+    def transaction(
+        self, scope: ScopeContext
+    ) -> AsyncContextManager[ImportTransaction]: ...
 
 
 class ProjectImportService:
@@ -167,7 +180,9 @@ class ProjectImportService:
         self.id_factory = id_factory
         self.clock = clock
 
-    def import_project(self, request: ImportRequest, scope: ScopeContext) -> ImportResult:
+    async def import_project(
+        self, request: ImportRequest, scope: ScopeContext
+    ) -> ImportResult:
         self._validate(request, scope)
         source_size, source_hash = self._inspect_file(
             request.source, SOURCE_EXTENSIONS, "source"
@@ -183,7 +198,7 @@ class ProjectImportService:
         approved_at = self._capture_approved_at()
         identifiers = self._reserve_identifiers()
 
-        source = self._persist(
+        source = await self._persist(
             "source",
             request.source,
             source_size,
@@ -193,7 +208,7 @@ class ProjectImportService:
             idempotency_hash,
             manifest_hash,
         )
-        proposal = self._persist(
+        proposal = await self._persist(
             "proposal",
             request.proposal,
             proposal_size,
@@ -205,25 +220,7 @@ class ProjectImportService:
         )
 
         try:
-            with self.repository.transaction(scope) as transaction:
-                existing = transaction.find_by_idempotency_key(idempotency_key)
-                if existing is not None:
-                    if (
-                        existing.organization_id != scope.organization_id
-                        or existing.workspace_id != scope.workspace_id
-                        or existing.client_id != scope.client_id
-                    ):
-                        raise ImportFailure(
-                            "IDEMPOTENCY_CONFLICT",
-                            "the idempotency key is not available in this authorization scope",
-                        )
-                    if existing.manifest_sha256 != manifest_hash:
-                        raise ImportFailure(
-                            "IDEMPOTENCY_CONFLICT",
-                            "the idempotency key already belongs to a different import manifest",
-                        )
-                    return self._result(existing, replayed=True)
-
+            async with self.repository.transaction(scope) as transaction:
                 record = self._record(
                     request,
                     scope,
@@ -234,8 +231,36 @@ class ProjectImportService:
                     approved_at,
                     identifiers,
                 )
-                transaction.create_project_import(record)
-                transaction.append_audit_event(
+                claim = await transaction.try_create_project_import(record)
+                if (
+                    not isinstance(claim, ImportClaim)
+                    or type(claim.created) is not bool
+                    or not isinstance(claim.record, ProjectImportRecord)
+                    or (claim.created and claim.record != record)
+                ):
+                    raise RuntimeError(
+                        "repository returned an invalid atomic import claim"
+                    )
+                claimed_record = claim.record
+                if (
+                    claimed_record.organization_id != scope.organization_id
+                    or claimed_record.workspace_id != scope.workspace_id
+                    or claimed_record.client_id != scope.client_id
+                    or claimed_record.idempotency_key != idempotency_key
+                ):
+                    raise ImportFailure(
+                        "IDEMPOTENCY_CONFLICT",
+                        "the idempotency key is not available in this authorization scope",
+                    )
+                if claimed_record.manifest_sha256 != manifest_hash:
+                    raise ImportFailure(
+                        "IDEMPOTENCY_CONFLICT",
+                        "the idempotency key already belongs to a different import manifest",
+                    )
+                if not claim.created:
+                    return self._result(claimed_record, replayed=True)
+
+                await transaction.append_audit_event(
                     AuditEvent(
                         event_id=identifiers.audit_event_id,
                         project_id=record.project_id,
@@ -248,7 +273,9 @@ class ProjectImportService:
                         approved_at=approved_at,
                     )
                 )
-                return self._result(record, replayed=False)
+                return self._result(claimed_record, replayed=False)
+        except asyncio.CancelledError:
+            raise
         except ImportFailure:
             raise
         except Exception as error:
@@ -295,7 +322,7 @@ class ProjectImportService:
             created_by=scope.actor_id,
         )
 
-    def _persist(
+    async def _persist(
         self,
         kind: str,
         payload: FilePayload,
@@ -311,13 +338,15 @@ class ProjectImportService:
             f"{idempotency_hash}/{manifest_hash}/{kind}/{sha256}"
         )
         try:
-            stored = self.object_store.put_immutable(
+            stored = await self.object_store.put_immutable(
                 kind=kind,
                 storage_key=storage_key,
                 source_path=payload.source_path,
                 size_bytes=size_bytes,
                 sha256=sha256,
             )
+        except asyncio.CancelledError:
+            raise
         except Exception as error:
             raise ImportFailure(
                 "OBJECT_WRITE_FAILED", f"failed to retain the {kind} object", retryable=True

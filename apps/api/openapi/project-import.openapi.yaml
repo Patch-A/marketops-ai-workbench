@@ -70,10 +70,10 @@
               },
               "encoding": {
                 "sourceFile": {
-                  "contentType": "text/markdown, text/csv, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  "contentType": "text/markdown, text/plain, text/csv, application/csv, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 },
                 "proposalFile": {
-                  "contentType": "text/markdown, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                  "contentType": "text/markdown, text/plain, application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                 }
               }
             }
@@ -130,6 +130,7 @@
             }
           },
           "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
           "403": { "$ref": "#/components/responses/ImportFailure" },
           "409": { "$ref": "#/components/responses/ImportFailure" },
           "413": { "$ref": "#/components/responses/ImportFailure" },
@@ -191,6 +192,25 @@
       }
     },
     "responses": {
+      "AuthenticationFailure": {
+        "description": "The deployment bearer token is missing or invalid.",
+        "headers": {
+          "WWW-Authenticate": {
+            "required": true,
+            "schema": {
+              "type": "string",
+              "const": "Bearer"
+            }
+          }
+        },
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ImportError"
+            }
+          }
+        }
+      },
       "ImportFailure": {
         "description": "Stable import failure. Response bodies and logs never include source bytes or storage credentials.",
         "content": {

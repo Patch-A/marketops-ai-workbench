@@ -114,6 +114,8 @@ Review FastAPI, the PostgreSQL driver, and migration tooling for fixed versions,
 
 ### Task 4: Real PostgreSQL Integration Gate
 
+Detailed execution contract: [`2026-08-09-m1-01-runtime-integration.md`](2026-08-09-m1-01-runtime-integration.md). That plan corrects the migration transaction boundary, async idempotency race, RLS claim boundary, dependency lock, and server-backed frontend cutover before this gate can close.
+
 **Files:**
 - Create after environment decision: `apps/api/tests/postgres/test_project_import.sql`
 - Modify after environment decision: `.github/workflows/quality.yml`

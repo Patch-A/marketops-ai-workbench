@@ -15,8 +15,30 @@ ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "apps" / "api" / "openapi" / "project-import.openapi.yaml"
 ROUTE = "/v1/project-imports"
 FORBIDDEN_SCOPE_FIELDS = {"organizationId", "workspaceId", "clientId", "actorId"}
-REQUIRED_RESPONSES = {"201", "400", "403", "409", "413", "415", "422", "500"}
+REQUIRED_RESPONSES = {
+    "201",
+    "400",
+    "401",
+    "403",
+    "409",
+    "413",
+    "415",
+    "422",
+    "500",
+}
 MAX_FILE_SIZE_BYTES = 25 * 1024 * 1024
+SOURCE_MEDIA_TYPES = (
+    "text/markdown",
+    "text/plain",
+    "text/csv",
+    "application/csv",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+)
+PROPOSAL_MEDIA_TYPES = (
+    "text/markdown",
+    "text/plain",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+)
 # Frozen against the ImportFailure codes emitted by marketops_import.service.
 REQUIRED_ERROR_CODES = frozenset(
     {
@@ -92,6 +114,21 @@ def request_properties(document):
     return multipart_schema(document).get("properties", {})
 
 
+def multipart_media_types(document, field):
+    value = (
+        operation(document)
+        .get("requestBody", {})
+        .get("content", {})
+        .get("multipart/form-data", {})
+        .get("encoding", {})
+        .get(field, {})
+        .get("contentType")
+    )
+    if not isinstance(value, str):
+        return ()
+    return tuple(item.strip() for item in value.split(","))
+
+
 def error_code_enum(document):
     return (
         document.get("components", {})
@@ -145,6 +182,18 @@ GUARDS = (
         lambda d: request_properties(d).get("proposalFile", {}).pop("format", None),
     ),
     Guard(
+        "exact source and proposal media types",
+        lambda d: multipart_media_types(d, "sourceFile") == SOURCE_MEDIA_TYPES
+        and multipart_media_types(d, "proposalFile") == PROPOSAL_MEDIA_TYPES,
+        lambda d: operation(d)["requestBody"]["content"]["multipart/form-data"][
+            "encoding"
+        ]["sourceFile"].update(
+            contentType=", ".join(
+                item for item in SOURCE_MEDIA_TYPES if item != "application/csv"
+            )
+        ),
+    ),
+    Guard(
         "positive proposal version",
         lambda d: request_properties(d).get("proposalVersion", {}).get("type") == "integer"
         and request_properties(d).get("proposalVersion", {}).get("minimum") == 1,
@@ -170,14 +219,39 @@ GUARDS = (
     ),
     Guard(
         "error responses use ImportError",
-        lambda d: all(
+        lambda d: operation(d).get("responses", {}).get("401")
+        == {"$ref": "#/components/responses/AuthenticationFailure"}
+        and all(
             operation(d).get("responses", {}).get(status)
             == {"$ref": "#/components/responses/ImportFailure"}
-            for status in REQUIRED_RESPONSES - {"201"}
+            for status in REQUIRED_RESPONSES - {"201", "401"}
         ),
         lambda d: operation(d).get("responses", {}).update(
             {"403": {"description": "arbitrary response"}}
         ),
+    ),
+    Guard(
+        "bearer authentication challenge",
+        lambda d: d.get("components", {})
+        .get("responses", {})
+        .get("AuthenticationFailure", {})
+        .get("headers", {})
+        .get("WWW-Authenticate", {})
+        == {
+            "required": True,
+            "schema": {"type": "string", "const": "Bearer"},
+        }
+        and d.get("components", {})
+        .get("responses", {})
+        .get("AuthenticationFailure", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema")
+        == {"$ref": "#/components/schemas/ImportError"},
+        lambda d: d.get("components", {})
+        .get("responses", {})
+        .get("AuthenticationFailure", {})
+        .pop("headers", None),
     ),
     Guard(
         "traceable success response",
@@ -311,7 +385,10 @@ def main():
         "PASS: M1-01 OpenAPI contract "
         f"({len(GUARDS)} guards, {len(GUARDS) + len(REQUIRED_ERROR_CODES)} mutations)"
     )
-    print("LIMITATION: route runtime and authentication integration remain unimplemented")
+    print(
+        "LIMITATION: static contract only; runtime equality and authentication "
+        "behavior are separate HTTP adapter checks"
+    )
     return 0
 
 
