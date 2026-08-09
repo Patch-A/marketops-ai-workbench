@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -99,6 +100,23 @@ class LocalObjectStoreTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(first, second)
         self.assertEqual(self.destination().read_bytes(), self.content)
         self.assertEqual(list(self.root.rglob(".object-*")), [])
+
+    async def test_cleanup_guard_fails_closed_off_linux(self):
+        if sys.platform.startswith("linux"):
+            self.skipTest("non-Linux failure behavior")
+        with self.assertRaisesRegex(RuntimeError, "requires Linux flock"):
+            async with self.store.cleanup_guard(timeout_seconds=0.05):
+                self.fail("unsupported cleanup lock was acquired")
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "Linux flock is required")
+    async def test_shared_import_guard_blocks_exclusive_cleanup_guard(self):
+        async with self.store.import_guard(timeout_seconds=0.2):
+            with self.assertRaisesRegex(TimeoutError, "lock is busy"):
+                async with self.store.cleanup_guard(timeout_seconds=0.05):
+                    self.fail("exclusive cleanup lock bypassed an importer")
+
+        async with self.store.cleanup_guard(timeout_seconds=0.2):
+            pass
 
     async def test_rejects_symbolic_link_in_physical_key_prefix(self):
         destination = self.destination()

@@ -55,12 +55,36 @@ class FakeObjectStore:
         fail_on: str | None = None,
         corrupt_on: str | None = None,
         cancel_on: str | None = None,
+        guard_enter_error: BaseException | None = None,
+        guard_exit_error: BaseException | None = None,
     ):
         self.fail_on = fail_on
         self.corrupt_on = corrupt_on
         self.cancel_on = cancel_on
+        self.guard_enter_error = guard_enter_error
+        self.guard_exit_error = guard_exit_error
         self.calls: list[tuple[str, str]] = []
         self.objects: dict[str, bytes] = {}
+        self.guard_depth = 0
+        self.guard_events: list[str] = []
+
+    @asynccontextmanager
+    async def import_guard(self):
+        if self.guard_enter_error is not None:
+            raise self.guard_enter_error
+        self.guard_depth += 1
+        self.guard_events.append("enter")
+        try:
+            yield
+        finally:
+            self.guard_events.append("exit")
+            self.guard_depth -= 1
+            if self.guard_exit_error is not None:
+                raise self.guard_exit_error
+
+    @property
+    def guard_active(self):
+        return self.guard_depth > 0
 
     async def put_immutable(self, *, kind: str, storage_key: str, source_path: Path, size_bytes: int, sha256: str) -> StoredObject:
         self.calls.append((kind, storage_key))
@@ -135,6 +159,8 @@ class FakeTransaction:
             (self.scope.workspace_id, self.scope.client_id, record.idempotency_key)
         ] = record
         self.repository.audit_events.append(self.pending_audit)
+        if self.repository.guard_probe is not None and not self.repository.guard_probe():
+            raise AssertionError("object-store guard ended before database commit")
 
 
 class FakeRepository:
@@ -148,6 +174,7 @@ class FakeRepository:
         fail_on_commit=False,
         cancel_on_commit=False,
         invalid_created_claim=None,
+        guard_probe=None,
     ):
         self.fail_database = fail_database
         self.fail_audit = fail_audit
@@ -157,6 +184,7 @@ class FakeRepository:
         self.fail_on_commit = fail_on_commit
         self.cancel_on_commit = cancel_on_commit
         self.invalid_created_claim = invalid_created_claim
+        self.guard_probe = guard_probe
         self.transaction_count = 0
         self.claim_calls = 0
         self.rollbacks = 0
@@ -260,6 +288,83 @@ class ProjectImportServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(record.approved_by, self.scope.actor_id)
         self.assertEqual(record.approved_at, datetime(2026, 8, 9, 4, 0, tzinfo=timezone.utc))
         self.assertEqual(repository.audit_events[0].actor_id, self.scope.actor_id)
+
+    async def test_import_guard_covers_object_writes_and_database_commit(self):
+        store = FakeObjectStore()
+        repository = FakeRepository(guard_probe=lambda: store.guard_active)
+
+        await self.build_service(store, repository).import_project(
+            self.valid_request(), self.scope
+        )
+
+        self.assertEqual(store.guard_events, ["enter", "exit"])
+        self.assertFalse(store.guard_active)
+
+    async def test_import_guard_timeout_and_error_are_stable_retryable_object_failures(self):
+        for label, guard_error in {
+            "timeout": TimeoutError("secret lock path"),
+            "runtime": RuntimeError("secret lock path"),
+        }.items():
+            with self.subTest(label=label):
+                store = FakeObjectStore(guard_enter_error=guard_error)
+                repository = FakeRepository()
+                with self.assertRaises(ImportFailure) as caught:
+                    await self.build_service(store, repository).import_project(
+                        self.valid_request(), self.scope
+                    )
+                self.assertEqual(caught.exception.code, "OBJECT_WRITE_FAILED")
+                self.assertTrue(caught.exception.retryable)
+                self.assertNotIn("secret", str(caught.exception))
+                self.assertIsNone(caught.exception.__cause__)
+                self.assertEqual(store.calls, [])
+                self.assertEqual(repository.transaction_count, 0)
+
+    async def test_import_guard_exit_error_is_stable_and_releases_after_commit(self):
+        store = FakeObjectStore(
+            guard_exit_error=RuntimeError("secret cleanup failure")
+        )
+        repository = FakeRepository()
+
+        with self.assertRaises(ImportFailure) as caught:
+            await self.build_service(store, repository).import_project(
+                self.valid_request(), self.scope
+            )
+
+        self.assertEqual(caught.exception.code, "OBJECT_WRITE_FAILED")
+        self.assertTrue(caught.exception.retryable)
+        self.assertNotIn("secret", str(caught.exception))
+        self.assertFalse(store.guard_active)
+        self.assertEqual(len(repository.imports), 1)
+        self.assertEqual(len(repository.audit_events), 1)
+
+    async def test_import_guard_domain_failure_is_preserved(self):
+        original = ImportFailure(
+            "OBJECT_WRITE_FAILED", "stable domain failure", retryable=True
+        )
+        store = FakeObjectStore(guard_enter_error=original)
+        with self.assertRaises(ImportFailure) as caught:
+            await self.build_service(store=store).import_project(
+                self.valid_request(), self.scope
+            )
+        self.assertIs(caught.exception, original)
+
+    async def test_import_guard_cancellation_propagates_and_releases(self):
+        entering = FakeObjectStore(guard_enter_error=asyncio.CancelledError())
+        with self.assertRaises(asyncio.CancelledError):
+            await self.build_service(store=entering).import_project(
+                self.valid_request(), self.scope
+            )
+        self.assertFalse(entering.guard_active)
+        self.assertEqual(entering.calls, [])
+
+        exiting = FakeObjectStore(guard_exit_error=asyncio.CancelledError())
+        repository = FakeRepository()
+        with self.assertRaises(asyncio.CancelledError):
+            await self.build_service(exiting, repository).import_project(
+                self.valid_request(), self.scope
+            )
+        self.assertFalse(exiting.guard_active)
+        self.assertEqual(len(repository.imports), 1)
 
     async def test_same_idempotency_key_and_manifest_replays_existing_project(self):
         repository = FakeRepository()
@@ -520,6 +625,7 @@ class ProjectImportServiceTests(unittest.IsolatedAsyncioTestCase):
             )
 
         self.assertEqual(repository.transaction_count, 0)
+        self.assertFalse(store.guard_active)
 
     async def test_stored_hash_mismatch_prevents_database_transaction(self):
         store = FakeObjectStore(corrupt_on="source")
@@ -615,16 +721,18 @@ class ProjectImportServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repository.rollbacks, 1)
 
     async def test_commit_cancellation_propagates_and_rolls_back(self):
+        store = FakeObjectStore()
         repository = FakeRepository(cancel_on_commit=True)
 
         with self.assertRaises(asyncio.CancelledError):
-            await self.build_service(repository=repository).import_project(
+            await self.build_service(store=store, repository=repository).import_project(
                 self.valid_request(), self.scope
             )
 
         self.assertEqual(repository.imports, {})
         self.assertEqual(repository.audit_events, [])
         self.assertEqual(repository.rollbacks, 1)
+        self.assertFalse(store.guard_active)
 
     async def test_openapi_length_limits_are_enforced_by_core_service(self):
         with self.assertRaisesRegex(ImportFailure, "INVALID_INPUT"):

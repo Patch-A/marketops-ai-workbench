@@ -6,14 +6,19 @@ import asyncio
 import hashlib
 import os
 import re
+import sys
 import tempfile
+import time
+from contextlib import asynccontextmanager
 from pathlib import Path, PurePosixPath
+from typing import AsyncIterator
 from uuid import UUID
 
 from .service import StoredObject
 
 
 _CHUNK_SIZE = 1024 * 1024
+_LOCK_FILE = ".marketops-object-store.lock"
 _STORAGE_KEY = re.compile(
     r"^workspaces/[0-9a-f-]{36}/clients/[0-9a-f-]{36}/imports/"
     r"[0-9a-f]{64}/[0-9a-f]{64}/(source|proposal)/[0-9a-f]{64}$"
@@ -29,7 +34,64 @@ class LocalObjectStore:
     """
 
     def __init__(self, root: Path | str):
-        self.root = Path(root).resolve()
+        self.configured_root = Path(root).absolute()
+        self.root = self.configured_root.resolve()
+
+    @asynccontextmanager
+    async def import_guard(
+        self, *, timeout_seconds: float = 30.0
+    ) -> AsyncIterator[None]:
+        """Hold the cooperative shared Linux lease for one complete import."""
+        if os.name == "nt":
+            # Cleanup apply is unsupported on Windows, so no destructive peer can run.
+            yield
+            return
+        async with self._linux_lock(shared=True, timeout_seconds=timeout_seconds):
+            yield
+
+    @asynccontextmanager
+    async def cleanup_guard(
+        self, *, timeout_seconds: float = 30.0
+    ) -> AsyncIterator[None]:
+        """Exclude cooperative importers while a Linux cleanup scans and applies."""
+        if not sys.platform.startswith("linux"):
+            raise RuntimeError("orphan cleanup apply requires Linux flock")
+        async with self._linux_lock(shared=False, timeout_seconds=timeout_seconds):
+            yield
+
+    @asynccontextmanager
+    async def _linux_lock(
+        self, *, shared: bool, timeout_seconds: float
+    ) -> AsyncIterator[None]:
+        if isinstance(timeout_seconds, bool) or timeout_seconds <= 0:
+            raise ValueError("object-store lock timeout must be positive")
+        import fcntl
+
+        self.root.mkdir(parents=True, exist_ok=True)
+        if self.configured_root.is_symlink():
+            raise ValueError("object-store root must not be a symbolic link")
+        lock_path = self.root / _LOCK_FILE
+        flags = os.O_RDWR | os.O_CREAT
+        flags |= getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(lock_path, flags, 0o600)
+        operation = fcntl.LOCK_SH if shared else fcntl.LOCK_EX
+        deadline = time.monotonic() + float(timeout_seconds)
+        acquired = False
+        try:
+            while True:
+                try:
+                    fcntl.flock(descriptor, operation | fcntl.LOCK_NB)
+                    acquired = True
+                    break
+                except BlockingIOError:
+                    if time.monotonic() >= deadline:
+                        raise TimeoutError("object-store cleanup lock is busy")
+                    await asyncio.sleep(0.05)
+            yield
+        finally:
+            if acquired:
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+            os.close(descriptor)
 
     async def put_immutable(
         self,

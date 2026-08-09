@@ -139,6 +139,8 @@ class _ImportIdentifiers:
 
 
 class ObjectStore(Protocol):
+    def import_guard(self) -> AsyncContextManager[None]: ...
+
     async def put_immutable(
         self,
         *,
@@ -198,6 +200,47 @@ class ProjectImportService:
         approved_at = self._capture_approved_at()
         identifiers = self._reserve_identifiers()
 
+        try:
+            async with self.object_store.import_guard():
+                return await self._persist_and_commit(
+                    request=request,
+                    scope=scope,
+                    source_size=source_size,
+                    source_hash=source_hash,
+                    proposal_size=proposal_size,
+                    proposal_hash=proposal_hash,
+                    manifest_hash=manifest_hash,
+                    idempotency_key=idempotency_key,
+                    idempotency_hash=idempotency_hash,
+                    approved_at=approved_at,
+                    identifiers=identifiers,
+                )
+        except asyncio.CancelledError:
+            raise
+        except ImportFailure:
+            raise
+        except Exception:
+            raise ImportFailure(
+                "OBJECT_WRITE_FAILED",
+                "the object-store import guard is temporarily unavailable",
+                retryable=True,
+            ) from None
+
+    async def _persist_and_commit(
+        self,
+        *,
+        request: ImportRequest,
+        scope: ScopeContext,
+        source_size: int,
+        source_hash: str,
+        proposal_size: int,
+        proposal_hash: str,
+        manifest_hash: str,
+        idempotency_key: str,
+        idempotency_hash: str,
+        approved_at: datetime,
+        identifiers: _ImportIdentifiers,
+    ) -> ImportResult:
         source = await self._persist(
             "source",
             request.source,
