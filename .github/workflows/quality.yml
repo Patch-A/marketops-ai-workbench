@@ -26,6 +26,11 @@ jobs:
           node --check project-import.js
       - name: Check project import contract
         run: node scripts/check_project_import.mjs
+      - name: Check M1-01 server import contracts
+        run: |
+          python scripts/check_m1_01_postgres_contract.py
+          python -m unittest discover -s apps/api/tests -p 'test_*.py' -v
+          python scripts/check_m1_01_openapi_contract.py
       - name: Check documentation links and encoding
         run: node scripts/check-docs.mjs
       - name: Check project progress registry

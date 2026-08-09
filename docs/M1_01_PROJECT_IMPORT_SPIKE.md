@@ -42,17 +42,26 @@ node scripts/check_project_import.mjs
 
 ## 尚未通过的最终门槛
 
-- PostgreSQL `Project`、`Artifact`、`ArtifactVersion` 表与迁移尚未实现。
-- API 尚未提供创建项目、上传/保留源文件、选择批准版本和审计事件端点。
+- PostgreSQL `Project`、`Artifact`、`ArtifactVersion` 静态迁移已实现，但尚未在 PostgreSQL 18.4 执行或完成 RLS 越权验证。
+- API 契约与依赖无关的事务服务已实现；HTTP runtime、认证、数据库驱动和真实存储适配器尚未实现。
 - 浏览器 localStorage/IndexedDB 只能作为临时原型适配器，不能替代产品的服务器事实来源。
-- 未完成独立审查，因此 `M1-01` 必须保持 `in_progress`。
+- 静态契约已通过独立规范审查，但真实数据库与运行时验收尚未完成，因此 `M1-01` 必须保持 `in_progress`。
 
 ## 下一工作包
 
-实现服务器端导入接口和 PostgreSQL 迁移，复用本切片的记录字段与错误语义；在服务器端验收通过前，不得把浏览器本地记录当作生产项目状态。
+完成 FastAPI/数据库驱动依赖准入，接入 HTTP runtime 与真实 PostgreSQL 18.4，执行 RLS、并发幂等、回滚、恢复和备份验收；在这些门槛通过前，不得把浏览器本地记录或静态迁移当作生产项目状态。
+
 ### Explicit prototype limits
 
 - Retention verification now reads both IndexedDB records and recomputes SHA-256 against the project metadata.
 - Browser format checks are filename-extension gates only. Parser and structural validation remain a server-backed acceptance requirement.
 - The browser prototype has no workspace/client authorization boundary and must not receive real customer files.
 - Two file writes and the local project index are not one atomic transaction; partial failures can leave orphaned local blobs until server cleanup exists.
+
+## Server contract progress (2026-08-09)
+
+- `apps/api/migrations/0001_project_import.sql` freezes the PostgreSQL tenant scope, immutable artifact versions, approved-proposal pointer, audit table, deferred checks, and forced RLS policies.
+- `scripts/check_m1_01_postgres_contract.py` passes 23 static guards and weakening mutations, including rejection of open project/artifact/audit policies, mutable artifact identity, and unapproved proposal selection. This is not proof that PostgreSQL 18.4 executes the migration correctly.
+- `apps/api/marketops_import/service.py` defines the dependency-neutral transaction order, path-streamed SHA-256, 25 MiB limits, full UTF-8 traversal for Markdown/CSV, basic DOCX validation, scoped manifest idempotency, explicit authenticated approval, object integrity checks, UUID output, server-only scope, and stable failure codes. Twenty-five unit tests pass with public/synthetic files and fake adapters.
+- `apps/api/openapi/project-import.openapi.yaml` freezes the authenticated multipart API surface, explicit approval, artifact/version IDs, file limit, and error envelope. Fifteen contract guards and twenty-eight weakening mutations pass; no HTTP runtime is implemented.
+- Real PostgreSQL execution, owner/application roles, RLS adversarial tests, concurrent idempotency, crash recovery, backup/restore, object cleanup, authentication, and reviewed runtime dependencies remain mandatory before `M1-01` can complete.
