@@ -239,10 +239,15 @@ def has_exact_registry_acl_predicates(source: str) -> bool:
         "where privileged_attribute.attrelid = registry.oid "
         "and privileged_attribute.attnum > 0 "
         "and not privileged_attribute.attisdropped "
+        "and privileged_attribute.attacl is not null "
         "and acl.grantee <> registry.relowner "
         ") as non_owner_column_privilege_count",
     )
-    return all(fragment in compact for fragment in required)
+    return (
+        all(fragment in compact for fragment in required)
+        and "aclexplode( privileged_attribute.attacl )" in compact
+        and "array[]::aclitem[]" not in compact
+    )
 
 
 def has_rls_for_all_tables(sql: str) -> bool:
@@ -496,14 +501,18 @@ RUNNER_GUARDS = (
     ),
     Guard(
         "registry schema and column ACL attestation",
-        lambda source: all(
-            marker in normalized(source)
-            for marker in (
-                "as non_owner_schema_privileges",
-                "privileged_attribute.attacl",
-                "cross join lateral pg_catalog.aclexplode(",
-                "as non_owner_column_privilege_count",
+        lambda source: (
+            all(
+                marker in normalized(source)
+                for marker in (
+                    "as non_owner_schema_privileges",
+                    "cross join lateral pg_catalog.aclexplode(",
+                    "aclexplode( privileged_attribute.attacl )",
+                    "privileged_attribute.attacl is not null",
+                    "as non_owner_column_privilege_count",
+                )
             )
+            and "array[]::aclitem[]" not in normalized(source)
         ),
         r"privileged_attribute\.attacl",
     ),
@@ -661,12 +670,23 @@ def acl_predicate_mutation_failures(source: str) -> list[str]:
         (
             "column ACL query hides INSERT and UPDATE",
             "AND NOT privileged_attribute.attisdropped\n"
+            "          AND privileged_attribute.attacl IS NOT NULL\n"
             "          AND acl.grantee <> registry.relowner\n"
             "    ) AS non_owner_column_privilege_count",
             "AND NOT privileged_attribute.attisdropped\n"
+            "          AND privileged_attribute.attacl IS NOT NULL\n"
             "          AND acl.grantee <> registry.relowner\n"
             "          AND acl.privilege_type NOT IN ('INSERT', 'UPDATE')\n"
             "    ) AS non_owner_column_privilege_count",
+        ),
+        (
+            "column ACL query reintroduces a dimensionless empty array",
+            "pg_catalog.aclexplode(\n"
+            "            privileged_attribute.attacl\n"
+            "        ) AS acl",
+            "pg_catalog.aclexplode(\n"
+            "            COALESCE(privileged_attribute.attacl, ARRAY[]::aclitem[])\n"
+            "        ) AS acl",
         ),
     )
     failures: list[str] = []

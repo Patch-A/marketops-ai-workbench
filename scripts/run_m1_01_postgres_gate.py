@@ -26,6 +26,10 @@ APPLICATION_ROLE = "marketops_app"
 DATABASE_NAME = "marketops_test"
 POSTGRES_VERSION_NUM = 180004
 POSTGRES_DIGEST = re.compile(r"postgres@sha256:[0-9a-f]{64}")
+PINNED_POSTGRES_IMAGE = (
+    "postgres@sha256:"
+    "a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
+)
 RELATION_PRIVILEGES = (
     "SELECT",
     "INSERT",
@@ -68,6 +72,15 @@ def required_environment(name: str) -> str:
     if not value:
         raise RuntimeError(f"missing required CI environment variable: {name}")
     return value
+
+
+def validate_postgres_image(image_reference: str, repo_digest: str) -> None:
+    if POSTGRES_DIGEST.fullmatch(image_reference) is None:
+        raise RuntimeError("PostgreSQL image must be an immutable canonical digest")
+    if image_reference != PINNED_POSTGRES_IMAGE:
+        raise RuntimeError("PostgreSQL image differs from the reviewed service image digest")
+    if repo_digest != image_reference:
+        raise RuntimeError("service-container RepoDigest differs from the configured image")
 
 
 async def quoted_literal(connection, value: str) -> str:
@@ -456,11 +469,8 @@ async def run(output: Path | None) -> None:
     migrator_dsn = required_environment("MARKETOPS_TEST_MIGRATOR_DATABASE_URL")
     app_dsn = required_environment("MARKETOPS_TEST_DATABASE_URL")
     image_reference = required_environment("MARKETOPS_POSTGRES_IMAGE")
-    if image_reference != "postgres:18.4":
-        raise RuntimeError("PostgreSQL discovery must use the reviewed postgres:18.4 tag")
     repo_digest = required_environment("MARKETOPS_POSTGRES_REPO_DIGEST")
-    if POSTGRES_DIGEST.fullmatch(repo_digest) is None:
-        raise RuntimeError("PostgreSQL RepoDigest is not a canonical postgres SHA-256 reference")
+    validate_postgres_image(image_reference, repo_digest)
     version, version_num = await provision_roles_and_database(asyncpg, admin_dsn)
     applied = await migrate_and_grant(asyncpg, migrator_dsn)
     role = await attest_application_role(asyncpg, app_dsn)
@@ -474,7 +484,8 @@ async def run(output: Path | None) -> None:
             "serverVersion": version,
             "serverVersionNum": version_num,
             "imageReference": image_reference,
-            "linuxAmd64RepoDigest": repo_digest,
+            "repoDigest": repo_digest,
+            "validatedRuntimePlatform": "linux/amd64",
         },
         "migration": {
             "applied": list(applied),

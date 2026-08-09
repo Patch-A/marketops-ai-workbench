@@ -510,6 +510,17 @@ END;
             REGISTRY_ATTESTATION_SQL,
         )
 
+    def test_registry_column_acl_does_not_expand_a_dimensionless_empty_array(self) -> None:
+        self.assertNotIn("ARRAY[]::aclitem[]", REGISTRY_ATTESTATION_SQL)
+        self.assertIn(
+            "pg_catalog.aclexplode(\n            privileged_attribute.attacl\n        )",
+            REGISTRY_ATTESTATION_SQL,
+        )
+        self.assertIn(
+            "privileged_attribute.attacl IS NOT NULL",
+            REGISTRY_ATTESTATION_SQL,
+        )
+
     async def _assert_registry_rejected(self, **changes: Any) -> None:
         migrations = MigrationDirectory(self)
         migrations.write("0001_initial.sql", b"SELECT 1;")

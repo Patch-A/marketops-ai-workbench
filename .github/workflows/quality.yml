@@ -54,7 +54,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:18.4
+        image: postgres@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
         env:
           POSTGRES_DB: marketops_test
           POSTGRES_PASSWORD: marketops-ci-admin
@@ -71,7 +71,7 @@ jobs:
       MARKETOPS_TEST_DATABASE_URL: postgresql://marketops_app:marketops-ci-app@127.0.0.1:5432/marketops_test
       MARKETOPS_TEST_MIGRATOR_PASSWORD: marketops-ci-migrator
       MARKETOPS_TEST_APP_PASSWORD: marketops-ci-app
-      MARKETOPS_POSTGRES_IMAGE: postgres:18.4
+      MARKETOPS_POSTGRES_IMAGE: postgres@sha256:a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636
       MARKETOPS_REQUIRE_TEST_PREREQUISITES: "1"
     steps:
       - uses: actions/checkout@v4
@@ -90,7 +90,7 @@ jobs:
           "$runtime_python" scripts/check_m1_01_python_lock.py --installed
           "$runtime_python" -m pip check
           echo "$RUNNER_TEMP/m1-01-venv/bin" >> "$GITHUB_PATH"
-      - name: Discover the official Linux amd64 PostgreSQL digest
+      - name: Verify the pinned official PostgreSQL digest on Linux amd64
         run: |
           service_container="${{ job.services.postgres.id }}"
           test -n "$service_container"

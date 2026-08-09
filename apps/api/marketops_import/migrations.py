@@ -225,11 +225,12 @@ SELECT
         SELECT count(*)::integer
         FROM pg_catalog.pg_attribute AS privileged_attribute
         CROSS JOIN LATERAL pg_catalog.aclexplode(
-            COALESCE(privileged_attribute.attacl, ARRAY[]::aclitem[])
+            privileged_attribute.attacl
         ) AS acl
         WHERE privileged_attribute.attrelid = registry.oid
           AND privileged_attribute.attnum > 0
           AND NOT privileged_attribute.attisdropped
+          AND privileged_attribute.attacl IS NOT NULL
           AND acl.grantee <> registry.relowner
     ) AS non_owner_column_privilege_count,
     (

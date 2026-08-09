@@ -8,6 +8,7 @@ from scripts.run_m1_01_postgres_gate import (
     EXPECTED_RELATION_PRIVILEGES,
     _validate_application_attestation,
     ensure_login_role,
+    validate_postgres_image,
 )
 
 
@@ -95,6 +96,32 @@ class RuntimeGateRoleProvisioningTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(connection.statements), 1)
         self.assertIn("ALTER ROLE marketops_app", connection.statements[0])
         self.assertIn("NOREPLICATION", connection.statements[0])
+
+
+class RuntimeGateImagePinTests(unittest.TestCase):
+    pinned = (
+        "postgres@sha256:"
+        "a02db8cac496f15b094798a38254f14d6e00741f709360e5e00bb6668ea31636"
+    )
+
+    def test_reviewed_service_digest_passes(self):
+        validate_postgres_image(self.pinned, self.pinned)
+
+    def test_mutable_tag_fails_closed(self):
+        with self.assertRaisesRegex(RuntimeError, "immutable canonical digest"):
+            validate_postgres_image("postgres:18.4", self.pinned)
+
+    def test_unreviewed_canonical_digest_fails_closed(self):
+        unreviewed = "postgres@sha256:" + "0" * 64
+
+        with self.assertRaisesRegex(RuntimeError, "reviewed service image digest"):
+            validate_postgres_image(unreviewed, unreviewed)
+
+    def test_container_digest_mismatch_fails_closed(self):
+        other = "postgres@sha256:" + "0" * 64
+
+        with self.assertRaisesRegex(RuntimeError, "service-container RepoDigest"):
+            validate_postgres_image(self.pinned, other)
 
 
 class RuntimeGatePrivilegeAttestationTests(unittest.TestCase):
