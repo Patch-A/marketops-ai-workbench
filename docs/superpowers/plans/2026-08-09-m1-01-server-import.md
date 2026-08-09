@@ -108,7 +108,7 @@ Freeze the route and DTOs without adding a third-party runtime.
 
 Run the OpenAPI checker, server service tests, documentation checks, and the existing dependency decision check.
 
-- [ ] **Step 5: Complete the runtime dependency decision**
+- [x] **Step 5: Complete the runtime dependency decision**
 
 Review FastAPI, the PostgreSQL driver, and migration tooling for fixed versions, licenses, transitive dependencies, maintenance, Python 3.12 support, and replacement boundaries before adding runtime code.
 

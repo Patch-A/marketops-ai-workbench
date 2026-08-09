@@ -1,6 +1,6 @@
 # 开源组件与 Skill 审查
 
-快照日期：2026-08-08。Star 数来自当日 GitHub API，只反映关注度。许可证字段为初筛，不构成法律意见；正式引入时必须读取仓库中的完整许可证、NOTICE 和依赖许可证。
+快照日期：2026-08-09。Star 数来自 2026-08-08 GitHub API 快照，只反映关注度。许可证字段为初筛，不构成法律意见；正式引入时必须读取仓库中的完整许可证、NOTICE 和依赖许可证。
 
 ## 1. 产品运行候选组件
 
@@ -19,7 +19,25 @@
 | [pgvector](https://github.com/pgvector/pgvector) | 22,535 | API 未识别 | Postgres 向量检索 | 核对许可证后技术验证 |
 | [MinIO](https://github.com/minio/minio) | 61,387 | AGPL-3.0 | S3 对象存储 | 上游仓库已归档，不默认采用 |
 
-## 2. 选择原则
+## 2. M1-01 运行时依赖准入
+
+完整证据见 `validation/results/m1-01-runtime-dependency-admission.json` 和 `docs/M1_01_RUNTIME_DEPENDENCY_DECISION.md`。这里的 adopted 只允许进入实现阶段，不表示依赖已经安装或运行。
+
+| 能力 | Adopted | Deferred / Rejected | 边界 |
+|---|---|---|---|
+| HTTP framework | FastAPI `0.141.1`（MIT） | Litestar `2.24.0` deferred | 只做 OpenAPI/认证输入到 domain DTO 的适配 |
+| ASGI server | Uvicorn `0.52.1` base（BSD-3-Clause） | `standard` extra 不采用 | 只负责进程和传输生命周期 |
+| Multipart | python-multipart `0.0.32`（Apache-2.0） | 其他 parser 未采用 | 不负责授权、批准或存储决策 |
+| PostgreSQL driver | asyncpg `0.31.0`（Apache-2.0） | Psycopg `3.3.4` deferred | service/repository 必须真正 async 化；RLS scope 由 server 注入 |
+| Migration | internal-sql-runner `contract-v1` | Alembic `1.19.1` deferred；yoyo `9.0.0` rejected | contract 尚未实现；要求 checksum、advisory lock、同事务和 forward-only |
+
+Psycopg core/C/binary `3.3.4` 和 pool `3.3.1` 均为 LGPL-3.0-only；当前 adopted-license allowlist 不含 LGPL。除非维护者明确修改门禁并完成法律、分发和 native artifact 审查，否则不能标为 adopted。
+
+关键 HTTP 传递依赖快照包括 Starlette `1.6.0`（BSD-3-Clause）、Pydantic `2.13.4`（MIT）和 pydantic-core `2.46.4`（MIT），但组合尚未运行。仓库没有新增依赖清单、lock file 或 THIRD_PARTY_NOTICES 条目。
+
+yoyo 被拒绝不是因为许可证：固定源码把 migration 执行、log 和 applied mark 分成不同连接/事务阶段，且 `migration_hash` 不是 SQL 文件内容 checksum，无法满足崩溃原子性和 hash 漂移拒绝门禁。Alembic 可提供 transactional DDL、revision DAG 和 offline SQL，但仍需自定义 advisory lock 与 checksum，并会引入 SQLAlchemy/Mako，因此当前延后。
+
+## 3. 选择原则
 
 - 优先使用维护活跃、接口稳定、许可证明确的窄组件。
 - 不 Fork 大型 RAG、Agent 或项目管理平台作为产品底座。
@@ -27,7 +45,7 @@
 - 自进化、项目知识范围和影响关系属于本产品业务层，不外包给通用 RAG 框架。
 - 引入 AGPL、SSPL、BSL、Fair-code 或自定义许可证组件前必须评估分发和 SaaS 义务。
 
-## 3. 项目开发 Skills
+## 4. 项目开发 Skills
 
 ### 已保留在公开仓库
 
@@ -49,7 +67,7 @@
 
 RAG 搜索结果中多数 Skill 安装量低于 500，且来源分散。项目知识与学习机制应创建项目专属 Skill，并由真实测试样本驱动更新。
 
-## 4. 视频带来的开发流程约束
+## 5. 视频带来的开发流程约束
 
 三个视频提供的是方法线索，不是市场证据：
 

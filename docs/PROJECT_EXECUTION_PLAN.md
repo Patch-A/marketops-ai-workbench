@@ -93,6 +93,29 @@ The detailed interview, prototype, and evidence process remains in [market-valid
 
 This mechanism provides accountability, not an autonomous truth detector. A script can verify that evidence exists and the process was followed; it cannot independently establish that a user need is real or that a model output is correct. Those claims require the milestone acceptance evidence above.
 
+## Four-Quadrant Work-Package Gate
+
+Every new work package and every retrospective review uses the following gate before implementation or a completion claim. This is an evidence discipline, not a requirement to ask the user questions on every task.
+
+| Quadrant | Required record | Execution rule |
+| --- | --- | --- |
+| Shared known | Goal, relevant project background, acceptance command or observed outcome, owned and forbidden paths, and the claim boundary | Proceed without repeating questions when these inputs are sufficient. |
+| User known / agent unknown | Material context, preference, data, or operational constraint that only the user can supply | Ask no more than three questions only when the missing answer would materially change the result; otherwise state the assumption and produce an exploratory version. |
+| User unknown / agent known | Counterexamples, engineering or market risks, evidence limits, and viable alternatives with trade-offs | Surface these before locking the approach. Do not continue from a false premise merely because it appeared in the request. |
+| Shared unknown | A falsifiable hypothesis, one primary changed variable, success and failure signals, and the next data to retain | Run or schedule the smallest relevant experiment. A document, synthetic fixture, public case, or model output cannot stand in for live behavior when the claim concerns demand, ROI, repeat use, or payment. |
+
+Each work-package handoff must distinguish confirmed facts, reasonable inferences, decisions, and unknowns. An unknown may stay open when it is outside the current acceptance boundary, but it must not be silently converted into a fact or completion claim.
+
+### Retrospective Recheck of Existing Progress
+
+| Completed or active scope | Confirmed by current evidence | Not established by that evidence | Required next validation |
+| --- | --- | --- | --- |
+| Foundation, completed | Product boundary, architecture, data contracts, safety rules, acceptance criteria, and open-source policy are documented and mechanically consistent. | Product demand, usability, implementation feasibility, time savings, or willingness to pay. | Validate each later milestone against executable behavior and live-user evidence rather than reopening settled documentation by default. |
+| M0, completed | Public reconstructions, synthetic fixtures, deterministic spikes, dependency review, and an independent technical review passed their recorded engineering checks. | Real customer demand, causal ROI, repeat use, payment, production reliability, or permission to reuse customer data. | Preserve M0 as technical risk evidence; use a de-identified live task and observed behavior for market claims. |
+| M1-01, active | Static PostgreSQL, service, OpenAPI, and runtime-dependency contracts exist with mutation checks; the dependency decision admits candidates for implementation only. | A running API, installed dependency set, PostgreSQL 18.4 behavior, RLS isolation, authentication, concurrency, recovery, backup, cleanup, or M1-01 acceptance. | Run the minimum runtime experiments in `M1_01_RUNTIME_DEPENDENCY_DECISION.md`, then the real PostgreSQL integration gate. |
+
+This recheck does not change completed task statuses: no recorded acceptance evidence was disproved. It narrows what those statuses are allowed to mean and makes the remaining unknowns testable.
+
 ## Current Risks
 
 | Risk | Current response | Decision trigger |

@@ -31,6 +31,7 @@ jobs:
           python scripts/check_m1_01_postgres_contract.py
           python -m unittest discover -s apps/api/tests -p 'test_*.py' -v
           python scripts/check_m1_01_openapi_contract.py
+          node scripts/check_m1_01_runtime_dependencies.mjs
       - name: Check documentation links and encoding
         run: node scripts/check-docs.mjs
       - name: Check project progress registry

@@ -4,7 +4,7 @@
   "inputs": [
     {
       "path": "docs/OPEN_SOURCE_REVIEW.md",
-      "sha256": "f101234d5b97391fe2fddb011dc8e0c5e7bc092219613c0a951114dd9a8502c9"
+      "sha256": "24cb47aa041217670f86b8248e69882a4408005caae39b6ade40a9e6c0689f87"
     },
     {
       "path": "docs/M0_DOCUMENT_PARSING_SPIKE.md",

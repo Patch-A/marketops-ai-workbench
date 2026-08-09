@@ -1,0 +1,533 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-08-09T00:00:00+08:00",
+  "frozenAt": "2026-08-09T00:00:00+08:00",
+  "selectedByCapability": {
+    "http_framework": "fastapi",
+    "asgi_server": "uvicorn",
+    "multipart_parser": "python-multipart",
+    "postgres_driver": "asyncpg",
+    "migration_runner": "internal-sql-runner"
+  },
+  "candidates": [
+    {
+      "id": "fastapi",
+      "name": "FastAPI",
+      "capability": "http_framework",
+      "decision": "adopted",
+      "version": "0.141.1",
+      "package": {
+        "type": "pypi",
+        "name": "fastapi",
+        "metadataUrl": "https://pypi.org/pypi/fastapi/0.141.1/json",
+        "releaseUrl": "https://github.com/fastapi/fastapi/releases/tag/0.141.1",
+        "repositoryUrl": "https://github.com/fastapi/fastapi",
+        "requiresPython": ">=3.10",
+        "python312Support": "declared"
+      },
+      "license": {
+        "spdx": "MIT",
+        "status": "verified",
+        "sourceUrl": "https://github.com/fastapi/fastapi/blob/0.141.1/LICENSE",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": [
+          "Retain the upstream copyright and MIT permission notice in distributed copies."
+        ]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": "2026-07-29T17:18:04Z",
+        "repositoryArchived": false,
+        "signals": [
+          "PyPI 0.141.1 files were published on 2026-07-29 and were not yanked at review time.",
+          "The fixed release metadata declares Python 3.10 and newer."
+        ]
+      },
+      "dependencies": {
+        "direct": [
+          { "name": "starlette", "specifier": ">=0.46.0", "reason": "ASGI request and response layer declared by FastAPI metadata." },
+          { "name": "pydantic", "specifier": ">=2.9.0", "reason": "Validated DTO and schema layer declared by FastAPI metadata." },
+          { "name": "typing-extensions", "specifier": ">=4.8.0", "reason": "Typing compatibility declared by FastAPI metadata." },
+          { "name": "typing-inspection", "specifier": ">=0.4.2", "reason": "Runtime annotation inspection declared by FastAPI metadata." },
+          { "name": "annotated-doc", "specifier": ">=0.0.2", "reason": "Annotated documentation metadata declared by FastAPI metadata." }
+        ],
+        "optional": [
+          { "name": "fastapi[standard]", "specifier": "excluded", "reason": "The standard extra would add CLI, templating, HTTP client, server, and validation packages outside the P0 boundary." }
+        ],
+        "transitiveSnapshot": [
+          { "name": "starlette", "version": "1.6.0", "license": "BSD-3-Clause", "sourceUrl": "https://pypi.org/pypi/starlette/1.6.0/json", "reason": "Reviewed ASGI layer snapshot; its combination with FastAPI has not been executed in this repository." },
+          { "name": "pydantic", "version": "2.13.4", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/pydantic/2.13.4/json", "reason": "Reviewed validation layer snapshot; no dependency lock has been generated." },
+          { "name": "pydantic-core", "version": "2.46.4", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/pydantic-core/2.46.4/json", "reason": "Exact native core required by Pydantic 2.13.4; wheel contents remain subject to artifact review." },
+          { "name": "typing-extensions", "version": "4.16.0", "license": "PSF-2.0", "sourceUrl": "https://pypi.org/pypi/typing-extensions/4.16.0/json", "reason": "Required by FastAPI, Pydantic core, and typing-inspection in the Python 3.12 snapshot." },
+          { "name": "typing-inspection", "version": "0.4.2", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/typing-inspection/0.4.2/json", "reason": "FastAPI and Pydantic runtime annotation inspection dependency." },
+          { "name": "annotated-doc", "version": "0.0.4", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/annotated-doc/0.0.4/json", "reason": "FastAPI annotated documentation dependency." },
+          { "name": "annotated-types", "version": "0.7.0", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/annotated-types/0.7.0/json", "reason": "Pydantic annotated constraint dependency." },
+          { "name": "anyio", "version": "4.12.1", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/anyio/4.12.1/json", "reason": "Starlette async compatibility dependency." },
+          { "name": "idna", "version": "3.18", "license": "BSD-3-Clause", "sourceUrl": "https://pypi.org/pypi/idna/3.18/json", "reason": "AnyIO 4.12.1 mandatory IDNA dependency." },
+          { "name": "sniffio", "version": "1.3.1", "license": "MIT OR Apache-2.0", "sourceUrl": "https://pypi.org/pypi/sniffio/1.3.1/json", "reason": "Conservative async-context compatibility snapshot retained by review; AnyIO 4.12.1 metadata no longer declares this edge as mandatory." }
+        ],
+        "lockStatus": "reviewed snapshot only; no package was installed and no hash lock exists"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "The 0.141.1 metadata declares Python >=3.10, MIT licensing, and direct Starlette and Pydantic dependencies." },
+        { "classification": "inference", "text": "A thin FastAPI adapter is the smallest reviewed HTTP boundary for the frozen multipart OpenAPI contract." },
+        { "classification": "unknown", "text": "FastAPI 0.141.1 with Starlette 1.6.0, Pydantic 2.13.4, Uvicorn 0.52.1, and Python 3.12 has not been run in this repository." }
+      ],
+      "alternatives": ["litestar 2.24.0", "a standard-library test adapter without a production HTTP server"],
+      "boundary": "FastAPI may parse authenticated HTTP and multipart input into ImportRequest, but it cannot accept tenant scope or contain project import business rules.",
+      "fallback": "Keep the OpenAPI document and ProjectImportService stable while replacing only the HTTP adapter.",
+      "blockers": [],
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "litestar",
+      "name": "Litestar",
+      "capability": "http_framework",
+      "decision": "deferred",
+      "version": "2.24.0",
+      "package": {
+        "type": "pypi",
+        "name": "litestar",
+        "metadataUrl": "https://pypi.org/pypi/litestar/2.24.0/json",
+        "releaseUrl": "https://github.com/litestar-org/litestar/releases/tag/v2.24.0",
+        "repositoryUrl": "https://github.com/litestar-org/litestar",
+        "requiresPython": ">=3.8,<4.0",
+        "python312Support": "declared"
+      },
+      "license": {
+        "spdx": "MIT",
+        "status": "verified",
+        "sourceUrl": "https://github.com/litestar-org/litestar/blob/v2.24.0/LICENSE",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": ["Retain the upstream copyright and MIT permission notice."]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": "2026-06-11T11:26:58Z",
+        "repositoryArchived": false,
+        "signals": ["PyPI 2.24.0 was published on 2026-06-11 and was not yanked."]
+      },
+      "dependencies": {
+        "direct": [
+          { "name": "anyio", "specifier": ">3", "reason": "Async compatibility dependency declared by Litestar." },
+          { "name": "click", "specifier": "unbounded", "reason": "Command-line dependency declared without a version floor in release metadata." },
+          { "name": "httpx", "specifier": ">0.22", "reason": "HTTP client dependency declared by Litestar." },
+          { "name": "litestar-htmx", "specifier": ">=0.4.0", "reason": "HTMX integration dependency declared by Litestar 2.24.0 metadata." },
+          { "name": "msgspec", "specifier": ">=0.18.2", "reason": "Serialization dependency declared by Litestar." },
+          { "name": "multidict", "specifier": ">=6.0.2", "reason": "Multi-value mapping dependency declared by Litestar." },
+          { "name": "multipart", "specifier": ">=1.2.0", "reason": "Multipart dependency differs from the frozen python-multipart selection." },
+          { "name": "polyfactory", "specifier": ">=2.6.3", "reason": "Factory dependency declared by Litestar 2.24.0 metadata." },
+          { "name": "pyyaml", "specifier": "unbounded", "reason": "YAML dependency declared without a version floor by Litestar 2.24.0 metadata." },
+          { "name": "rich-click", "specifier": "unbounded", "reason": "Rich command-line dependency declared without a version floor." },
+          { "name": "rich", "specifier": ">=13.0.0", "reason": "Rich text dependency declared by Litestar 2.24.0 metadata." },
+          { "name": "sniffio", "specifier": ">=1.3.1", "reason": "Async context detection dependency declared by Litestar 2.24.0 metadata." },
+          { "name": "typing-extensions", "specifier": "unbounded", "reason": "Typing compatibility dependency declared without a version floor." }
+        ],
+        "optional": [
+          { "name": "litestar[standard]", "specifier": "excluded", "reason": "Would add templating, formatting, and Uvicorn standard extras beyond P0." }
+        ],
+        "transitiveSnapshot": [
+          { "name": "anyio", "version": "4.12.1", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/anyio/4.12.1/json", "reason": "Representative direct dependency snapshot only." },
+          { "name": "click", "version": "8.2.1", "license": "BSD-3-Clause", "sourceUrl": "https://pypi.org/pypi/click/8.2.1/json", "reason": "Representative direct dependency snapshot only." }
+        ],
+        "lockStatus": "deferred with unresolved complete transitive closure; no resolver lock exists"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "Litestar 2.24.0 declares Python >=3.8,<4.0 and a broader mandatory dependency set than the selected FastAPI base installation." },
+        { "classification": "inference", "text": "Its additional framework features do not remove a demonstrated M1-01 risk and would enlarge the initial dependency surface." },
+        { "classification": "unknown", "text": "No repository-specific compatibility or ergonomics comparison has been run." }
+      ],
+      "alternatives": ["fastapi 0.141.1"],
+      "boundary": "If selected later, Litestar must implement the same OpenAPI-to-service adapter and cannot change authorization or domain contracts.",
+      "fallback": "Retain FastAPI while revisiting Litestar only after measured adapter limitations appear.",
+      "blockers": ["No project evidence justifies the broader mandatory runtime surface."],
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "uvicorn",
+      "name": "Uvicorn",
+      "capability": "asgi_server",
+      "decision": "adopted",
+      "version": "0.52.1",
+      "package": {
+        "type": "pypi",
+        "name": "uvicorn",
+        "metadataUrl": "https://pypi.org/pypi/uvicorn/0.52.1/json",
+        "releaseUrl": "https://github.com/Kludex/uvicorn/releases/tag/0.52.1",
+        "repositoryUrl": "https://github.com/Kludex/uvicorn",
+        "requiresPython": ">=3.10",
+        "python312Support": "declared"
+      },
+      "license": {
+        "spdx": "BSD-3-Clause",
+        "status": "verified",
+        "sourceUrl": "https://github.com/Kludex/uvicorn/blob/0.52.1/LICENSE.md",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": ["Retain copyright, conditions, and disclaimer in source and binary distributions."]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": "2026-08-01T18:19:29Z",
+        "repositoryArchived": false,
+        "signals": ["PyPI 0.52.1 was published on 2026-08-01 and was not yanked."]
+      },
+      "dependencies": {
+        "direct": [
+          { "name": "click", "specifier": ">=7.0", "reason": "Base command-line dependency." },
+          { "name": "h11", "specifier": ">=0.8", "reason": "Base HTTP/1.1 protocol dependency." },
+          { "name": "typing-extensions", "specifier": ">=4.0; python_version<3.11", "reason": "Inactive compatibility marker on the selected Python 3.12 runtime." }
+        ],
+        "optional": [
+          { "name": "uvicorn[standard]", "specifier": "excluded", "reason": "The standard extra adds httptools, dotenv, YAML, uvloop, watchfiles, and websockets without P0 evidence." }
+        ],
+        "transitiveSnapshot": [
+          { "name": "click", "version": "8.2.1", "license": "BSD-3-Clause", "sourceUrl": "https://pypi.org/pypi/click/8.2.1/json", "reason": "Frozen base command-line dependency resolution snapshot." },
+          { "name": "h11", "version": "0.16.0", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/h11/0.16.0/json", "reason": "Frozen base HTTP protocol dependency snapshot." },
+          { "name": "colorama", "version": "0.4.6", "license": "BSD-3-Clause", "sourceUrl": "https://pypi.org/pypi/colorama/0.4.6/json", "reason": "Click 8.2.1 Windows-only runtime marker dependency; official PyPI metadata and fixed license classifier reviewed." }
+        ],
+        "lockStatus": "base installation selected; exact artifact hashes are not yet locked"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "Uvicorn 0.52.1 base requires only Click and h11 on Python 3.12 and is BSD-3-Clause." },
+        { "classification": "inference", "text": "The base installation is sufficient for the first private deployment and avoids optional native and watcher packages." },
+        { "classification": "unknown", "text": "Shutdown, body limits, proxy headers, timeouts, and worker behavior have not been integration-tested." }
+      ],
+      "alternatives": ["another ASGI server behind the unchanged ASGI application boundary"],
+      "boundary": "Uvicorn owns ASGI process lifecycle and transport settings only; authentication, request limits, and import behavior remain explicit application concerns.",
+      "fallback": "Replace the ASGI server without changing FastAPI routes, OpenAPI DTOs, or ProjectImportService.",
+      "blockers": [],
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "python-multipart",
+      "name": "python-multipart",
+      "capability": "multipart_parser",
+      "decision": "adopted",
+      "version": "0.0.32",
+      "package": {
+        "type": "pypi",
+        "name": "python-multipart",
+        "metadataUrl": "https://pypi.org/pypi/python-multipart/0.0.32/json",
+        "releaseUrl": "https://github.com/Kludex/python-multipart/releases/tag/0.0.32",
+        "repositoryUrl": "https://github.com/Kludex/python-multipart",
+        "requiresPython": ">=3.10",
+        "python312Support": "declared"
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://github.com/Kludex/python-multipart/blob/0.0.32/LICENSE.txt",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": ["Retain the Apache-2.0 license and applicable notices when distributing the package."]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": "2026-06-04T16:18:57Z",
+        "repositoryArchived": false,
+        "signals": ["PyPI 0.0.32 was published on 2026-06-04 and declares no runtime dependencies."]
+      },
+      "dependencies": {
+        "direct": [],
+        "optional": [],
+        "transitiveSnapshot": [],
+        "lockStatus": "selected version recorded; artifact hash lock not generated"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "python-multipart 0.0.32 declares Python >=3.10, Apache-2.0, and no runtime dependencies." },
+        { "classification": "inference", "text": "It is the narrow parser required by the selected FastAPI multipart adapter." },
+        { "classification": "unknown", "text": "Malformed boundaries, streaming limits, filename encoding, and cancellation have not been tested in this repository." }
+      ],
+      "alternatives": ["a separately reviewed streaming multipart adapter"],
+      "boundary": "The parser may produce bounded file streams and scalar fields only; it cannot decide authorization, approval, retention, or storage keys.",
+      "fallback": "Replace the multipart parser behind the HTTP adapter while retaining FilePayload and size validation.",
+      "blockers": [],
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "psycopg",
+      "name": "Psycopg 3 family",
+      "capability": "postgres_driver",
+      "decision": "deferred",
+      "version": "3.3.4",
+      "package": {
+        "type": "pypi",
+        "name": "psycopg",
+        "metadataUrl": "https://pypi.org/pypi/psycopg/3.3.4/json",
+        "releaseUrl": "https://github.com/psycopg/psycopg/tree/3.3.4",
+        "repositoryUrl": "https://github.com/psycopg/psycopg",
+        "requiresPython": ">=3.10",
+        "python312Support": "declared"
+      },
+      "license": {
+        "spdx": "LGPL-3.0-only",
+        "status": "verified",
+        "sourceUrl": "https://github.com/psycopg/psycopg/blob/3.3.4/LICENSE.txt",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": [
+          "The current adopted-license allowlist does not approve LGPL-3.0-only.",
+          "Any future adoption requires explicit legal and distribution review, license preservation, and artifact-level native library review."
+        ]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": "2026-05-01T23:20:50Z",
+        "repositoryArchived": false,
+        "signals": [
+          "Core, C, and binary 3.3.4 plus pool 3.3.1 were published on 2026-05-01.",
+          "The fixed metadata declares Python 3.12 and PostgreSQL documentation covers version 18."
+        ]
+      },
+      "dependencies": {
+        "direct": [
+          { "name": "typing-extensions", "specifier": ">=4.6; python_version<3.13", "reason": "Core Python 3.12 dependency." },
+          { "name": "tzdata", "specifier": "unbounded; sys_platform==win32", "reason": "Mandatory Windows marker dependency declared by Psycopg 3.3.4 metadata." }
+        ],
+        "optional": [
+          { "name": "psycopg-c", "specifier": "==3.3.4", "reason": "Local C build links system libpq and libssl; upstream prefers this mode for production." },
+          { "name": "psycopg-binary", "specifier": "==3.3.4", "reason": "Prebuilt wheels bundle client libraries whose exact native versions vary by target wheel." },
+          { "name": "psycopg-pool", "specifier": "==3.3.1", "reason": "Separate sync and async pool package; the core pool extra is not version-pinned." }
+        ],
+        "transitiveSnapshot": [
+          { "name": "psycopg-c", "version": "3.3.4", "license": "LGPL-3.0-only", "sourceUrl": "https://pypi.org/pypi/psycopg-c/3.3.4/json", "reason": "Reviewed local-build implementation candidate." },
+          { "name": "psycopg-binary", "version": "3.3.4", "license": "LGPL-3.0-only", "sourceUrl": "https://pypi.org/pypi/psycopg-binary/3.3.4/json", "reason": "Reviewed development convenience candidate; native contents remain unverified." },
+          { "name": "psycopg-pool", "version": "3.3.1", "license": "LGPL-3.0-only", "sourceUrl": "https://pypi.org/pypi/psycopg-pool/3.3.1/json", "reason": "Reviewed pool candidate." },
+          { "name": "typing-extensions", "version": "4.16.0", "license": "PSF-2.0", "sourceUrl": "https://pypi.org/pypi/typing-extensions/4.16.0/json", "reason": "Reviewed Python 3.12 core dependency snapshot." },
+          { "name": "tzdata", "version": "2025.2", "license": "Apache-2.0", "sourceUrl": "https://pypi.org/pypi/tzdata/2025.2/json", "reason": "Reviewed Windows-only mandatory marker dependency; full Psycopg artifact admission remains deferred." }
+        ],
+        "lockStatus": "deferred by license policy; no wheel, sdist, native library, or hash lock admitted"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "Psycopg 3.3.4 matches the current synchronous repository protocol and offers sync, async, C, binary, and pool modes under LGPL-3.0-only." },
+        { "classification": "inference", "text": "It would require less service refactoring than asyncpg, but technical fit cannot override the repository license gate." },
+        { "classification": "unknown", "text": "LGPL distribution obligations and bundled libpq, OpenSSL, and other native wheel contents have not been approved for this project." }
+      ],
+      "alternatives": ["asyncpg 0.31.0", "a future driver admitted under an approved license"],
+      "boundary": "A future Psycopg adapter would own connection pooling, transaction-local RLS scope, SQL parameterization, row mapping, and driver error translation only.",
+      "fallback": "Keep the driver-neutral repository contract and use the admitted asyncpg path unless license policy is explicitly changed.",
+      "blockers": ["LGPL-3.0-only is absent from the adopted-license allowlist.", "Native binary artifacts have not received SBOM and notice review."],
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "asyncpg",
+      "name": "asyncpg",
+      "capability": "postgres_driver",
+      "decision": "adopted",
+      "version": "0.31.0",
+      "package": {
+        "type": "pypi",
+        "name": "asyncpg",
+        "metadataUrl": "https://pypi.org/pypi/asyncpg/0.31.0/json",
+        "releaseUrl": "https://github.com/MagicStack/asyncpg/releases/tag/v0.31.0",
+        "repositoryUrl": "https://github.com/MagicStack/asyncpg",
+        "requiresPython": ">=3.9.0",
+        "python312Support": "declared"
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://github.com/MagicStack/asyncpg/blob/v0.31.0/LICENSE",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": ["Retain the Apache-2.0 license and any artifact notices in distributed copies."]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": "2025-11-24T23:24:52Z",
+        "repositoryArchived": false,
+        "signals": [
+          "The v0.31.0 GitHub release and PyPI files were published on 2025-11-24.",
+          "The fixed README declares Python 3.9+ and PostgreSQL 9.5 through 18 support."
+        ]
+      },
+      "dependencies": {
+        "direct": [
+          { "name": "async-timeout", "specifier": ">=4.0.3; python_version<3.11", "reason": "Inactive marker on the selected Python 3.12 runtime." }
+        ],
+        "optional": [
+          { "name": "gssapi-or-sspilib", "specifier": "gssauth extra excluded", "reason": "GSS authentication is outside the first private deployment boundary." }
+        ],
+        "transitiveSnapshot": [],
+        "lockStatus": "driver admitted by version and license only; wheel hashes and platform artifact are not yet locked"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "asyncpg 0.31.0 is Apache-2.0, declares Python 3.12, implements the PostgreSQL protocol directly, and includes an asyncio connection pool." },
+        { "classification": "inference", "text": "It satisfies the current license gate with a narrower default Python dependency graph than the deferred Psycopg family." },
+        { "classification": "unknown", "text": "The current synchronous ProjectImportService and ImportRepository have not been converted to async, and PostgreSQL 18.4 integration has not run." }
+      ],
+      "alternatives": ["psycopg 3.3.4 after an explicit LGPL policy decision"],
+      "boundary": "The implementation must become genuinely async end to end; an AsyncImportRepository owns pool acquisition, transaction-local RLS scope, parameterized SQL, row mapping, and error translation.",
+      "fallback": "Preserve domain request and result types while replacing the async repository adapter after equivalent isolation and transaction tests.",
+      "blockers": [],
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "alembic",
+      "name": "Alembic",
+      "capability": "migration_runner",
+      "decision": "deferred",
+      "version": "1.19.1",
+      "package": {
+        "type": "pypi",
+        "name": "alembic",
+        "metadataUrl": "https://pypi.org/pypi/alembic/1.19.1/json",
+        "releaseUrl": "https://github.com/sqlalchemy/alembic/releases/tag/rel_1_19_1",
+        "repositoryUrl": "https://github.com/sqlalchemy/alembic",
+        "requiresPython": ">=3.10",
+        "python312Support": "declared"
+      },
+      "license": {
+        "spdx": "MIT",
+        "status": "verified",
+        "sourceUrl": "https://github.com/sqlalchemy/alembic/blob/rel_1_19_1/LICENSE",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": ["Retain the upstream copyright and MIT permission notice."]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": "2026-08-08T16:32:01Z",
+        "repositoryArchived": false,
+        "signals": ["PyPI 1.19.1 was published on 2026-08-08 and the fixed metadata declares Python 3.12."]
+      },
+      "dependencies": {
+        "direct": [
+          { "name": "SQLAlchemy", "specifier": ">=1.4.23", "reason": "Mandatory migration execution and schema abstraction dependency." },
+          { "name": "Mako", "specifier": "unbounded", "reason": "Mandatory revision template dependency." },
+          { "name": "typing-extensions", "specifier": ">=4.12", "reason": "Mandatory typing dependency." }
+        ],
+        "optional": [],
+        "transitiveSnapshot": [
+          { "name": "SQLAlchemy", "version": "2.0.51", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/SQLAlchemy/2.0.51/json", "reason": "Reviewed current resolver snapshot, not an installed lock." },
+          { "name": "Mako", "version": "1.4.1", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/Mako/1.4.1/json", "reason": "Reviewed current template dependency snapshot." },
+          { "name": "MarkupSafe", "version": "3.0.3", "license": "BSD-3-Clause", "sourceUrl": "https://pypi.org/pypi/MarkupSafe/3.0.3/json", "reason": "Reviewed Mako dependency snapshot." },
+          { "name": "greenlet", "version": "3.5.4", "license": "MIT AND PSF-2.0", "sourceUrl": "https://pypi.org/pypi/greenlet/3.5.4/json", "reason": "Reviewed SQLAlchemy dependency on common CPython platforms." }
+        ],
+        "lockStatus": "deferred; no SQLAlchemy stack or driver combination has been locked"
+      },
+      "sourceEvidence": {
+        "fixedRef": "rel_1_19_1",
+        "searchScope": "alembic/",
+        "sourcePaths": ["alembic/ddl/postgresql.py", "alembic/runtime/migration.py", "alembic/runtime/environment.py"],
+        "advisoryLockSearchResult": "no pg_advisory occurrence found in the fixed tag package scope; this is not a claim about all extensions or deployments"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "In fixed tag rel_1_19_1, a search under alembic/ found no pg_advisory occurrence; the reviewed paths were alembic/ddl/postgresql.py, alembic/runtime/migration.py, and alembic/runtime/environment.py, which does not prove that all extensions or deployments lack advisory locks." },
+        { "classification": "inference", "text": "Revision graphs and autogeneration do not yet justify adding SQLAlchemy, Mako, MarkupSafe, and greenlet for one hand-reviewed migration." },
+        { "classification": "unknown", "text": "No Alembic, SQLAlchemy, asyncpg, and PostgreSQL 18.4 combination has been executed, and generated migrations would still require human review." }
+      ],
+      "alternatives": ["internal-sql-runner contract-v1", "yoyo-migrations 9.0.0"],
+      "boundary": "If adopted later, Alembic must run reviewed migrations under an application-owned advisory lock and cannot own authorization or domain state.",
+      "fallback": "Retain immutable SQL files and migrate their checksums into Alembic only after a reviewed conversion plan.",
+      "blockers": ["Additional SQLAlchemy stack has no demonstrated M1-01 value.", "PostgreSQL advisory locking remains application-owned."],
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "yoyo-migrations",
+      "name": "yoyo-migrations",
+      "capability": "migration_runner",
+      "decision": "rejected",
+      "version": "9.0.0",
+      "package": {
+        "type": "pypi",
+        "name": "yoyo-migrations",
+        "metadataUrl": "https://pypi.org/pypi/yoyo-migrations/9.0.0/json",
+        "releaseUrl": "https://hg.sr.ht/~olly/yoyo/rev/v9.0.0-release",
+        "repositoryUrl": "https://hg.sr.ht/~olly/yoyo",
+        "requiresPython": "not declared in 9.0.0 wheel metadata",
+        "python312Support": "unknown"
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://files.pythonhosted.org/packages/8c/5d/9ef7f808ea955eca9f08043c65bdc81a4694e784c978b24ad72022974a97/yoyo_migrations-9.0.0-py3-none-any.whl",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": ["The sole PyPI wheel contains the Apache-2.0 LICENSE.txt file."]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": "2024-08-10T09:43:50Z",
+        "repositoryArchived": false,
+        "signals": [
+          "PyPI 9.0.0 was published on 2024-08-10 and the fixed release exposes one universal wheel with no sdist.",
+          "The fixed wheel metadata has no Requires-Python field; no claim about a later upstream issue is used as decision evidence."
+        ]
+      },
+      "dependencies": {
+        "direct": [
+          { "name": "sqlparse", "specifier": "unbounded", "reason": "Mandatory SQL parsing dependency." },
+          { "name": "tabulate", "specifier": "unbounded", "reason": "Mandatory display dependency." },
+          { "name": "importlib-metadata", "specifier": ">=3.6.0", "reason": "Mandatory package metadata dependency even on Python 3.12." }
+        ],
+        "optional": [
+          { "name": "psycopg2", "specifier": "postgres extra, unbounded", "reason": "Default PostgreSQL extra adds a driver whose upstream license label is LGPL with exceptions." }
+        ],
+        "transitiveSnapshot": [
+          { "name": "sqlparse", "version": "0.5.5", "license": "BSD-3-Clause", "sourceUrl": "https://pypi.org/pypi/sqlparse/0.5.5/json", "reason": "Reviewed direct dependency snapshot; exact license file still requires artifact admission." },
+          { "name": "tabulate", "version": "0.10.0", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/tabulate/0.10.0/json", "reason": "Reviewed direct dependency snapshot." },
+          { "name": "importlib-metadata", "version": "9.0.0", "license": "Apache-2.0", "sourceUrl": "https://pypi.org/pypi/importlib-metadata/9.0.0/json", "reason": "Reviewed direct dependency snapshot." },
+          { "name": "zipp", "version": "3.23.0", "license": "MIT", "sourceUrl": "https://pypi.org/pypi/zipp/3.23.0/json", "reason": "Mandatory dependency of the reviewed importlib-metadata 9.0.0 snapshot." },
+          { "name": "psycopg2", "version": "2.9.12", "license": "LGPL with exceptions (upstream label)", "sourceUrl": "https://pypi.org/pypi/psycopg2/2.9.12/json", "reason": "Reviewed optional PostgreSQL extra and current license-policy conflict." }
+        ],
+        "lockStatus": "rejected for P0; no dependency resolution or artifact admission"
+      },
+      "sourceEvidence": {
+        "artifactSha256": "fc65d3a6d9449c1c54d64ff2ff98e32a27da356057c60e3471010bfb19ede081",
+        "licensePath": "yoyo_migrations-9.0.0.dist-info/LICENSE.txt",
+        "sourcePaths": ["yoyo/backends/base.py:523-534", "yoyo/migrations.py:62-72"]
+      },
+      "rationale": [
+        { "classification": "fact", "text": "The fixed 9.0.0 wheel SHA-256 fc65d3a6d9449c1c54d64ff2ff98e32a27da356057c60e3471010bfb19ede081 shows apply_one in yoyo/backends/base.py:523-534 and ID hashing in yoyo/migrations.py:62-72; the wheel also contains the Apache license at yoyo_migrations-9.0.0.dist-info/LICENSE.txt." },
+        { "classification": "inference", "text": "Its Python 3.12 metadata gap, older release, mandatory helper packages, and default psycopg2 extra are weaker than the internal P0 contract." },
+        { "classification": "unknown", "text": "Python 3.12 and PostgreSQL 18.4 runtime behavior has not been tested, and no fixed source distribution was published to PyPI." }
+      ],
+      "alternatives": ["internal-sql-runner contract-v1", "alembic 1.19.1"],
+      "boundary": "Any reconsideration must replace the lock-table behavior with an explicit PostgreSQL advisory-lock deployment contract and keep immutable checksums.",
+      "fallback": "Use the internal forward-only contract and revisit only after a newer fixed release closes the evidence gaps.",
+      "blockers": ["Python 3.12 support is not declared in package metadata.", "The PostgreSQL extra conflicts with the current adopted-license policy."],
+      "starPolicy": "not_a_decision_factor"
+    },
+    {
+      "id": "internal-sql-runner",
+      "name": "Project-owned immutable SQL runner contract",
+      "capability": "migration_runner",
+      "decision": "adopted",
+      "version": "contract-v1",
+      "package": {
+        "type": "internal",
+        "name": "internal-sql-runner",
+        "metadataUrl": "https://github.com/Patch-A/marketops-ai-workbench/blob/9d5111990ff99eb8f7a97cb98398ef2a18a73781/apps/api/migrations/0001_project_import.sql",
+        "releaseUrl": null,
+        "repositoryUrl": "https://github.com/Patch-A/marketops-ai-workbench/tree/9d5111990ff99eb8f7a97cb98398ef2a18a73781/apps/api/migrations",
+        "requiresPython": "not applicable until implementation transport is selected",
+        "python312Support": "not_applicable"
+      },
+      "license": {
+        "spdx": "Apache-2.0",
+        "status": "verified",
+        "sourceUrl": "https://github.com/Patch-A/marketops-ai-workbench/blob/9d5111990ff99eb8f7a97cb98398ef2a18a73781/LICENSE",
+        "verifiedAt": "2026-08-09",
+        "distributionConditions": ["Keep project-owned runner code under the repository Apache-2.0 license."]
+      },
+      "maintenance": {
+        "checkedAt": "2026-08-09",
+        "latestReleaseAt": null,
+        "repositoryArchived": false,
+        "signals": ["The contract was frozen for M1-01 on 2026-08-09; no executable runner release exists."]
+      },
+      "dependencies": {
+        "direct": [],
+        "optional": [],
+        "transitiveSnapshot": [],
+        "lockStatus": "contract only; execution transport and artifact hashes are not implemented"
+      },
+      "rationale": [
+        { "classification": "fact", "text": "The current P0 has one reviewed PostgreSQL migration and no ORM metadata or migration branch graph." },
+        { "classification": "inference", "text": "A narrow immutable SQL contract avoids admitting SQLAlchemy solely for migration execution." },
+        { "classification": "unknown", "text": "The runner is not implemented; advisory-lock contention, crash recovery, checksum drift, and PostgreSQL 18.4 execution remain untested." }
+      ],
+      "alternatives": ["alembic 1.19.1", "yoyo-migrations 9.0.0", "a pinned PostgreSQL 18.4 psql execution image"],
+      "boundary": "Contract-v1 requires immutable versioned files with SHA-256, advisory locking before version reads, migration and version recording in one transaction, forward-only recovery, and no ad hoc SQL splitting.",
+      "fallback": "Use a pinned PostgreSQL 18.4 psql transport or later migrate checksums into Alembic after equivalent recovery tests.",
+      "blockers": [],
+      "starPolicy": "not_a_decision_factor"
+    }
+  ]
+}
