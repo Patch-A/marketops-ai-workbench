@@ -119,6 +119,17 @@ class DumpTocTests(unittest.TestCase):
 
 
 class BackupRestoreWorkflowContractTests(unittest.TestCase):
+    def test_service_database_suppresses_failure_row_context(self):
+        root = Path(__file__).resolve().parents[3]
+        workflow = (root / ".github" / "workflows" / "quality.yml").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn(
+            'POSTGRES_INITDB_ARGS: "--set=log_error_verbosity=terse '
+            '--set=log_min_error_statement=panic"',
+            workflow,
+        )
+
     def test_runtime_job_runs_backup_restore_between_restart_verify_and_cleanup(self):
         root = Path(__file__).resolve().parents[3]
         workflow = (root / ".github" / "workflows" / "quality.yml").read_text(encoding="utf-8")

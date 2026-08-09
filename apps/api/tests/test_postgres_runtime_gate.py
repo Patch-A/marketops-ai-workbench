@@ -8,6 +8,7 @@ from scripts.run_m1_01_postgres_gate import (
     EXPECTED_RELATION_PRIVILEGES,
     _validate_application_attestation,
     ensure_login_role,
+    validate_server_log_safety,
     validate_postgres_image,
 )
 
@@ -76,6 +77,20 @@ class FakeRoleConnection:
 
     async def execute(self, statement: str):
         self.statements.append(statement)
+
+
+class RuntimeGateLogSafetyTests(unittest.TestCase):
+    def test_restrictive_failure_logging_is_attested(self):
+        self.assertEqual(
+            validate_server_log_safety("terse", "panic"),
+            {"errorVerbosity": "terse", "minimumErrorStatement": "panic"},
+        )
+
+    def test_context_or_error_statement_logging_fails_closed(self):
+        for verbosity, threshold in (("default", "panic"), ("terse", "error")):
+            with self.subTest(verbosity=verbosity, threshold=threshold):
+                with self.assertRaisesRegex(RuntimeError, "could expose"):
+                    validate_server_log_safety(verbosity, threshold)
 
 
 class RuntimeGateRoleProvisioningTests(unittest.IsolatedAsyncioTestCase):

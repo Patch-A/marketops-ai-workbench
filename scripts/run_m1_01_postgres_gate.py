@@ -108,7 +108,20 @@ async def ensure_login_role(connection, name: str, password: str) -> None:
         )
 
 
-async def provision_roles_and_database(asyncpg, admin_dsn: str) -> tuple[str, int]:
+def validate_server_log_safety(
+    log_error_verbosity: str, log_min_error_statement: str
+) -> dict[str, str]:
+    if log_error_verbosity != "terse" or log_min_error_statement != "panic":
+        raise RuntimeError("PostgreSQL CI logging could expose failure-row context")
+    return {
+        "errorVerbosity": log_error_verbosity,
+        "minimumErrorStatement": log_min_error_statement,
+    }
+
+
+async def provision_roles_and_database(
+    asyncpg, admin_dsn: str
+) -> tuple[str, int, dict[str, str]]:
     connection = await asyncpg.connect(admin_dsn)
     try:
         version = await connection.fetchval("SHOW server_version")
@@ -120,6 +133,10 @@ async def provision_roles_and_database(asyncpg, admin_dsn: str) -> tuple[str, in
                 f"expected PostgreSQL server_version_num {POSTGRES_VERSION_NUM}, "
                 f"got {version_num!r}"
             )
+        log_safety = validate_server_log_safety(
+            await connection.fetchval("SHOW log_error_verbosity"),
+            await connection.fetchval("SHOW log_min_error_statement"),
+        )
         await ensure_login_role(
             connection, MIGRATOR_ROLE, required_environment("MARKETOPS_TEST_MIGRATOR_PASSWORD")
         )
@@ -128,7 +145,7 @@ async def provision_roles_and_database(asyncpg, admin_dsn: str) -> tuple[str, in
         )
         await connection.execute(f"REVOKE {MIGRATOR_ROLE} FROM {APPLICATION_ROLE}")
         await connection.execute(f"ALTER DATABASE {DATABASE_NAME} OWNER TO {MIGRATOR_ROLE}")
-        return version, version_num
+        return version, version_num, log_safety
     finally:
         await connection.close()
 
@@ -471,7 +488,9 @@ async def run(output: Path | None) -> None:
     image_reference = required_environment("MARKETOPS_POSTGRES_IMAGE")
     repo_digest = required_environment("MARKETOPS_POSTGRES_REPO_DIGEST")
     validate_postgres_image(image_reference, repo_digest)
-    version, version_num = await provision_roles_and_database(asyncpg, admin_dsn)
+    version, version_num, log_safety = await provision_roles_and_database(
+        asyncpg, admin_dsn
+    )
     applied = await migrate_and_grant(asyncpg, migrator_dsn)
     role = await attest_application_role(asyncpg, app_dsn)
     evidence = {
@@ -486,6 +505,7 @@ async def run(output: Path | None) -> None:
             "imageReference": image_reference,
             "repoDigest": repo_digest,
             "validatedRuntimePlatform": "linux/amd64",
+            "safeFailureLogging": log_safety,
         },
         "migration": {
             "applied": list(applied),

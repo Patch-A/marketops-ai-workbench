@@ -58,6 +58,7 @@ jobs:
         env:
           POSTGRES_DB: marketops_test
           POSTGRES_PASSWORD: marketops-ci-admin
+          POSTGRES_INITDB_ARGS: "--set=log_error_verbosity=terse --set=log_min_error_statement=panic"
         ports:
           - 5432:5432
         options: >-
