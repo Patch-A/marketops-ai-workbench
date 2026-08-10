@@ -155,6 +155,9 @@ class BrowserCutoverGateContractTests(unittest.TestCase):
             "external executable or asset",
             "browser emitted console/runtime failures:",
             "safePath(params.entry?.url || '', origin)",
+            "maxRetries: 10",
+            "if (!primaryFailure)",
+            "browser profile cleanup failed:",
             "[375, 768, 1024, 1440]",
         )
         for marker in required:

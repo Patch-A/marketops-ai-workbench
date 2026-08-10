@@ -209,6 +209,7 @@ async function run(args) {
   ], { stdio: ['ignore', 'ignore', 'ignore'] });
 
   let client;
+  let primaryFailure;
   try {
     const activePort = await waitUntil(async () => {
       const value = await readFile(resolve(profile, 'DevToolsActivePort'), 'utf8');
@@ -422,14 +423,31 @@ async function run(args) {
       credentialAbsentFromBrowserState: true,
       viewportResults,
     };
+  } catch (error) {
+    primaryFailure = error;
+    throw error;
   } finally {
     client?.close();
     browser.kill();
-    await Promise.race([
-      new Promise((resolvePromise) => browser.once('exit', resolvePromise)),
-      delay(2_000).then(() => browser.kill('SIGKILL')),
-    ]);
-    await rm(profile, { recursive: true, force: true });
+    if (browser.exitCode === null && browser.signalCode === null) {
+      await Promise.race([
+        new Promise((resolvePromise) => browser.once('exit', resolvePromise)),
+        delay(2_000).then(() => browser.kill('SIGKILL')),
+      ]);
+    }
+    try {
+      await rm(profile, {
+        recursive: true,
+        force: true,
+        maxRetries: 10,
+        retryDelay: 200,
+      });
+    } catch (cleanupError) {
+      if (!primaryFailure) {
+        const code = cleanupError?.code || 'unknown';
+        throw new Error(`browser profile cleanup failed: ${code}`);
+      }
+    }
   }
 }
 
