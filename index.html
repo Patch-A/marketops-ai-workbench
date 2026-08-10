@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#19232f" />
     <title>MarketOps AI Workbench</title>
-    <link rel="preconnect" href="https://unpkg.com" />
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
@@ -66,19 +66,22 @@
           <div class="status-strip" role="status">
             <div class="status-pulse"><span></span>AI 助手就绪</div>
             <span class="status-separator"></span>
-            <span>上次同步：2 分钟前</span>
+            <span id="serverStatusText">正在连接 Server API…</span>
             <span class="status-separator"></span>
             <button class="text-button" type="button" data-toast="目前使用演示数据，未连接外部模型">查看运行状态 <i data-lucide="arrow-up-right"></i></button>
           </div>
 
-          <section class="import-summary" id="importSummary" aria-live="polite" hidden>
+          <section class="import-summary" id="importSummary" aria-live="polite" aria-busy="false" hidden>
             <div class="import-summary-icon"><i data-lucide="file-check-2"></i></div>
             <div class="import-summary-copy">
-              <span class="section-kicker">APPROVED PROPOSAL</span>
+              <span class="section-kicker" id="importSummaryKicker">APPROVED PROPOSAL</span>
               <strong id="importProjectName"></strong>
               <span id="importProjectFiles"></span>
             </div>
-            <span class="badge badge-approved">已保留</span>
+            <div class="import-summary-actions">
+              <span class="badge badge-approved" id="importSummaryBadge">服务器已保留</span>
+              <button class="text-button" type="button" id="retryProjectLoad" hidden>重试读取</button>
+            </div>
           </section>
 
           <div class="focus-grid">
@@ -152,22 +155,18 @@
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
     <dialog class="brief-dialog" id="briefDialog">
       <form method="dialog" id="briefForm">
-        <div class="dialog-heading"><div><span class="section-kicker">M1 IMPORT</span><h2>导入已批准方案</h2><p>原文件保存在当前浏览器，不会发送到外部模型。</p></div><button class="icon-button quiet" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+        <div class="dialog-heading"><div><span class="section-kicker">M1 IMPORT</span><h2>导入已批准方案</h2><p>文件将发送到当前部署的 Server API，并按认证工作区范围保留；不会发送到外部模型。</p></div><button class="icon-button quiet" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
         <div class="form-grid">
           <label>项目名称<input name="name" required autocomplete="off" placeholder="例如：秋季客户增长峰会" /></label>
-          <label>客户或品牌<input name="clientName" autocomplete="off" placeholder="可选" /></label>
-        </div>
-        <label>项目原始资料<input name="sourceFile" type="file" accept=".md,.markdown,.csv,.docx" required /><small>支持 Markdown、CSV 和基础 DOCX；PDF、扫描件、PPTX 暂不支持。</small></label>
-        <div class="form-grid">
-          <label>已批准方案文件<input name="proposalFile" type="file" accept=".md,.markdown,.docx" required /></label>
           <label>方案版本<input name="proposalVersion" type="number" min="1" step="1" value="1" required /></label>
         </div>
+        <label>项目原始资料<input name="sourceFile" type="file" accept=".md,.markdown,.csv,.docx" required /><small>支持 Markdown、CSV 和基础 DOCX；PDF、扫描件、PPTX 暂不支持。</small></label>
+        <label>已批准方案文件<input name="proposalFile" type="file" accept=".md,.markdown,.docx" required /></label>
         <label class="approval-check"><input name="approvalConfirmed" type="checkbox" required /><span>我确认这是当前已批准、可进入执行拆解的方案版本。</span></label>
         <p class="form-status" id="importFormStatus" role="status" aria-live="polite"></p>
-        <div class="dialog-actions"><button class="button button-ghost" type="button" data-dialog-close>取消</button><button class="button button-primary" type="submit" id="createProjectButton">保留文件并创建 <i data-lucide="arrow-right"></i></button></div>
+        <div class="dialog-actions"><button class="button button-ghost" type="button" data-dialog-close id="cancelImportButton">取消</button><button class="button button-primary" type="submit" id="createProjectButton">上传并创建 <i data-lucide="arrow-right"></i></button></div>
       </form>
     </dialog>
-    <script src="https://unpkg.com/lucide@0.468.0/dist/umd/lucide.js"></script>
     <script src="project-import.js"></script>
     <script src="app.js"></script>
   </body>

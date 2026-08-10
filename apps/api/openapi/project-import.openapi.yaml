@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MarketOps Project Import API",
-    "version": "0.1.0",
+    "version": "0.2.0",
     "description": "M1-01 contract only. Authorization scope is resolved from the authenticated deployment actor and is never accepted from multipart fields."
   },
   "paths": {
@@ -13,6 +13,9 @@
         "security": [
           {
             "deploymentActor": []
+          },
+          {
+            "browserDeploymentActor": []
           }
         ],
         "parameters": [
@@ -82,6 +85,22 @@
         "responses": {
           "201": {
             "description": "Project created or an identical idempotent import replayed.",
+            "headers": {
+              "Location": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "pattern": "^/v1/projects/[0-9a-f-]{36}$"
+                }
+              },
+              "Cache-Control": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "const": "no-store"
+                }
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -139,6 +158,92 @@
           "500": { "$ref": "#/components/responses/ImportFailure" }
         }
       }
+    },
+    "/v1/projects": {
+      "get": {
+        "operationId": "listProjects",
+        "summary": "List projects visible in the authenticated workspace and client",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "parameters": [
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "A deterministic newest-first project list.",
+            "headers": {
+              "Cache-Control": {
+                "required": true,
+                "schema": { "type": "string", "const": "no-store" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": ["projects"],
+                  "properties": {
+                    "projects": {
+                      "type": "array",
+                      "items": { "$ref": "#/components/schemas/ProjectSummary" }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}": {
+      "get": {
+        "operationId": "getProject",
+        "summary": "Read one project and its retained source and approved proposal metadata",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "parameters": [
+          {
+            "name": "projectId",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "string", "format": "uuid" }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Project detail from the server fact source.",
+            "headers": {
+              "Cache-Control": {
+                "required": true,
+                "schema": { "type": "string", "const": "no-store" }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ProjectDetail" }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
     }
   },
   "components": {
@@ -148,9 +253,66 @@
         "scheme": "bearer",
         "bearerFormat": "deployment-issued token",
         "description": "The adapter resolves actor, organization, workspace, and client scope from server-controlled authentication state."
+      },
+      "browserDeploymentActor": {
+        "type": "http",
+        "scheme": "basic",
+        "description": "Browser-native credentials for the same private deployment. The server-configured username and deployment token password are never embedded in assets or browser storage."
       }
     },
     "schemas": {
+      "ProjectSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["projectId", "name", "status", "approvedProposalVersion", "createdAt"],
+        "properties": {
+          "projectId": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["planning", "active", "archived"] },
+          "approvedProposalVersion": { "type": "integer", "minimum": 1 },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProjectFile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactId", "versionId", "filename", "mediaType", "sizeBytes"],
+        "properties": {
+          "artifactId": { "type": "string", "format": "uuid" },
+          "versionId": { "type": "string", "format": "uuid" },
+          "filename": { "type": "string" },
+          "mediaType": { "type": "string" },
+          "sizeBytes": { "type": "integer", "minimum": 0 }
+        }
+      },
+      "ApprovedProposal": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactId", "versionId", "filename", "mediaType", "sizeBytes", "proposalVersion", "approvalStatus", "approvedAt"],
+        "properties": {
+          "artifactId": { "type": "string", "format": "uuid" },
+          "versionId": { "type": "string", "format": "uuid" },
+          "filename": { "type": "string" },
+          "mediaType": { "type": "string" },
+          "sizeBytes": { "type": "integer", "minimum": 0 },
+          "proposalVersion": { "type": "integer", "minimum": 1 },
+          "approvalStatus": { "type": "string", "const": "approved" },
+          "approvedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProjectDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["projectId", "name", "status", "createdAt", "sourceFile", "approvedProposal"],
+        "properties": {
+          "projectId": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "status": { "type": "string", "enum": ["planning", "active", "archived"] },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "sourceFile": { "$ref": "#/components/schemas/ProjectFile" },
+          "approvedProposal": { "$ref": "#/components/schemas/ApprovedProposal" }
+        }
+      },
       "ImportError": {
         "type": "object",
         "additionalProperties": false,
@@ -176,7 +338,8 @@
               "IDEMPOTENCY_CONFLICT",
               "INVALID_SERVER_ID",
               "INVALID_SERVER_CLOCK",
-              "DATABASE_WRITE_FAILED"
+              "DATABASE_WRITE_FAILED",
+              "PROJECT_NOT_FOUND"
             ]
           },
           "message": {
@@ -193,13 +356,13 @@
     },
     "responses": {
       "AuthenticationFailure": {
-        "description": "The deployment bearer token is missing or invalid.",
+        "description": "The deployment Bearer or browser-native Basic credential is missing or invalid.",
         "headers": {
           "WWW-Authenticate": {
             "required": true,
             "schema": {
               "type": "string",
-              "const": "Bearer"
+              "enum": ["Bearer", "Basic realm=\"MarketOps\", charset=\"UTF-8\""]
             }
           }
         },

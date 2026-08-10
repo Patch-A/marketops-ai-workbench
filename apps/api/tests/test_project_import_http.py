@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import importlib.util
 import json
 import os
+import tempfile
 import unittest
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
+from urllib.parse import urlsplit
 from uuid import uuid4
 
 
@@ -27,6 +31,12 @@ if HTTP_DEPENDENCIES_AVAILABLE:
 
     from apps.api.marketops_import import http
     from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
+    from apps.api.marketops_import.postgres import (
+        ApprovedProposalView,
+        ProjectDetail,
+        ProjectFileView,
+        ProjectSummary,
+    )
     from apps.api.marketops_import.service import (
         ImportFailure,
         ImportResult,
@@ -66,6 +76,11 @@ class ProjectImportHttpTests(unittest.TestCase):
         response = self.request()
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["projectId"], self.service.result.project_id)
+        self.assertEqual(
+            response.headers["location"],
+            f"/v1/projects/{self.service.result.project_id}",
+        )
+        self.assertEqual(response.headers["cache-control"], "no-store")
         self.assertEqual(self.service.scope, self.scope)
         self.assertEqual(self.service.source_bytes, b"# source\n")
         self.assertEqual(self.service.proposal_bytes, b"# approved proposal\n")
@@ -82,7 +97,12 @@ class ProjectImportHttpTests(unittest.TestCase):
         frozen = json.loads(contract_path.read_text(encoding="utf-8"))
         self.assertEqual(self.app.openapi(), frozen)
         operation = self.app.openapi()["paths"]["/v1/project-imports"]["post"]
-        self.assertEqual(operation["security"], [{"deploymentActor": []}])
+        self.assertEqual(
+            operation["security"],
+            [{"deploymentActor": []}, {"browserDeploymentActor": []}],
+        )
+        self.assertIn("/v1/projects", self.app.openapi()["paths"])
+        self.assertIn("/v1/projects/{projectId}", self.app.openapi()["paths"])
         self.assertEqual(
             set(operation["responses"]),
             {"201", "400", "401", "403", "409", "413", "415", "422", "500"},
@@ -129,7 +149,7 @@ class ProjectImportHttpTests(unittest.TestCase):
         self.assertIsNot(self.service.scope, raw_scope)
 
     def test_missing_or_invalid_bearer_token_returns_frozen_401(self):
-        for authorization in (None, "Basic abc", "Bearer wrong"):
+        for authorization in (None, "Bearer wrong"):
             request_headers = [("Idempotency-Key", "request-001")]
             if authorization:
                 request_headers.append(("Authorization", authorization))
@@ -141,6 +161,49 @@ class ProjectImportHttpTests(unittest.TestCase):
                 self.assertEqual(response.headers["www-authenticate"], "Bearer")
                 self.assertEqual(response.json()["code"], "AUTHORIZATION_REQUIRED")
         self.assertEqual(self.service.calls, 0)
+
+    def test_invalid_basic_credentials_return_basic_challenge(self):
+        body, content_type = encode_multipart(valid_parts())
+        response = asyncio.run(
+            asgi_post(
+                self.app,
+                [
+                    ("Authorization", "Basic abc"),
+                    ("Idempotency-Key", "request-001"),
+                    ("Content-Type", content_type),
+                ],
+                body,
+            )
+        )
+        self.assertEqual(response.status_code, 401)
+        self.assertEqual(
+            response.headers["www-authenticate"],
+            'Basic realm="MarketOps", charset="UTF-8"',
+        )
+
+    def test_valid_basic_credentials_can_import_with_server_scope(self):
+        app = create_app(
+            import_service=self.service,
+            authenticator=StaticBearerAuthenticator(
+                "test-token", self.scope, basic_username="operator"
+            ),
+            request_id_factory=lambda: "request-id",
+        )
+        body, content_type = encode_multipart(valid_parts())
+        encoded = base64.b64encode(b"operator:test-token").decode("ascii")
+        response = asyncio.run(
+            asgi_post(
+                app,
+                [
+                    ("Authorization", f"Basic {encoded}"),
+                    ("Idempotency-Key", "request-001"),
+                    ("Content-Type", content_type),
+                ],
+                body,
+            )
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(self.service.scope, self.scope)
 
     def test_authenticated_actor_with_invalid_server_scope_returns_403(self):
         invalid = ScopeContext("bad", identifier(), identifier(), identifier())
@@ -181,6 +244,20 @@ class ProjectImportHttpTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(response.json()["code"], "INVALID_INPUT")
         self.assertEqual(self.service.calls, 0)
+        body, content_type = encode_multipart(valid_parts())
+        response = asyncio.run(
+            asgi_post(
+                self.app,
+                [
+                    ("Authorization", "Bearer test-token"),
+                    ("Idempotency-Key", "request-001"),
+                    ("Idempotency-Key", "request-002"),
+                    ("Content-Type", content_type),
+                ],
+                body,
+            )
+        )
+        self.assertEqual(response.status_code, 400)
 
     def test_oversized_file_returns_413_without_calling_service(self):
         parts = valid_parts(source=b"x" * (25 * 1024 * 1024 + 1))
@@ -288,20 +365,120 @@ class ProjectImportHttpTests(unittest.TestCase):
                 self.assertEqual(response.status_code, 400)
                 self.assertEqual(response.json()["code"], "INVALID_INPUT")
         self.assertEqual(self.service.calls, 0)
-        body, content_type = encode_multipart(valid_parts())
-        response = asyncio.run(
-            asgi_post(
-                self.app,
-                [
-                    ("Authorization", "Bearer test-token"),
-                    ("Idempotency-Key", "request-001"),
-                    ("Idempotency-Key", "request-002"),
-                    ("Content-Type", content_type),
-                ],
-                body,
-            )
+
+
+@unittest.skipUnless(
+    HTTP_DEPENDENCIES_AVAILABLE,
+    "FastAPI and python-multipart are required for HTTP adapter tests",
+)
+class ProjectReadHttpTests(unittest.TestCase):
+    def setUp(self):
+        self.scope = ScopeContext(identifier(), identifier(), identifier(), identifier())
+        self.reader = FakeProjectReader()
+        self.authenticator = StaticBearerAuthenticator(
+            "test-token", self.scope, basic_username="operator"
         )
-        self.assertEqual(response.status_code, 400)
+        self.app = create_app(
+            project_reader=self.reader,
+            authenticator=self.authenticator,
+            request_id_factory=lambda: "request-id",
+        )
+
+    def get(self, path, *, authorization="Bearer test-token"):
+        headers = [] if authorization is None else [("Authorization", authorization)]
+        return asyncio.run(asgi_get(self.app, path, headers))
+
+    def test_list_is_bounded_scoped_no_store_and_does_not_expose_secrets(self):
+        response = self.get("/v1/projects?limit=7")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertEqual(self.reader.list_scope, self.scope)
+        self.assertEqual(self.reader.limit, 7)
+        self.assertEqual(response.json()["projects"][0]["projectId"], self.reader.project_id)
+        for forbidden in ("storageKey", "idempotency", "credential", "actorId"):
+            self.assertNotIn(forbidden, response.text)
+
+    def test_list_rejects_unknown_duplicate_and_out_of_range_query(self):
+        for query in ("limit=0", "limit=101", "limit=x", "limit=2&limit=3", "scope=x"):
+            with self.subTest(query=query):
+                response = self.get(f"/v1/projects?{query}")
+                self.assertEqual(response.status_code, 400)
+                self.assertEqual(response.json()["code"], "INVALID_INPUT")
+        self.assertEqual(self.reader.list_calls, 0)
+
+    def test_detail_returns_only_display_metadata_and_canonical_id(self):
+        response = self.get(f"/v1/projects/{{{self.reader.project_id.upper()}}}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.headers["cache-control"], "no-store")
+        self.assertEqual(self.reader.get_scope, self.scope)
+        self.assertEqual(self.reader.requested_project_id, self.reader.project_id)
+        body = response.json()
+        self.assertEqual(body["approvedProposal"]["approvalStatus"], "approved")
+        self.assertEqual(body["sourceFile"]["filename"], "brief.md")
+        for forbidden in ("storageKey", "idempotency", "approvedBy", "sha256"):
+            self.assertNotIn(forbidden, response.text)
+
+    def test_invalid_absent_and_foreign_ids_are_indistinguishable(self):
+        invalid = self.get("/v1/projects/not-a-uuid")
+        self.reader.detail = None
+        absent = self.get(f"/v1/projects/{identifier()}")
+        self.assertEqual(invalid.status_code, 404)
+        self.assertEqual(absent.status_code, 404)
+        self.assertEqual(invalid.body, absent.body)
+        self.assertEqual(invalid.json()["code"], "PROJECT_NOT_FOUND")
+
+    def test_basic_authentication_uses_server_scope_for_api(self):
+        encoded = base64.b64encode(b"operator:test-token").decode("ascii")
+        response = self.get("/v1/projects", authorization=f"Basic {encoded}")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.reader.list_scope, self.scope)
+
+    def test_read_failure_is_sanitized_and_retryable(self):
+        self.reader.failure = RuntimeError("postgresql://user:secret@customer")
+        response = self.get("/v1/projects")
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.json()["code"], "DATABASE_WRITE_FAILED")
+        self.assertTrue(response.json()["retryable"])
+        self.assertNotIn("secret", response.text)
+
+    def test_static_whitelist_is_basic_protected_and_never_contains_credentials(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for filename in ("index.html", "app.js", "project-import.js", "styles.css"):
+                (root / filename).write_text(f"asset:{filename}", encoding="utf-8")
+            app = create_app(
+                project_reader=self.reader,
+                authenticator=self.authenticator,
+                request_id_factory=lambda: "request-id",
+                static_root=root,
+            )
+            challenged = asyncio.run(asgi_get(app, "/", []))
+            self.assertEqual(challenged.status_code, 401)
+            self.assertEqual(
+                challenged.headers["www-authenticate"],
+                'Basic realm="MarketOps", charset="UTF-8"',
+            )
+            encoded = base64.b64encode(b"operator:test-token").decode("ascii")
+            loaded = asyncio.run(
+                asgi_get(app, "/app.js", [("Authorization", f"Basic {encoded}")])
+            )
+            self.assertEqual(loaded.status_code, 200)
+            self.assertEqual(loaded.headers["cache-control"], "no-store")
+            self.assertEqual(loaded.headers["x-content-type-options"], "nosniff")
+            self.assertEqual(loaded.headers["referrer-policy"], "no-referrer")
+            self.assertEqual(
+                loaded.headers["content-security-policy"],
+                "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+                "base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
+            )
+            self.assertEqual(loaded.text, "asset:app.js")
+            self.assertNotIn("test-token", loaded.text)
+
+            unknown = asyncio.run(
+                asgi_get(app, "/.git/config", [("Authorization", f"Basic {encoded}")])
+            )
+            self.assertEqual(unknown.status_code, 404)
 
 
 @unittest.skipUnless(
@@ -368,6 +545,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             "MARKETOPS_DATABASE_URL": "postgresql://example.invalid/test",
             "MARKETOPS_OBJECT_ROOT": "objects",
             "MARKETOPS_DEPLOYMENT_TOKEN": "token",
+            "MARKETOPS_DEPLOYMENT_USERNAME": "operator",
             "MARKETOPS_ORGANIZATION_ID": "{" + identifiers[0].upper() + "}",
             "MARKETOPS_WORKSPACE_ID": identifiers[1].upper(),
             "MARKETOPS_CLIENT_ID": "{" + identifiers[2] + "}",
@@ -379,6 +557,7 @@ class RuntimeSettingsTests(unittest.TestCase):
             settings.scope,
             ScopeContext(*identifiers),
         )
+        self.assertEqual(settings.basic_username, "operator")
 
 
 if HTTP_DEPENDENCIES_AVAILABLE:
@@ -401,6 +580,48 @@ if HTTP_DEPENDENCIES_AVAILABLE:
             if self.failure:
                 raise self.failure
             return self.result
+
+
+    class FakeProjectReader:
+        def __init__(self):
+            self.project_id = identifier()
+            self.created_at = datetime(2026, 8, 10, 1, 2, tzinfo=timezone.utc)
+            self.approved_at = datetime(2026, 8, 10, 1, 1, tzinfo=timezone.utc)
+            self.list_scope = None
+            self.get_scope = None
+            self.limit = None
+            self.requested_project_id = None
+            self.list_calls = 0
+            self.failure = None
+            self.summary = ProjectSummary(
+                self.project_id, "Synthetic launch", "planning", 3, self.created_at
+            )
+            self.detail = ProjectDetail(
+                self.project_id,
+                "Synthetic launch",
+                "planning",
+                self.created_at,
+                ProjectFileView(identifier(), identifier(), "brief.md", "text/markdown", 10),
+                ApprovedProposalView(
+                    identifier(), identifier(), "proposal.md", "text/markdown", 20,
+                    3, "approved", self.approved_at,
+                ),
+            )
+
+        async def list_projects(self, scope, *, limit):
+            self.list_calls += 1
+            self.list_scope = scope
+            self.limit = limit
+            if self.failure:
+                raise self.failure
+            return (self.summary,)
+
+        async def get_project(self, scope, project_id):
+            self.get_scope = scope
+            self.requested_project_id = project_id
+            if self.failure:
+                raise self.failure
+            return self.detail
 
 
     class CancellingUpload:
@@ -482,6 +703,55 @@ async def asgi_post(app, headers, body):
             "path": "/v1/project-imports",
             "raw_path": b"/v1/project-imports",
             "query_string": b"",
+            "root_path": "",
+            "headers": [
+                (name.lower().encode("latin-1"), value.encode("latin-1"))
+                for name, value in headers
+            ],
+            "client": ("127.0.0.1", 12345),
+            "server": ("testserver", 80),
+        },
+        receive,
+        send,
+    )
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    response_body = b"".join(
+        message.get("body", b"")
+        for message in messages
+        if message["type"] == "http.response.body"
+    )
+    response_headers = {
+        name.decode("latin-1"): value.decode("latin-1")
+        for name, value in start["headers"]
+    }
+    return AsgiResponse(start["status"], response_headers, response_body)
+
+
+async def asgi_get(app, target, headers):
+    messages = []
+    delivered = False
+    parsed = urlsplit(target)
+
+    async def receive():
+        nonlocal delivered
+        if delivered:
+            return {"type": "http.disconnect"}
+        delivered = True
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    await app(
+        {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "GET",
+            "scheme": "http",
+            "path": parsed.path,
+            "raw_path": parsed.path.encode("ascii"),
+            "query_string": parsed.query.encode("ascii"),
             "root_path": "",
             "headers": [
                 (name.lower().encode("latin-1"), value.encode("latin-1"))

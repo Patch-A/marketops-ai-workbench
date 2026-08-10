@@ -225,6 +225,78 @@ class PostgreSQLSeededRuntimeTests(unittest.IsolatedAsyncioTestCase):
             1,
         )
 
+    async def test_project_reads_are_scoped_and_project_scope_does_not_leak(self):
+        repository = AsyncpgImportRepository(self.pool)
+        visible_scope = ScopeContext(
+            self.organization_id, self.workspace_id, self.client_id, self.actor_id
+        )
+        hidden_scope = ScopeContext(
+            self.organization_id, self.workspace_id, self.other_client_id, self.actor_id
+        )
+        foreign_workspace_scope = ScopeContext(
+            self.organization_id, identifier(), self.client_id, self.actor_id
+        )
+        first = make_record(visible_scope, "runtime-read-first-" + identifier())
+        second = make_record(visible_scope, "runtime-read-second-" + identifier())
+        hidden = make_record(hidden_scope, "runtime-read-hidden-" + identifier())
+
+        async def insert(scope, candidate):
+            async with repository.transaction(scope) as transaction:
+                claim = await transaction.try_create_project_import(candidate)
+                self.assertTrue(claim.created)
+                await transaction.append_audit_event(
+                    AuditEvent(
+                        event_id=identifier(),
+                        project_id=candidate.project_id,
+                        actor_id=scope.actor_id,
+                        action="project.imported_with_approved_proposal",
+                        manifest_sha256=candidate.manifest_sha256,
+                        source_version_id=candidate.source_version_id,
+                        proposal_version_id=candidate.proposal_version_id,
+                        approved_by=scope.actor_id,
+                        approved_at=candidate.approved_at,
+                    )
+                )
+
+        await insert(visible_scope, first)
+        await insert(visible_scope, second)
+        await insert(hidden_scope, hidden)
+
+        listed = await repository.list_projects(visible_scope, limit=10)
+        self.assertEqual(
+            {project.project_id for project in listed},
+            {first.project_id, second.project_id},
+        )
+        self.assertNotIn(hidden.project_id, {project.project_id for project in listed})
+        detail = await repository.get_project(visible_scope, first.project_id)
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail.project_id, first.project_id)
+        self.assertEqual(detail.source_file.filename, first.source_filename)
+        self.assertEqual(
+            detail.approved_proposal.version_id, first.proposal_version_id
+        )
+        self.assertIsNone(
+            await repository.get_project(visible_scope, hidden.project_id)
+        )
+        self.assertEqual(
+            await repository.list_projects(foreign_workspace_scope, limit=10), ()
+        )
+        self.assertIsNone(
+            await repository.get_project(foreign_workspace_scope, first.project_id)
+        )
+
+        async with self.pool.acquire() as connection:
+            leaked = await connection.fetchrow(
+                """
+                SELECT
+                    nullif(current_setting('app.workspace_id', true), '') AS workspace_id,
+                    nullif(current_setting('app.client_id', true), '') AS client_id,
+                    nullif(current_setting('app.project_id', true), '') AS project_id,
+                    nullif(current_setting('app.actor_id', true), '') AS actor_id
+                """
+            )
+            self.assertTrue(all(leaked[name] is None for name in leaked.keys()))
+
 
 def make_record(scope, idempotency_key, *, manifest_sha256="a" * 64):
     approved_at = datetime.now(timezone.utc)

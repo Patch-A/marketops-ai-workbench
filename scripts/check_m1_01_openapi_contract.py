@@ -14,6 +14,8 @@ from typing import Callable
 ROOT = Path(__file__).resolve().parents[1]
 CONTRACT = ROOT / "apps" / "api" / "openapi" / "project-import.openapi.yaml"
 ROUTE = "/v1/project-imports"
+LIST_ROUTE = "/v1/projects"
+DETAIL_ROUTE = "/v1/projects/{projectId}"
 FORBIDDEN_SCOPE_FIELDS = {"organizationId", "workspaceId", "clientId", "actorId"}
 REQUIRED_RESPONSES = {
     "201",
@@ -55,6 +57,7 @@ REQUIRED_ERROR_CODES = frozenset(
         "INVALID_SERVER_ID",
         "INVALID_SERVER_CLOCK",
         "DATABASE_WRITE_FAILED",
+        "PROJECT_NOT_FOUND",
     }
 )
 ERROR_CODE_GUARD = "stable error code enum"
@@ -69,6 +72,40 @@ class Guard:
 
 def operation(document):
     return document.get("paths", {}).get(ROUTE, {}).get("post", {})
+
+
+def list_operation(document):
+    return document.get("paths", {}).get(LIST_ROUTE, {}).get("get", {})
+
+
+def detail_operation(document):
+    return document.get("paths", {}).get(DETAIL_ROUTE, {}).get("get", {})
+
+
+def component_schema(document, name):
+    return document.get("components", {}).get("schemas", {}).get(name, {})
+
+
+def response_content_schema(value):
+    return (
+        value.get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+    )
+
+
+def security_options(document):
+    return [
+        {"deploymentActor": []},
+        {"browserDeploymentActor": []},
+    ]
+
+
+def no_store_header(response):
+    return response.get("headers", {}).get("Cache-Control") == {
+        "required": True,
+        "schema": {"type": "string", "const": "no-store"},
+    }
 
 
 def multipart_schema(document):
@@ -148,7 +185,7 @@ GUARDS = (
     ),
     Guard(
         "authenticated POST route",
-        lambda d: operation(d).get("security") == [{"deploymentActor": []}],
+        lambda d: operation(d).get("security") == security_options(d),
         lambda d: operation(d).pop("security", None),
     ),
     Guard(
@@ -231,16 +268,175 @@ GUARDS = (
         ),
     ),
     Guard(
-        "bearer authentication challenge",
+        "deployment authentication schemes and challenge",
+        lambda d: d.get("components", {})
+        .get("securitySchemes", {})
+        .get("deploymentActor", {})
+        .get("scheme")
+        == "bearer"
+        and d.get("components", {})
+        .get("securitySchemes", {})
+        .get("browserDeploymentActor", {})
+        .get("scheme")
+        == "basic"
+        and set(
+            d.get("components", {})
+            .get("responses", {})
+            .get("AuthenticationFailure", {})
+            .get("headers", {})
+            .get("WWW-Authenticate", {})
+            .get("schema", {})
+            .get("enum", [])
+        )
+        == {"Bearer", 'Basic realm="MarketOps", charset="UTF-8"'}
+        and d.get("components", {})
+        .get("responses", {})
+        .get("AuthenticationFailure", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema")
+        == {"$ref": "#/components/schemas/ImportError"},
+        lambda d: d.get("components", {})
+        .get("securitySchemes", {})
+        .pop("browserDeploymentActor", None),
+    ),
+    Guard(
+        "traceable success location and no-store",
+        lambda d: operation(d)
+        .get("responses", {})
+        .get("201", {})
+        .get("headers", {})
+        .get("Location", {})
+        .get("required")
+        is True
+        and operation(d)
+        .get("responses", {})
+        .get("201", {})
+        .get("headers", {})
+        .get("Location", {})
+        .get("schema", {})
+        .get("pattern")
+        == "^/v1/projects/[0-9a-f-]{36}$"
+        and no_store_header(operation(d).get("responses", {}).get("201", {})),
+        lambda d: operation(d)
+        .get("responses", {})
+        .get("201", {})
+        .get("headers", {})
+        .pop("Location", None),
+    ),
+    Guard(
+        "scoped bounded project list route",
+        lambda d: list_operation(d).get("security") == security_options(d)
+        and next(
+            (
+                item
+                for item in list_operation(d).get("parameters", [])
+                if item.get("name") == "limit" and item.get("in") == "query"
+            ),
+            {},
+        ).get("schema")
+        == {"type": "integer", "minimum": 1, "maximum": 100, "default": 20}
+        and set(list_operation(d).get("responses", {}))
+        == {"200", "400", "401", "403", "500"}
+        and no_store_header(list_operation(d).get("responses", {}).get("200", {}))
+        and response_content_schema(
+            list_operation(d).get("responses", {}).get("200", {})
+        ).get("properties", {}).get("projects", {}).get("items")
+        == {"$ref": "#/components/schemas/ProjectSummary"},
+        lambda d: list_operation(d).pop("security", None),
+    ),
+    Guard(
+        "scoped indistinguishable project detail route",
+        lambda d: detail_operation(d).get("security") == security_options(d)
+        and next(
+            (
+                item
+                for item in detail_operation(d).get("parameters", [])
+                if item.get("name") == "projectId" and item.get("in") == "path"
+            ),
+            {},
+        )
+        == {
+            "name": "projectId",
+            "in": "path",
+            "required": True,
+            "schema": {"type": "string", "format": "uuid"},
+        }
+        and set(detail_operation(d).get("responses", {}))
+        == {"200", "401", "403", "404", "500"}
+        and no_store_header(detail_operation(d).get("responses", {}).get("200", {}))
+        and response_content_schema(
+            detail_operation(d).get("responses", {}).get("200", {})
+        )
+        == {"$ref": "#/components/schemas/ProjectDetail"}
+        and detail_operation(d).get("responses", {}).get("404")
+        == {"$ref": "#/components/responses/ImportFailure"},
+        lambda d: detail_operation(d).get("responses", {}).pop("404", None),
+    ),
+    Guard(
+        "closed project read schemas",
+        lambda d: component_schema(d, "ProjectSummary").get("additionalProperties")
+        is False
+        and set(component_schema(d, "ProjectSummary").get("required", []))
+        == {"projectId", "name", "status", "approvedProposalVersion", "createdAt"}
+        and component_schema(d, "ProjectFile").get("additionalProperties") is False
+        and set(component_schema(d, "ProjectFile").get("required", []))
+        == {"artifactId", "versionId", "filename", "mediaType", "sizeBytes"}
+        and component_schema(d, "ApprovedProposal").get("type") == "object"
+        and component_schema(d, "ApprovedProposal").get("additionalProperties") is False
+        and set(component_schema(d, "ApprovedProposal").get("required", []))
+        == {
+            "artifactId",
+            "versionId",
+            "filename",
+            "mediaType",
+            "sizeBytes",
+            "proposalVersion",
+            "approvalStatus",
+            "approvedAt",
+        }
+        and component_schema(d, "ProjectDetail").get("additionalProperties") is False
+        and set(component_schema(d, "ProjectDetail").get("required", []))
+        == {"projectId", "name", "status", "createdAt", "sourceFile", "approvedProposal"},
+        lambda d: component_schema(d, "ProjectDetail").update(additionalProperties=True),
+    ),
+    Guard(
+        "project responses exclude server secrets",
+        lambda d: all(
+            f'"{field}"' not in json.dumps(
+                {
+                    name: component_schema(d, name)
+                    for name in (
+                        "ProjectSummary",
+                        "ProjectFile",
+                        "ApprovedProposal",
+                        "ProjectDetail",
+                    )
+                }
+            )
+            for field in (
+                "storageKey",
+                "storageUrl",
+                "idempotencyKey",
+                "credential",
+                "credentials",
+                "secret",
+                "dsn",
+            )
+        ),
+        lambda d: component_schema(d, "ProjectFile")
+        .setdefault("properties", {})
+        .update(storageKey={"type": "string"}),
+    ),
+    Guard(
+        "authentication challenge",
         lambda d: d.get("components", {})
         .get("responses", {})
         .get("AuthenticationFailure", {})
         .get("headers", {})
         .get("WWW-Authenticate", {})
-        == {
-            "required": True,
-            "schema": {"type": "string", "const": "Bearer"},
-        }
+        .get("required")
+        is True
         and d.get("components", {})
         .get("responses", {})
         .get("AuthenticationFailure", {})

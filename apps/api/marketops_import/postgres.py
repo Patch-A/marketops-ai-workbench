@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 import json
 from contextlib import asynccontextmanager
+from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, AsyncIterator
 
 from .service import (
@@ -74,6 +76,47 @@ WHERE organization_id = $1
   AND import_request_id = $4
 """
 
+_LIST_PROJECTS_SQL = """
+SELECT
+    id, name, status, approved_proposal_number, created_at
+FROM marketops.projects
+WHERE organization_id = $1
+  AND workspace_id = $2
+  AND client_id = $3
+ORDER BY created_at DESC, id DESC
+LIMIT $4
+"""
+
+_READ_PROJECT_SQL = """
+SELECT
+    id, name, status, approved_proposal_artifact_id,
+    approved_proposal_version_id, approved_proposal_number, created_at
+FROM marketops.projects
+WHERE organization_id = $1
+  AND workspace_id = $2
+  AND client_id = $3
+  AND id = $4
+"""
+
+_READ_PROJECT_VERSIONS_SQL = """
+SELECT
+    artifact.kind, artifact.id AS artifact_id, version.id AS version_id,
+    version.proposal_version, version.original_filename, version.media_type,
+    version.byte_size, version.approval_status, version.approved_at
+FROM marketops.artifacts AS artifact
+JOIN marketops.artifact_versions AS version
+  ON version.organization_id = artifact.organization_id
+ AND version.workspace_id = artifact.workspace_id
+ AND version.client_id = artifact.client_id
+ AND version.project_id = artifact.project_id
+ AND version.artifact_id = artifact.id
+WHERE artifact.organization_id = $1
+  AND artifact.workspace_id = $2
+  AND artifact.client_id = $3
+  AND artifact.project_id = $4
+ORDER BY artifact.kind, version.id
+"""
+
 _INSERT_ARTIFACT_SQL = """
 INSERT INTO marketops.artifacts (
     id, organization_id, workspace_id, client_id, project_id, kind, created_by
@@ -122,6 +165,41 @@ VALUES ($1, $2, $3, $4, $5, $6, $7, 'project', $5, $8::jsonb)
 """
 
 
+@dataclass(frozen=True)
+class ProjectSummary:
+    project_id: str
+    name: str
+    status: str
+    approved_proposal_version: int
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class ProjectFileView:
+    artifact_id: str
+    version_id: str
+    filename: str
+    media_type: str
+    size_bytes: int
+
+
+@dataclass(frozen=True)
+class ApprovedProposalView(ProjectFileView):
+    proposal_version: int
+    approval_status: str
+    approved_at: datetime
+
+
+@dataclass(frozen=True)
+class ProjectDetail:
+    project_id: str
+    name: str
+    status: str
+    created_at: datetime
+    source_file: ProjectFileView
+    approved_proposal: ApprovedProposalView
+
+
 class AsyncpgImportRepository:
     def __init__(self, pool: Any):
         self._pool = pool
@@ -153,6 +231,94 @@ class AsyncpgImportRepository:
             translated_error = _translate_driver_error(error)
         if translated_error is not None:
             raise translated_error
+
+    async def list_projects(
+        self, scope: ScopeContext, *, limit: int = 20
+    ) -> tuple[ProjectSummary, ...]:
+        if not isinstance(limit, int) or isinstance(limit, bool) or not 1 <= limit <= 100:
+            raise ValueError("project list limit must be between 1 and 100")
+        rows = await self._read_in_scope(
+            scope,
+            lambda connection: connection.fetch(
+                _LIST_PROJECTS_SQL,
+                scope.organization_id,
+                scope.workspace_id,
+                scope.client_id,
+                limit,
+            ),
+        )
+        try:
+            return tuple(_map_project_summary(row) for row in rows)
+        except (KeyError, TypeError, ValueError) as error:
+            raise PostgresDataError("database rows violated the project list contract") from None
+
+    async def get_project(
+        self, scope: ScopeContext, project_id: str
+    ) -> ProjectDetail | None:
+        async def read(connection: Any) -> tuple[Any, list[Any]] | None:
+            await connection.fetchrow(_SET_PROJECT_SQL, project_id)
+            project = await connection.fetchrow(
+                _READ_PROJECT_SQL,
+                scope.organization_id,
+                scope.workspace_id,
+                scope.client_id,
+                project_id,
+            )
+            if project is None:
+                return None
+            versions = await connection.fetch(
+                _READ_PROJECT_VERSIONS_SQL,
+                scope.organization_id,
+                scope.workspace_id,
+                scope.client_id,
+                project_id,
+            )
+            return project, versions
+
+        result = await self._read_in_scope(scope, read)
+        if result is None:
+            return None
+        try:
+            return _map_project_detail(*result)
+        except (KeyError, TypeError, ValueError) as error:
+            raise PostgresDataError("database rows violated the project detail contract") from None
+
+    async def _read_in_scope(self, scope: ScopeContext, operation: Any) -> Any:
+        translated_error: PostgresAdapterError | None = None
+        try:
+            async with self._pool.acquire() as connection:
+                transaction_error: PostgresAdapterError | None = None
+                try:
+                    async with connection.transaction():
+                        await connection.fetchrow(
+                            _SET_SCOPE_SQL,
+                            scope.workspace_id,
+                            scope.client_id,
+                            scope.actor_id,
+                        )
+                        return await operation(connection)
+                except asyncio.CancelledError:
+                    raise
+                except PostgresAdapterError:
+                    raise
+                except Exception as error:
+                    if _connection_is_closed(connection) or _is_asyncpg_connection_loss(error):
+                        transaction_error = PostgresUnavailableError(
+                            "database operation is temporarily unavailable"
+                        )
+                    else:
+                        transaction_error = _translate_driver_error(error)
+                if transaction_error is not None:
+                    raise transaction_error
+        except asyncio.CancelledError:
+            raise
+        except PostgresAdapterError:
+            raise
+        except Exception as error:
+            translated_error = _translate_driver_error(error)
+        if translated_error is not None:
+            raise translated_error
+        raise PostgresDataError("database read ended without a result")
 
     @asynccontextmanager
     async def transaction(
@@ -431,6 +597,69 @@ def _map_record(project: Any, version_rows: list[Any]) -> ProjectImportRecord:
         approved_by=str(proposal["approved_by"]),
         approved_at=proposal["approved_at"],
         created_by=str(project["created_by"]),
+    )
+
+
+def _map_project_summary(row: Any) -> ProjectSummary:
+    created_at = row["created_at"]
+    if not isinstance(created_at, datetime):
+        raise PostgresDataError("project creation time is invalid")
+    return ProjectSummary(
+        project_id=str(row["id"]),
+        name=row["name"],
+        status=row["status"],
+        approved_proposal_version=row["approved_proposal_number"],
+        created_at=created_at,
+    )
+
+
+def _map_project_detail(project: Any, version_rows: list[Any]) -> ProjectDetail:
+    versions: dict[str, Any] = {}
+    for row in version_rows:
+        kind = row["kind"]
+        if kind not in {"source", "proposal"} or kind in versions:
+            raise PostgresDataError("project artifact mapping is incomplete")
+        versions[kind] = row
+    if set(versions) != {"source", "proposal"}:
+        raise PostgresDataError("project artifact mapping is incomplete")
+    source = versions["source"]
+    proposal = versions["proposal"]
+    created_at = project["created_at"]
+    approved_at = proposal["approved_at"]
+    if not isinstance(created_at, datetime) or not isinstance(approved_at, datetime):
+        raise PostgresDataError("project timestamps are invalid")
+    if (
+        str(project["approved_proposal_artifact_id"]) != str(proposal["artifact_id"])
+        or str(project["approved_proposal_version_id"]) != str(proposal["version_id"])
+        or project["approved_proposal_number"] != proposal["proposal_version"]
+        or source["proposal_version"] is not None
+        or source["approval_status"] != "not_applicable"
+        or source["approved_at"] is not None
+        or proposal["approval_status"] != "approved"
+    ):
+        raise PostgresDataError("approved proposal mapping is inconsistent")
+    return ProjectDetail(
+        project_id=str(project["id"]),
+        name=project["name"],
+        status=project["status"],
+        created_at=created_at,
+        source_file=ProjectFileView(
+            artifact_id=str(source["artifact_id"]),
+            version_id=str(source["version_id"]),
+            filename=source["original_filename"],
+            media_type=source["media_type"],
+            size_bytes=source["byte_size"],
+        ),
+        approved_proposal=ApprovedProposalView(
+            artifact_id=str(proposal["artifact_id"]),
+            version_id=str(proposal["version_id"]),
+            filename=proposal["original_filename"],
+            media_type=proposal["media_type"],
+            size_bytes=proposal["byte_size"],
+            proposal_version=proposal["proposal_version"],
+            approval_status=proposal["approval_status"],
+            approved_at=approved_at,
+        ),
     )
 
 

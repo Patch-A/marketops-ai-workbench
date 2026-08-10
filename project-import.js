@@ -1,225 +1,401 @@
 (function projectImportModule(globalScope) {
   'use strict';
 
-  const STORAGE_KEY = 'marketops.projects.v1';
+  const IMPORT_ROUTE = '/v1/project-imports';
+  const PROJECTS_ROUTE = '/v1/projects';
+  const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
   const SHA256_PATTERN = /^[a-f0-9]{64}$/;
-  const SUPPORTED_IMPORT_EXTENSIONS = new Set(['md', 'markdown', 'csv', 'docx']);
-  const SUPPORTED_PROPOSAL_EXTENSIONS = new Set(['md', 'markdown', 'docx']);
+  const SOURCE_EXTENSIONS = new Set(['md', 'markdown', 'csv', 'docx']);
+  const PROPOSAL_EXTENSIONS = new Set(['md', 'markdown', 'docx']);
+  const PROJECT_STATUSES = new Set(['planning', 'active', 'archived']);
+  const CANONICAL_MEDIA_TYPES = Object.freeze({
+    md: 'text/markdown',
+    markdown: 'text/markdown',
+    csv: 'text/csv',
+    docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  });
 
-  function requireText(value, label) {
-    if (typeof value !== 'string' || value.trim() === '') {
-      throw new TypeError(`${label} is required.`);
+  class ProjectApiError extends Error {
+    constructor(code, message, options = {}) {
+      super(message);
+      this.name = 'ProjectApiError';
+      this.code = code;
+      this.status = options.status || 0;
+      this.retryable = options.retryable === true;
+      this.uncertain = options.uncertain === true;
+      this.requestId = typeof options.requestId === 'string' ? options.requestId : '';
     }
-    return value.trim();
   }
 
-  function requireHash(value, label) {
-    const hash = requireText(value, label).toLowerCase();
-    if (!SHA256_PATTERN.test(hash)) throw new TypeError(`${label} must be a SHA-256 hash.`);
-    return hash;
-  }
-
-  function requireIsoDate(value, label) {
-    const date = requireText(value, label);
-    if (Number.isNaN(Date.parse(date))) throw new TypeError(`${label} must be an ISO date.`);
-    return date;
+  function extensionOf(name) {
+    if (typeof name !== 'string') return '';
+    const trimmed = name.trim();
+    if (!trimmed || !trimmed.includes('.')) return '';
+    return trimmed.split('.').pop().toLowerCase();
   }
 
   function isSupportedImportName(name) {
-    if (typeof name !== 'string') return false;
-    const extension = name.trim().toLowerCase().split('.').pop();
-    return SUPPORTED_IMPORT_EXTENSIONS.has(extension);
+    return SOURCE_EXTENSIONS.has(extensionOf(name));
   }
 
   function isSupportedProposalName(name) {
-    if (typeof name !== 'string') return false;
-    const extension = name.trim().toLowerCase().split('.').pop();
-    return SUPPORTED_PROPOSAL_EXTENSIONS.has(extension);
+    return PROPOSAL_EXTENSIONS.has(extensionOf(name));
   }
 
-  function createArtifactMetadata(input) {
-    if (!input || typeof input !== 'object') throw new TypeError('Artifact input is required.');
-    if (!isSupportedImportName(input.name)) throw new TypeError('Unsupported import format.');
-    const size = Number(input.size);
-    if (!Number.isInteger(size) || size < 0) throw new TypeError('Artifact size must be a non-negative integer.');
+  function normalizeUpload(file) {
+    if (!file || typeof file.name !== 'string' || typeof file.slice !== 'function') {
+      throw new ProjectApiError('INVALID_INPUT', 'A readable upload file is required.');
+    }
+    const extension = extensionOf(file.name);
+    const mediaType = CANONICAL_MEDIA_TYPES[extension];
+    if (!mediaType) throw new ProjectApiError('UNSUPPORTED_FORMAT', 'The selected file format is unsupported.');
     return {
-      id: requireText(input.id, 'Artifact id'),
-      name: requireText(input.name, 'Artifact name'),
-      type: typeof input.type === 'string' ? input.type : '',
-      size,
-      sha256: requireHash(input.sha256, 'Artifact hash'),
-      retained: true,
+      body: file.slice(0, file.size, mediaType),
+      filename: file.name,
+      mediaType,
     };
   }
 
-  async function retainFileRecord(file, artifactId, store, retainedAt = new Date().toISOString()) {
-    if (!file || typeof file !== 'object') throw new TypeError('File is required.');
-    if (!store?.put) throw new TypeError('A file store is required.');
-    const id = requireText(artifactId, 'Artifact id');
-    const name = requireText(file.name, 'File name');
-    const size = Number(file.size);
-    if (!Number.isInteger(size) || size < 0) throw new TypeError('File size must be a non-negative integer.');
-    const record = {
-      id,
-      file,
-      name,
-      type: typeof file.type === 'string' ? file.type : '',
-      size,
-      retainedAt: requireIsoDate(retainedAt, 'File retention time'),
+  function createIdempotencyKey(cryptoApi = globalScope.crypto) {
+    if (!cryptoApi?.randomUUID) {
+      throw new ProjectApiError('CLIENT_CAPABILITY_REQUIRED', 'This browser cannot create a safe request key.');
+    }
+    return `browser-${cryptoApi.randomUUID()}`;
+  }
+
+  function importFingerprint(input) {
+    const source = input?.sourceFile;
+    const proposal = input?.proposalFile;
+    return JSON.stringify([
+      typeof input?.projectName === 'string' ? input.projectName.trim() : '',
+      Number(input?.proposalVersion),
+      input?.approvalConfirmed === true,
+      fileFingerprint(source),
+      fileFingerprint(proposal),
+    ]);
+  }
+
+  function fileFingerprint(file) {
+    if (!file) return null;
+    return [file.name, Number(file.size), Number(file.lastModified || 0)];
+  }
+
+  function createRetryKeyManager(keyFactory = createIdempotencyKey) {
+    let current = null;
+    return {
+      get(fingerprint) {
+        if (typeof fingerprint !== 'string' || fingerprint === '') {
+          throw new ProjectApiError('INVALID_INPUT', 'An import fingerprint is required.');
+        }
+        if (!current || current.fingerprint !== fingerprint) {
+          current = { fingerprint, key: keyFactory() };
+        }
+        return current.key;
+      },
+      clear() {
+        current = null;
+      },
+      peek() {
+        return current ? { ...current } : null;
+      },
     };
-    await store.put(record);
-    return record;
   }
 
-  async function verifyRetainedProjectFiles(project, store) {
-    if (!project?.sourceFile?.id || !project?.approvedProposal?.id) throw new TypeError('Project file references are required.');
-    if (!store?.get) throw new TypeError('A readable file store is required.');
-    const sourceRecord = await store.get(project.sourceFile.id);
-    const proposalRecord = await store.get(project.approvedProposal.id);
-    if (!sourceRecord) throw new Error('Source file is missing from local storage.');
-    if (!proposalRecord) throw new Error('Approved proposal file is missing from local storage.');
-    if (sourceRecord.name !== project.sourceFile.name || sourceRecord.size !== project.sourceFile.size) {
-      throw new Error('Source file metadata does not match the retained project record.');
+  function createProjectApiClient(options = {}) {
+    const fetchImpl = options.fetchImpl || globalScope.fetch;
+    const FormDataImpl = options.FormDataImpl || globalScope.FormData;
+    if (typeof fetchImpl !== 'function' || typeof FormDataImpl !== 'function') {
+      throw new ProjectApiError('CLIENT_CAPABILITY_REQUIRED', 'The Server API client is unavailable.');
     }
-    if (proposalRecord.name !== project.approvedProposal.name) {
-      throw new Error('Approved proposal metadata does not match the retained project record.');
-    }
-    if (await sha256Blob(sourceRecord.file) !== project.sourceFile.sha256) {
-      throw new Error('Source file hash does not match the retained project record.');
-    }
-    if (await sha256Blob(proposalRecord.file) !== project.approvedProposal.sha256) {
-      throw new Error('Approved proposal hash does not match the retained project record.');
-    }
-    return true;
-  }
 
-  function openIndexedDbFileStore(indexedDb = globalScope.indexedDB) {
-    if (!indexedDb?.open) return Promise.reject(new Error('IndexedDB is unavailable.'));
-    return new Promise((resolve, reject) => {
-      const request = indexedDb.open('marketops-files-v1', 1);
-      request.onupgradeneeded = () => {
-        if (!request.result.objectStoreNames.contains('files')) request.result.createObjectStore('files', { keyPath: 'id' });
-      };
-      request.onerror = () => reject(request.error || new Error('Unable to open local file storage.'));
-      request.onsuccess = () => {
-        const database = request.result;
-        resolve({
-          put(value) {
-            return new Promise((putResolve, putReject) => {
-              const transaction = database.transaction('files', 'readwrite');
-              transaction.objectStore('files').put(value);
-              transaction.oncomplete = () => putResolve(value);
-              transaction.onerror = () => putReject(transaction.error || new Error('Unable to retain the selected file.'));
-              transaction.onabort = () => putReject(transaction.error || new Error('File retention was cancelled.'));
-            });
+    return {
+      async importProject(input, request = {}) {
+        validateImportInput(input);
+        if (typeof request.idempotencyKey !== 'string' || request.idempotencyKey.trim().length < 8) {
+          throw new ProjectApiError('INVALID_INPUT', 'A stable idempotency key is required.');
+        }
+        const source = normalizeUpload(input.sourceFile);
+        const proposal = normalizeUpload(input.proposalFile);
+        const form = new FormDataImpl();
+        form.append('projectName', input.projectName.trim());
+        form.append('proposalVersion', String(input.proposalVersion));
+        form.append('approvalConfirmed', 'true');
+        form.append('sourceFile', source.body, source.filename);
+        form.append('proposalFile', proposal.body, proposal.filename);
+        const payload = await requestJson(fetchImpl, IMPORT_ROUTE, {
+          method: 'POST',
+          credentials: 'same-origin',
+          headers: {
+            Accept: 'application/json',
+            'Idempotency-Key': request.idempotencyKey,
           },
-          has(id) {
-            return new Promise((hasResolve, hasReject) => {
-              const transaction = database.transaction('files', 'readonly');
-              const request = transaction.objectStore('files').getKey(id);
-              request.onsuccess = () => hasResolve(request.result !== undefined);
-              request.onerror = () => hasReject(request.error || new Error('Unable to inspect local file storage.'));
-            });
-          },
-          get(id) {
-            return new Promise((getResolve, getReject) => {
-              const transaction = database.transaction('files', 'readonly');
-              const request = transaction.objectStore('files').get(id);
-              request.onsuccess = () => getResolve(request.result);
-              request.onerror = () => getReject(request.error || new Error('Unable to inspect local file storage.'));
-            });
-          },
+          body: form,
+          signal: request.signal,
+        }, true);
+        return validateImportResult(payload);
+      },
+
+      async listProjects(request = {}) {
+        const payload = await requestJson(fetchImpl, PROJECTS_ROUTE, {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { Accept: 'application/json' },
+          signal: request.signal,
         });
-      };
+        return validateProjectList(payload);
+      },
+
+      async getProject(projectId, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '')) {
+          throw new ProjectApiError('INVALID_PROJECT_ID', 'The project URL is invalid.');
+        }
+        const payload = await requestJson(fetchImpl, `${PROJECTS_ROUTE}/${encodeURIComponent(projectId)}`, {
+          method: 'GET',
+          credentials: 'same-origin',
+          headers: { Accept: 'application/json' },
+          signal: request.signal,
+        });
+        return validateProjectDetail(payload);
+      },
+    };
+  }
+
+  async function importThenLoad(api, input, request = {}) {
+    if (!api?.importProject || !api?.getProject) {
+      throw new ProjectApiError('CLIENT_CAPABILITY_REQUIRED', 'A complete Server API client is required.');
+    }
+    const result = await api.importProject(input, request);
+    if (typeof request.onProjectId === 'function') request.onProjectId(result.projectId);
+    try {
+      const detail = await api.getProject(result.projectId, { signal: request.signal });
+      return { result, detail };
+    } catch (error) {
+      if (error instanceof ProjectApiError) error.uncertain = true;
+      throw error;
+    }
+  }
+
+  async function loadInitialProject(api, projectId, request = {}) {
+    if (!api?.listProjects || !api?.getProject) {
+      throw new ProjectApiError('CLIENT_CAPABILITY_REQUIRED', 'A complete Server API client is required.');
+    }
+    if (projectId) return api.getProject(projectId, request);
+    const list = await api.listProjects(request);
+    if (list.items.length === 0) return null;
+    const selectedId = list.items[0].projectId;
+    if (typeof request.onProjectId === 'function') request.onProjectId(selectedId);
+    return api.getProject(selectedId, request);
+  }
+
+  async function requestJson(fetchImpl, url, options, commitMayBeUncertain = false) {
+    let response;
+    try {
+      response = await fetchImpl(url, options);
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new ProjectApiError('REQUEST_CANCELLED', 'The request was cancelled.', {
+          retryable: true,
+          uncertain: commitMayBeUncertain,
+        });
+      }
+      throw new ProjectApiError('NETWORK_ERROR', 'The Server API could not be reached.', {
+        retryable: true,
+        uncertain: commitMayBeUncertain,
+      });
+    }
+
+    let payload;
+    try {
+      payload = await response.json();
+    } catch {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The Server API returned an invalid response.', {
+        status: response.status,
+        retryable: response.status >= 500,
+        uncertain: commitMayBeUncertain && response.ok,
+      });
+    }
+    if (!response.ok) throw responseError(response.status, payload);
+    if (!isPlainObject(payload)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The Server API returned an invalid response.', {
+        status: response.status,
+        uncertain: commitMayBeUncertain,
+      });
+    }
+    return payload;
+  }
+
+  function responseError(status, payload) {
+    const valid = isPlainObject(payload)
+      && typeof payload.code === 'string'
+      && typeof payload.message === 'string'
+      && typeof payload.retryable === 'boolean'
+      && typeof payload.requestId === 'string';
+    if (!valid) {
+      return new ProjectApiError('MALFORMED_RESPONSE', 'The Server API returned an invalid error response.', {
+        status,
+        retryable: status >= 500,
+      });
+    }
+    return new ProjectApiError(payload.code, 'The Server API rejected the request.', {
+      status,
+      retryable: payload.retryable,
+      requestId: payload.requestId,
     });
   }
 
-  async function sha256Blob(blob, cryptoApi = globalScope.crypto) {
-    if (!blob?.arrayBuffer) throw new TypeError('A readable file or Blob is required.');
-    if (!cryptoApi?.subtle?.digest) throw new Error('SHA-256 is unavailable in this browser context.');
-    const digest = await cryptoApi.subtle.digest('SHA-256', await blob.arrayBuffer());
-    return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+  function validateImportInput(input) {
+    if (!isPlainObject(input)
+      || typeof input.projectName !== 'string'
+      || input.projectName.trim().length < 1
+      || input.projectName.trim().length > 300
+      || !Number.isInteger(input.proposalVersion)
+      || input.proposalVersion < 1
+      || input.approvalConfirmed !== true
+      || !isSupportedImportName(input.sourceFile?.name)
+      || !isSupportedProposalName(input.proposalFile?.name)) {
+      throw new ProjectApiError('INVALID_INPUT', 'The import form is incomplete or invalid.');
+    }
   }
 
-  function createProjectRecord(input) {
-    if (!input || typeof input !== 'object') throw new TypeError('Project input is required.');
-    if (!input.sourceFile?.retained || !input.approvedProposal?.retained) {
-      throw new TypeError('Source file and approved proposal must be retained before project creation.');
+  function validateImportResult(value) {
+    const idFields = ['projectId', 'sourceArtifactId', 'sourceVersionId', 'proposalArtifactId', 'proposalVersionId'];
+    if (!isPlainObject(value)
+      || !hasExactKeys(value, [...idFields, 'manifestSha256', 'replayed'])
+      || idFields.some((field) => !UUID_PATTERN.test(value[field] || ''))
+      || !SHA256_PATTERN.test(value.manifestSha256 || '')
+      || typeof value.replayed !== 'boolean') {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The import response violated its contract.', { uncertain: true });
     }
-    if (input.approvedProposal?.status !== 'approved') throw new TypeError('An approved proposal version is required.');
-    if (!isSupportedProposalName(input.approvedProposal.name)) throw new TypeError('Unsupported approved proposal format.');
-
-    const sourceSize = Number(input.sourceFile.size);
-    const proposalVersion = Number(input.approvedProposal.version);
-    if (!Number.isInteger(sourceSize) || sourceSize < 0) throw new TypeError('Source file size must be a non-negative integer.');
-    if (!Number.isInteger(proposalVersion) || proposalVersion < 1) throw new TypeError('Approved proposal version must be a positive integer.');
-
     return {
-      schemaVersion: 1,
-      id: requireText(input.id, 'Project id'),
-      name: requireText(input.name, 'Project name'),
-      clientName: typeof input.clientName === 'string' ? input.clientName.trim() : '',
-      status: 'planning',
-      sourceFile: {
-        id: requireText(input.sourceFile.id, 'Source file id'),
-        name: requireText(input.sourceFile.name, 'Source file name'),
-        type: typeof input.sourceFile.type === 'string' ? input.sourceFile.type : '',
-        size: sourceSize,
-        sha256: requireHash(input.sourceFile.sha256, 'Source file hash'),
-        retained: true,
-      },
-      approvedProposal: {
-        id: requireText(input.approvedProposal.id, 'Approved proposal id'),
-        version: proposalVersion,
-        name: requireText(input.approvedProposal.name, 'Approved proposal name'),
-        sha256: requireHash(input.approvedProposal.sha256, 'Approved proposal hash'),
-        status: 'approved',
-        retained: true,
-        approvedAt: requireIsoDate(input.approvedProposal.approvedAt, 'Approval time'),
-      },
-      createdAt: requireIsoDate(input.createdAt, 'Project creation time'),
+      projectId: value.projectId,
+      sourceArtifactId: value.sourceArtifactId,
+      sourceVersionId: value.sourceVersionId,
+      proposalArtifactId: value.proposalArtifactId,
+      proposalVersionId: value.proposalVersionId,
+      manifestSha256: value.manifestSha256,
+      replayed: value.replayed,
     };
   }
 
-  function validateProjectRecord(record) {
-    createProjectRecord(record);
-    return true;
+  function validateProjectList(value) {
+    if (!isPlainObject(value) || !hasExactKeys(value, ['projects']) || !Array.isArray(value.projects)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The project list violated its contract.');
+    }
+    return {
+      items: value.projects.map((item) => {
+        if (!isPlainObject(item)
+          || !hasExactKeys(item, ['projectId', 'name', 'status', 'approvedProposalVersion', 'createdAt'])
+          || !UUID_PATTERN.test(item.projectId || '')
+          || !nonEmptyText(item.name)
+          || !PROJECT_STATUSES.has(item.status)
+          || !Number.isInteger(item.approvedProposalVersion)
+          || item.approvedProposalVersion < 1
+          || !isIsoDate(item.createdAt)) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'A project list item violated its contract.');
+        }
+        return {
+          projectId: item.projectId,
+          projectName: item.name,
+          status: item.status,
+          approvedProposalVersion: item.approvedProposalVersion,
+          createdAt: item.createdAt,
+        };
+      }),
+    };
   }
 
-  function listProjectRecords(storage = globalScope.localStorage) {
-    if (!storage?.getItem) throw new TypeError('A storage adapter is required.');
-    const value = storage.getItem(STORAGE_KEY);
-    if (!value) return [];
-    const records = JSON.parse(value);
-    if (!Array.isArray(records)) throw new TypeError('Stored project records must be an array.');
-    records.forEach(validateProjectRecord);
-    return records;
+  function validateProjectDetail(value) {
+    if (!isPlainObject(value)
+      || !hasExactKeys(value, ['projectId', 'name', 'status', 'createdAt', 'sourceFile', 'approvedProposal'])
+      || !UUID_PATTERN.test(value.projectId || '')
+      || !nonEmptyText(value.name)
+      || !PROJECT_STATUSES.has(value.status)
+      || !isIsoDate(value.createdAt)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The project detail violated its contract.');
+    }
+    return {
+      projectId: value.projectId,
+      projectName: value.name,
+      status: value.status,
+      createdAt: value.createdAt,
+      source: validateArtifact(value.sourceFile, false),
+      proposal: validateArtifact(value.approvedProposal, true),
+    };
   }
 
-  function saveProjectRecord(record, storage = globalScope.localStorage) {
-    validateProjectRecord(record);
-    if (!storage?.setItem) throw new TypeError('A writable storage adapter is required.');
-    const records = listProjectRecords(storage);
-    const index = records.findIndex((item) => item.id === record.id);
-    if (index >= 0) records[index] = record;
-    else records.push(record);
-    storage.setItem(STORAGE_KEY, JSON.stringify(records));
-    return record;
+  function validateArtifact(value, proposal) {
+    const baseKeys = ['artifactId', 'versionId', 'filename', 'mediaType', 'sizeBytes'];
+    const expectedKeys = proposal
+      ? [...baseKeys, 'proposalVersion', 'approvalStatus', 'approvedAt']
+      : baseKeys;
+    if (!isPlainObject(value)
+      || !hasExactKeys(value, expectedKeys)
+      || !UUID_PATTERN.test(value.artifactId || '')
+      || !UUID_PATTERN.test(value.versionId || '')
+      || !nonEmptyText(value.filename)
+      || !nonEmptyText(value.mediaType)
+      || !Number.isInteger(value.sizeBytes)
+      || value.sizeBytes < 0) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The project artifact violated its contract.');
+    }
+    const artifact = {
+      artifactId: value.artifactId,
+      versionId: value.versionId,
+      filename: value.filename,
+      mediaType: value.mediaType,
+      sizeBytes: value.sizeBytes,
+    };
+    if (proposal) {
+      if (!Number.isInteger(value.proposalVersion)
+        || value.proposalVersion < 1
+        || value.approvalStatus !== 'approved'
+        || !isIsoDate(value.approvedAt)) {
+        throw new ProjectApiError('MALFORMED_RESPONSE', 'The approved proposal violated its contract.');
+      }
+      artifact.proposalVersion = value.proposalVersion;
+      artifact.approvalStatus = value.approvalStatus;
+      artifact.approvedAt = value.approvedAt;
+    }
+    return artifact;
+  }
+
+  function nonEmptyText(value) {
+    return typeof value === 'string' && value.trim() !== '';
+  }
+
+  function isIsoDate(value) {
+    return nonEmptyText(value)
+      && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
+      && !Number.isNaN(Date.parse(value));
+  }
+
+  function isPlainObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function hasExactKeys(value, expected) {
+    const actual = Object.keys(value).sort();
+    const required = [...expected].sort();
+    return actual.length === required.length && actual.every((key, index) => key === required[index]);
   }
 
   const api = {
-    STORAGE_KEY,
-    createArtifactMetadata,
-    createProjectRecord,
+    CANONICAL_MEDIA_TYPES,
+    IMPORT_ROUTE,
+    PROJECTS_ROUTE,
+    ProjectApiError,
+    createIdempotencyKey,
+    createProjectApiClient,
+    createRetryKeyManager,
+    importFingerprint,
+    importThenLoad,
     isSupportedImportName,
     isSupportedProposalName,
-    listProjectRecords,
-    openIndexedDbFileStore,
-    retainFileRecord,
-    saveProjectRecord,
-    sha256Blob,
-    verifyRetainedProjectFiles,
-    validateProjectRecord,
+    loadInitialProject,
+    normalizeUpload,
+    validateImportResult,
+    validateProjectDetail,
+    validateProjectList,
   };
 
   if (typeof module !== 'undefined' && module.exports) module.exports = api;

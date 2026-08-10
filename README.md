@@ -2,7 +2,7 @@
 
 一个面向活动、品牌与 B2B 营销项目的开源 AI 项目运营工作台。
 
-> 当前状态：M1 纵向切片进行中。根目录页面已提供浏览器端的项目/原文件/已批准方案导入交互，用于验证数据契约和失败路径；它不代表 PostgreSQL 事实来源、后端 API、知识库、连接器或自动化已经完成。
+> 当前状态：M1 纵向切片进行中。M1-01 已形成浏览器、FastAPI、PostgreSQL 和本地不可变对象存储的候选闭环；真实 Chromium 联合门禁、独立审查和 GitHub CI 通过前仍不算完成。知识库、连接器和 AI 自动化尚未实现。
 
 ## 产品目标
 
@@ -54,9 +54,24 @@ MarketOps 将营销项目的 Brief、证据、方案、排期、执行、外部�
 - [市场验证执行包](docs/market-validation-playbook.md)
 - [安全政策](SECURITY.md)
 
-## 本地查看探索原型
+## 当前运行切片
 
-当前原型是浏览器本地的交互切片，可在本地服务中打开 `index.html`。它用于验证导入交互、文件哈希和失败状态，不是可用于真实客户资料的服务器系统。M1-01 的 PostgreSQL、API 和权限验收仍未完成。
+浏览器页面必须由 FastAPI 同源提供，不能再直接打开 `index.html`。项目、原始资料和已批准方案以服务器为事实源；URL 中的 `projectId` 只用于定位项目，localStorage 和 IndexedDB 不保存项目事实。
+
+运行前需要完成已审 PostgreSQL 迁移和应用角色配置，并提供以下服务器环境变量：
+
+```text
+MARKETOPS_DATABASE_URL
+MARKETOPS_OBJECT_ROOT
+MARKETOPS_DEPLOYMENT_TOKEN
+MARKETOPS_DEPLOYMENT_USERNAME
+MARKETOPS_ORGANIZATION_ID
+MARKETOPS_WORKSPACE_ID
+MARKETOPS_CLIENT_ID
+MARKETOPS_ACTOR_ID
+```
+
+随后以锁定的 M1-01 Python 运行时启动 `uvicorn apps.api.main:app`。浏览器使用原生 HTTP Basic 挑战，用户名为 `MARKETOPS_DEPLOYMENT_USERNAME`，密码为部署 token；程序化 API 仍可使用 Bearer。该方式只用于首个单用户私有部署切片，必须放在 TLS 后面，不代表正式多用户登录或成员权限已经完成。具体门禁和限制见 [M1-01 runtime integration plan](docs/superpowers/plans/2026-08-09-m1-01-runtime-integration.md)。
 
 ## 开源与数据
 

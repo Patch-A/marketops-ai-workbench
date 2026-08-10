@@ -78,6 +78,9 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - uses: actions/setup-python@v5
         with:
           python-version-file: .python-version
@@ -109,6 +112,14 @@ jobs:
           python -m unittest apps.api.tests.test_project_import_http -v
           python -m unittest apps.api.tests.test_project_import_postgres_adapter -v
           python -m unittest discover -s apps/api/tests/postgres -p 'test_*.py' -v
+      - name: Verify browser Server API cutover
+        run: |
+          chrome_path="$(command -v google-chrome || command -v chromium || command -v chromium-browser)"
+          test -n "$chrome_path"
+          python scripts/run_m1_01_browser_cutover_gate.py \
+            --browser "$chrome_path" \
+            --work-root "$RUNNER_TEMP/m1-01-browser" \
+            --output "$RUNNER_TEMP/m1-01-browser-cutover.json"
       - name: Verify restart, backup restore, orphan cleanup, and connection-loss rollback
         env:
           MARKETOPS_TEST_POSTGRES_CONTAINER_ID: ${{ job.services.postgres.id }}
@@ -131,3 +142,4 @@ jobs:
           test ! -f "$RUNNER_TEMP/m1-01-restart-recovery.json" || cat "$RUNNER_TEMP/m1-01-restart-recovery.json"
           test ! -f "$RUNNER_TEMP/m1-01-backup-restore.json" || cat "$RUNNER_TEMP/m1-01-backup-restore.json"
           test ! -f "$RUNNER_TEMP/m1-01-orphan-cleanup.json" || cat "$RUNNER_TEMP/m1-01-orphan-cleanup.json"
+          test ! -f "$RUNNER_TEMP/m1-01-browser-cutover.json" || cat "$RUNNER_TEMP/m1-01-browser-cutover.json"

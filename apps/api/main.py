@@ -22,6 +22,7 @@ class RuntimeSettings:
     database_url: str
     object_root: Path
     bearer_token: str
+    basic_username: str
     scope: ScopeContext
 
     @classmethod
@@ -30,6 +31,7 @@ class RuntimeSettings:
             "database_url": "MARKETOPS_DATABASE_URL",
             "object_root": "MARKETOPS_OBJECT_ROOT",
             "bearer_token": "MARKETOPS_DEPLOYMENT_TOKEN",
+            "basic_username": "MARKETOPS_DEPLOYMENT_USERNAME",
             "organization_id": "MARKETOPS_ORGANIZATION_ID",
             "workspace_id": "MARKETOPS_WORKSPACE_ID",
             "client_id": "MARKETOPS_CLIENT_ID",
@@ -51,6 +53,7 @@ class RuntimeSettings:
             database_url=values["database_url"],
             object_root=Path(values["object_root"]),
             bearer_token=values["bearer_token"],
+            basic_username=values["basic_username"],
             scope=scope,
         )
 
@@ -65,8 +68,11 @@ async def _lifespan(application: FastAPI):
         command_timeout=30,
     )
     application.state.authenticator = StaticBearerAuthenticator(
-        settings.bearer_token, settings.scope
+        settings.bearer_token,
+        settings.scope,
+        basic_username=settings.basic_username,
     )
+    application.state.project_reader = repository
     application.state.import_service = ProjectImportService(
         object_store=LocalObjectStore(settings.object_root),
         repository=repository,
@@ -79,4 +85,7 @@ async def _lifespan(application: FastAPI):
         await repository.close()
 
 
-app = create_app(lifespan=_lifespan)
+app = create_app(
+    lifespan=_lifespan,
+    static_root=Path(__file__).resolve().parents[2],
+)

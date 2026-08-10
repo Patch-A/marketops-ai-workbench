@@ -86,10 +86,11 @@ class FakePool:
 
 
 class FakeConnection:
-    def __init__(self, *, inserted=True, project=None, versions=None):
+    def __init__(self, *, inserted=True, project=None, versions=None, projects=None):
         self.inserted = inserted
         self.project = project
         self.versions = versions or []
+        self.projects = projects or []
         self.calls = []
         self.transactions = 0
         self.commits = 0
@@ -122,6 +123,8 @@ class FakeConnection:
         self.calls.append(("fetch", sql, args))
         if self.failure is not None:
             raise self.failure
+        if "FROM marketops.projects" in sql:
+            return self.projects
         return self.versions
 
     async def execute(self, sql, *args):
@@ -217,6 +220,16 @@ def replay_rows(item):
     return project, versions
 
 
+def read_rows(item):
+    created_at = datetime(2026, 8, 9, 1, 1, tzinfo=timezone.utc)
+    project, versions = replay_rows(item)
+    project["created_at"] = created_at
+    for version in versions:
+        version.pop("storage_key", None)
+        version.pop("sha256", None)
+    return project, versions
+
+
 class AsyncpgImportRepositoryTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.scope = ScopeContext(identifier(), identifier(), identifier(), identifier())
@@ -275,6 +288,89 @@ class AsyncpgImportRepositoryTests(unittest.IsolatedAsyncioTestCase):
                 await transaction.try_create_project_import(wrong)
         self.assertEqual(connection.rollbacks, 1)
         self.assertNotIn("INSERT INTO marketops.projects", "\n".join(c[1] for c in connection.calls))
+
+    async def test_list_projects_is_explicitly_scoped_bounded_and_deterministic(self):
+        project, _ = read_rows(self.record)
+        connection = FakeConnection(projects=[project])
+        repository = AsyncpgImportRepository(FakePool(connection))
+
+        projects = await repository.list_projects(self.scope, limit=7)
+
+        self.assertEqual(len(projects), 1)
+        self.assertEqual(projects[0].project_id, self.record.project_id)
+        list_call = next(
+            call for call in connection.calls
+            if call[0] == "fetch" and "FROM marketops.projects" in call[1]
+        )
+        self.assertEqual(
+            list_call[2],
+            (
+                self.scope.organization_id,
+                self.scope.workspace_id,
+                self.scope.client_id,
+                7,
+            ),
+        )
+        self.assertIn("ORDER BY created_at DESC, id DESC", list_call[1])
+        self.assertEqual(connection.commits, 1)
+
+    async def test_get_project_sets_project_scope_and_maps_display_metadata(self):
+        project, versions = read_rows(self.record)
+        connection = FakeConnection(project=project, versions=versions)
+        repository = AsyncpgImportRepository(FakePool(connection))
+
+        detail = await repository.get_project(self.scope, self.record.project_id)
+
+        self.assertIsNotNone(detail)
+        self.assertEqual(detail.project_id, self.record.project_id)
+        self.assertEqual(detail.source_file.filename, self.record.source_filename)
+        self.assertEqual(
+            detail.approved_proposal.proposal_version,
+            self.record.approved_proposal_version,
+        )
+        scope_calls = [
+            call for call in connection.calls
+            if call[1].strip().startswith("SELECT set_config('app.project_id'")
+        ]
+        self.assertEqual([call[2] for call in scope_calls], [(self.record.project_id,)])
+        detail_sql = "\n".join(call[1] for call in connection.calls)
+        for predicate in (
+            "organization_id = $1",
+            "workspace_id = $2",
+            "client_id = $3",
+            "artifact.project_id = $4",
+        ):
+            self.assertIn(predicate, detail_sql)
+        self.assertNotIn("storage_key", detail_sql)
+
+    async def test_absent_or_foreign_project_has_no_artifact_read(self):
+        connection = FakeConnection(project=None)
+        repository = AsyncpgImportRepository(FakePool(connection))
+
+        detail = await repository.get_project(self.scope, identifier())
+
+        self.assertIsNone(detail)
+        self.assertFalse(any(call[0] == "fetch" for call in connection.calls))
+        self.assertEqual(connection.commits, 1)
+
+    async def test_read_pool_reuse_resets_scope_and_project_is_transaction_local(self):
+        project, versions = read_rows(self.record)
+        connection = FakeConnection(project=project, versions=versions, projects=[project])
+        repository = AsyncpgImportRepository(FakePool(connection))
+        other = ScopeContext(identifier(), identifier(), identifier(), identifier())
+
+        await repository.get_project(self.scope, self.record.project_id)
+        await repository.list_projects(other, limit=1)
+
+        scope_calls = [call for call in connection.calls if "app.workspace_id" in call[1]]
+        self.assertEqual(
+            [call[2] for call in scope_calls],
+            [
+                (self.scope.workspace_id, self.scope.client_id, self.scope.actor_id),
+                (other.workspace_id, other.client_id, other.actor_id),
+            ],
+        )
+        self.assertTrue(all("true" in call[1] for call in scope_calls))
 
     async def test_driver_errors_are_stable_and_do_not_leak_details(self):
         cases = [

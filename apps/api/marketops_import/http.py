@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import binascii
 import copy
 import hmac
 import inspect
@@ -14,7 +16,7 @@ from typing import Any, AsyncIterator, Awaitable, Callable
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
 from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
@@ -70,18 +72,46 @@ _PUBLIC_MESSAGES = {
     "INVALID_SERVER_ID": "The server could not allocate import identifiers.",
     "INVALID_SERVER_CLOCK": "The server clock is invalid.",
     "DATABASE_WRITE_FAILED": "The project transaction failed.",
+    "PROJECT_NOT_FOUND": "The requested project was not found.",
+}
+
+_STATIC_FILES = {
+    "/": "index.html",
+    "/index.html": "index.html",
+    "/app.js": "app.js",
+    "/project-import.js": "project-import.js",
+    "/styles.css": "styles.css",
 }
 
 
 class StaticBearerAuthenticator:
     """Injectable single-deployment authentication for the M1-01 runtime slice."""
 
-    def __init__(self, token: str, scope: ScopeContext):
+    def __init__(
+        self,
+        token: str,
+        scope: ScopeContext,
+        *,
+        basic_username: str | None = None,
+    ):
         self._token = token
         self._scope = scope
+        self._basic_username = basic_username
 
     async def __call__(self, token: str) -> ScopeContext | None:
         if not self._token or not hmac.compare_digest(token, self._token):
+            return None
+        return self._scope
+
+    async def authenticate_basic(
+        self, username: str, password: str
+    ) -> ScopeContext | None:
+        if (
+            not self._basic_username
+            or not hmac.compare_digest(username, self._basic_username)
+            or not self._token
+            or not hmac.compare_digest(password, self._token)
+        ):
             return None
         return self._scope
 
@@ -105,6 +135,8 @@ def create_app(
     *,
     import_service: ProjectImportService | None = None,
     authenticator: Authenticator | None = None,
+    project_reader: Any | None = None,
+    static_root: Path | None = None,
     request_id_factory: Callable[[], Any] = uuid4,
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[Any]] | None = None,
 ) -> FastAPI:
@@ -120,6 +152,8 @@ def create_app(
         app.state.import_service = import_service
     if authenticator is not None:
         app.state.authenticator = authenticator
+    if project_reader is not None:
+        app.state.project_reader = project_reader
 
     @app.post("/v1/project-imports", status_code=201)
     async def import_project(request: Request) -> JSONResponse:
@@ -176,7 +210,7 @@ def create_app(
                 ),
                 scope_or_error,
             )
-            return JSONResponse(
+            response = JSONResponse(
                 status_code=201,
                 content={
                     "projectId": result.project_id,
@@ -188,6 +222,9 @@ def create_app(
                     "replayed": result.replayed,
                 },
             )
+            response.headers["Location"] = f"/v1/projects/{result.project_id}"
+            response.headers["Cache-Control"] = "no-store"
+            return response
         except asyncio.CancelledError:
             raise
         except _PayloadTooLarge:
@@ -214,6 +251,121 @@ def create_app(
                 if inspect.isawaitable(closed):
                     await closed
 
+    @app.get("/v1/projects")
+    async def list_projects(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        try:
+            limit = _project_list_limit(request)
+            reader = getattr(request.app.state, "project_reader", None)
+            if reader is None:
+                return _failure("DATABASE_WRITE_FAILED", request_id, status=500)
+            projects = await reader.list_projects(scope_or_error, limit=limit)
+            return _json_no_store(
+                {
+                    "projects": [
+                        {
+                            "projectId": project.project_id,
+                            "name": project.name,
+                            "status": project.status,
+                            "approvedProposalVersion": project.approved_proposal_version,
+                            "createdAt": project.created_at.isoformat(),
+                        }
+                        for project in projects
+                    ]
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except Exception:
+            return _failure(
+                "DATABASE_WRITE_FAILED", request_id, status=500, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}")
+    async def get_project(project_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_id = _canonical_project_id(project_id)
+        if canonical_id is None:
+            return _failure("PROJECT_NOT_FOUND", request_id, status=404)
+        try:
+            reader = getattr(request.app.state, "project_reader", None)
+            if reader is None:
+                return _failure("DATABASE_WRITE_FAILED", request_id, status=500)
+            project = await reader.get_project(scope_or_error, canonical_id)
+            if project is None:
+                return _failure("PROJECT_NOT_FOUND", request_id, status=404)
+            return _json_no_store(
+                {
+                    "projectId": project.project_id,
+                    "name": project.name,
+                    "status": project.status,
+                    "createdAt": project.created_at.isoformat(),
+                    "sourceFile": {
+                        "artifactId": project.source_file.artifact_id,
+                        "versionId": project.source_file.version_id,
+                        "filename": project.source_file.filename,
+                        "mediaType": project.source_file.media_type,
+                        "sizeBytes": project.source_file.size_bytes,
+                    },
+                    "approvedProposal": {
+                        "artifactId": project.approved_proposal.artifact_id,
+                        "versionId": project.approved_proposal.version_id,
+                        "filename": project.approved_proposal.filename,
+                        "mediaType": project.approved_proposal.media_type,
+                        "sizeBytes": project.approved_proposal.size_bytes,
+                        "proposalVersion": project.approved_proposal.proposal_version,
+                        "approvalStatus": project.approved_proposal.approval_status,
+                        "approvedAt": project.approved_proposal.approved_at.isoformat(),
+                    },
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            return _failure(
+                "DATABASE_WRITE_FAILED", request_id, status=500, retryable=True
+            )
+
+    if static_root is not None:
+        root = static_root.resolve(strict=True)
+
+        async def static_asset(request: Request) -> Any:
+            request_id = _request_id(request_id_factory)
+            scope_or_error = await _authenticate(
+                request, request_id, prefer_basic_challenge=True
+            )
+            if isinstance(scope_or_error, JSONResponse):
+                return scope_or_error
+            filename = _STATIC_FILES.get(request.url.path)
+            if filename is None:
+                return _failure("PROJECT_NOT_FOUND", request_id, status=404)
+            response = FileResponse(root / filename)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            response.headers["Referrer-Policy"] = "no-referrer"
+            response.headers["Content-Security-Policy"] = (
+                "default-src 'self'; script-src 'self'; style-src 'self'; "
+                "img-src 'self' data:; connect-src 'self'; object-src 'none'; "
+                "base-uri 'none'; frame-ancestors 'none'; form-action 'self'"
+            )
+            return response
+
+        for path in _STATIC_FILES:
+            app.add_api_route(
+                path,
+                static_asset,
+                methods=["GET"],
+                include_in_schema=False,
+            )
+
     return app
 
 
@@ -237,27 +389,50 @@ async def _limited_request_stream(request: Request) -> AsyncIterator[bytes]:
 
 
 async def _authenticate(
-    request: Request, request_id: str
+    request: Request,
+    request_id: str,
+    *,
+    prefer_basic_challenge: bool = False,
 ) -> ScopeContext | JSONResponse:
     values = request.headers.getlist("authorization")
     if len(values) != 1:
-        return _authorization_failure(request_id)
+        return _authorization_failure(request_id, basic=prefer_basic_challenge)
     scheme, separator, token = values[0].partition(" ")
-    if not separator or scheme.lower() != "bearer" or not token.strip():
-        return _authorization_failure(request_id)
+    normalized_scheme = scheme.lower()
+    if (
+        not separator
+        or normalized_scheme not in {"bearer", "basic"}
+        or not token.strip()
+    ):
+        return _authorization_failure(
+            request_id, basic=prefer_basic_challenge or normalized_scheme == "basic"
+        )
     authenticator = getattr(request.app.state, "authenticator", None)
     if authenticator is None:
-        return _authorization_failure(request_id)
+        return _authorization_failure(request_id, basic=prefer_basic_challenge)
     try:
-        scope = authenticator(token.strip())
+        if normalized_scheme == "basic":
+            basic_authenticator = getattr(authenticator, "authenticate_basic", None)
+            if not callable(basic_authenticator):
+                return _authorization_failure(request_id, basic=True)
+            credentials = _decode_basic_credentials(token.strip())
+            if credentials is None:
+                return _authorization_failure(request_id, basic=True)
+            scope = basic_authenticator(*credentials)
+        else:
+            scope = authenticator(token.strip())
         if inspect.isawaitable(scope):
             scope = await scope
     except asyncio.CancelledError:
         raise
     except Exception:
-        return _authorization_failure(request_id)
+        return _authorization_failure(
+            request_id, basic=normalized_scheme == "basic"
+        )
     if scope is None:
-        return _authorization_failure(request_id)
+        return _authorization_failure(
+            request_id, basic=normalized_scheme == "basic"
+        )
     canonical_scope = _canonical_scope(scope)
     if canonical_scope is None:
         return _failure("AUTHORIZATION_REQUIRED", request_id, status=403)
@@ -339,6 +514,41 @@ def _confirmed(value: str) -> bool:
     return True
 
 
+def _decode_basic_credentials(value: str) -> tuple[str, str] | None:
+    try:
+        decoded = base64.b64decode(value, validate=True).decode("utf-8")
+    except (binascii.Error, UnicodeDecodeError, ValueError):
+        return None
+    username, separator, password = decoded.partition(":")
+    if not separator or not username or not password:
+        return None
+    return username, password
+
+
+def _project_list_limit(request: Request) -> int:
+    values: dict[str, list[str]] = {}
+    for name, value in request.query_params.multi_items():
+        values.setdefault(name, []).append(value)
+    if not values:
+        return 20
+    if set(values) != {"limit"} or len(values["limit"]) != 1:
+        raise _MalformedRequest
+    value = values["limit"][0]
+    if not value or not value.isascii() or not value.isdecimal():
+        raise _MalformedRequest
+    limit = int(value)
+    if not 1 <= limit <= 100:
+        raise _MalformedRequest
+    return limit
+
+
+def _canonical_project_id(value: str) -> str | None:
+    try:
+        return str(UUID(value))
+    except (TypeError, ValueError):
+        return None
+
+
 def _request_id(factory: Callable[[], Any]) -> str:
     try:
         value = str(factory())
@@ -347,9 +557,17 @@ def _request_id(factory: Callable[[], Any]) -> str:
     return value if value else str(uuid4())
 
 
-def _authorization_failure(request_id: str) -> JSONResponse:
+def _authorization_failure(request_id: str, *, basic: bool = False) -> JSONResponse:
     response = _failure("AUTHORIZATION_REQUIRED", request_id, status=401)
-    response.headers["WWW-Authenticate"] = "Bearer"
+    response.headers["WWW-Authenticate"] = (
+        'Basic realm="MarketOps", charset="UTF-8"' if basic else "Bearer"
+    )
+    return response
+
+
+def _json_no_store(content: Any, *, status_code: int = 200) -> JSONResponse:
+    response = JSONResponse(status_code=status_code, content=content)
+    response.headers["Cache-Control"] = "no-store"
     return response
 
 
@@ -361,7 +579,7 @@ def _failure(
     retryable: bool = False,
 ) -> JSONResponse:
     public_code = code if code in _PUBLIC_MESSAGES else "DATABASE_WRITE_FAILED"
-    return JSONResponse(
+    response = JSONResponse(
         status_code=status if public_code == code else 500,
         content={
             "code": public_code,
@@ -370,6 +588,8 @@ def _failure(
             "requestId": request_id,
         },
     )
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 class _MalformedRequest(ValueError):
