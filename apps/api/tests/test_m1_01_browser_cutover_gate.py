@@ -153,6 +153,8 @@ class BrowserCutoverGateContractTests(unittest.TestCase):
             "refresh repeated the import POST",
             "credentials appeared in the browser URL",
             "external executable or asset",
+            "browser emitted console/runtime failures:",
+            "safePath(params.entry?.url || '', origin)",
             "[375, 768, 1024, 1440]",
         )
         for marker in required:

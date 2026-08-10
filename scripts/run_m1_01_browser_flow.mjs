@@ -276,7 +276,9 @@ async function run(args) {
         } else if (method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(params.type)) {
           consoleFailures.push(`console-${params.type}`);
         } else if (method === 'Log.entryAdded' && ['error', 'warning'].includes(params.entry?.level)) {
-          consoleFailures.push(`log-${params.entry.level}`);
+          const source = params.entry?.source || 'unknown';
+          const path = safePath(params.entry?.url || '', origin);
+          consoleFailures.push(`log-${params.entry.level}:${source}:${path}`);
         }
       }).catch((error) => {
         asynchronousFailure = error;
@@ -398,7 +400,10 @@ async function run(args) {
       throw new Error('legacy browser project storage survived cutover');
     }
     if (externalRequests.length !== 0) throw new Error('browser requested an external executable or asset');
-    if (consoleFailures.length !== 0) throw new Error('browser emitted a console or runtime failure');
+    if (consoleFailures.length !== 0) {
+      const categories = [...new Set(consoleFailures)].sort().join(',');
+      throw new Error(`browser emitted console/runtime failures: ${categories}`);
+    }
     if (authChallenges < 1) throw new Error('browser-native HTTP authentication was not exercised');
     if (asynchronousFailure) throw asynchronousFailure;
 
