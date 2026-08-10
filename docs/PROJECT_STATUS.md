@@ -2,13 +2,13 @@
 # Project Status
 
 Source registry updated: 2026-08-10
-Source hash: `36e68ef0cd5a`
+Source hash: `ca6461da9d54`
 
 ## Progress
 
 Task-count completion: **18/38 (47.4%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
 
-Current work: No task is marked in progress.
+Current work: `M1-02` Deliverable extraction and review
 
 Next action: `M1-02` Deliverable extraction and review
 
@@ -18,7 +18,7 @@ Next action: `M1-02` Deliverable extraction and review
 | --- | --- | ---: | ---: |
 | Foundation | Establish the product contract, architecture, safety boundaries, and open-source baseline. | 7/7 | 0 |
 | M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 10/10 | 0 |
-| M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 1/5 | 0 |
+| M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 1/5 | 1 |
 | M2: Knowledge base and project learning | Make approved historical knowledge reusable without leaking customer material. | 0/4 | 0 |
 | M3: Market signals and impact analysis | Connect observed external changes to confirmed project assumptions and work. | 0/4 | 0 |
 | M4: Reporting, Feishu, and team operation | Support small-team operation while preserving the independent core product. | 0/5 | 0 |
@@ -62,7 +62,7 @@ Turn an approved proposal into a usable, reviewable execution plan.
 | ID | Task | Owner | Status | Acceptance / self-check |
 | --- | --- | --- | --- | --- |
 | M1-01 | Project, file, and approved-proposal import | Engineering | Completed | Self-check passed: Local focused checks passed; same-SHA GitHub CI passed; a non-implementer final review returned CLEAN APPROVE with no P0/P1/P2 findings. Evidence proves only the documented synthetic single-user private-deployment path. |
-| M1-02 | Deliverable extraction and review | Engineering | Pending | Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval. |
+| M1-02 | Deliverable extraction and review | Engineering | In progress | Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval. |
 | M1-03 | Editable WBS and deterministic schedule | Engineering | Pending | A user can edit WBS, dependencies, dates, and buffers; schedule changes recalculate deterministically. |
 | M1-04 | Execution state, export, and audit | Engineering | Pending | Task status, blockers, actual dates, CSV/XLSX export, audit entries, and error recovery work for the validation project. |
 | M1-05 | M1 review gate | Product | Pending | One anonymized project moves from approved proposal to an accepted executable schedule without critical dependency omissions. |

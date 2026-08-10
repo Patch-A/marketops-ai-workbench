@@ -114,6 +114,10 @@ Each work-package handoff must distinguish confirmed facts, reasonable inference
 | M0, completed | Public reconstructions, synthetic fixtures, deterministic spikes, dependency review, and an independent technical review passed their recorded engineering checks. | Real customer demand, causal ROI, repeat use, payment, production reliability, or permission to reuse customer data. | Preserve M0 as technical risk evidence; use a de-identified live task and observed behavior for market claims. |
 | M1-01, completed | The asynchronous HTTP import path, hashed Linux runtime, PostgreSQL 18.4 migration, role/grant attestation, forced-RLS isolation, concurrent idempotency, normal same-container restart recovery, uncommitted connection-loss rollback, isolated application-level logical backup/restore, dry-run-first orphan cleanup, and real Chromium server-source recovery passed their bounded checks. Commit `cd3ff09` and GitHub Actions run `31397741577` passed final non-implementer review with no P0/P1/P2 findings. | Power-loss durability, durable host volumes, WAL/PITR, production recovery or RPO/RTO, Windows/network-filesystem or multi-node cleanup, crash-recoverable quarantine, cross-browser behavior, production authentication/reliability, demand, ROI, time savings, repeat use, or payment. | Preserve these engineering boundaries and begin M1-02 deliverable extraction with source citations and explicit human review. |
 
+### M1-02 kickoff
+
+M1-02 is the only task now marked `in_progress`. Its bounded contract is recorded in [M1-02 Deliverable Review Spike](M1_02_DELIVERABLE_REVIEW_SPIKE.md). The first implementation slice must produce cited candidates and a reversible human-review record; it must not expand into automatic scheduling, generic chat, external monitoring, or cross-project knowledge promotion.
+
 This recheck does not change completed task statuses: no recorded acceptance evidence was disproved. It narrows what those statuses are allowed to mean and makes the remaining unknowns testable.
 
 ## Current Risks

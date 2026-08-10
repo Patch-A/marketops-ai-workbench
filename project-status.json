@@ -260,7 +260,7 @@
           ],
           "selfCheck": { "status": "passed", "method": "Local focused checks passed; same-SHA GitHub CI passed; a non-implementer final review returned CLEAN APPROVE with no P0/P1/P2 findings. Evidence proves only the documented synthetic single-user private-deployment path." }
         },
-        { "id": "M1-02", "title": "Deliverable extraction and review", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-01"], "acceptance": "Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval." },
+        { "id": "M1-02", "title": "Deliverable extraction and review", "owner": "Engineering", "status": "in_progress", "dependsOn": ["M1-01"], "acceptance": "Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval." },
         { "id": "M1-03", "title": "Editable WBS and deterministic schedule", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-02"], "acceptance": "A user can edit WBS, dependencies, dates, and buffers; schedule changes recalculate deterministically." },
         { "id": "M1-04", "title": "Execution state, export, and audit", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-03"], "acceptance": "Task status, blockers, actual dates, CSV/XLSX export, audit entries, and error recovery work for the validation project." },
         { "id": "M1-05", "title": "M1 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M1-04"], "acceptance": "One anonymized project moves from approved proposal to an accepted executable schedule without critical dependency omissions." }
