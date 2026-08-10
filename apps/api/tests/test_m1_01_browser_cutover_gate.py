@@ -13,6 +13,7 @@ from scripts.run_m1_01_browser_cutover_gate import (
     raise_cleanup_failure,
     run_cleanup_steps,
     safe_browser_failure_message,
+    start_server_after_scope_seed,
     validate_browser_result,
     validate_evidence,
 )
@@ -241,6 +242,49 @@ class BrowserCutoverGateContractTests(unittest.TestCase):
         self.assertEqual(calls, ["server", "database"])
         self.assertIsInstance(raised.exception.__cause__, ExceptionGroup)
         self.assertEqual(len(raised.exception.__cause__.exceptions), 2)
+
+    def test_cancelled_cleanup_double_failure_preserves_primary(self):
+        calls = []
+
+        async def server_cleanup():
+            calls.append("server")
+            raise asyncio.CancelledError("server cleanup cancelled")
+
+        async def database_cleanup():
+            calls.append("database")
+            raise RuntimeError("database cleanup failed")
+
+        primary = ValueError("primary browser failure")
+        failures = asyncio.run(
+            run_cleanup_steps(primary, server_cleanup, database_cleanup)
+        )
+        self.assertEqual(calls, ["server", "database"])
+        self.assertEqual(len(failures), 2)
+
+        calls.clear()
+        with self.assertRaisesRegex(RuntimeError, "browser gate cleanup failed") as raised:
+            asyncio.run(run_cleanup_steps(None, server_cleanup, database_cleanup))
+        self.assertEqual(calls, ["server", "database"])
+        self.assertIsInstance(raised.exception.__cause__, BaseExceptionGroup)
+        self.assertNotIsInstance(raised.exception.__cause__, ExceptionGroup)
+        self.assertEqual(len(raised.exception.__cause__.exceptions), 2)
+
+    def test_server_start_failure_cleans_seeded_scope_and_preserves_start_error(self):
+        calls = []
+
+        def start_server():
+            calls.append("start")
+            raise OSError("server start failed")
+
+        async def database_cleanup():
+            calls.append("database")
+            raise asyncio.CancelledError("database cleanup cancelled")
+
+        with self.assertRaisesRegex(OSError, "server start failed"):
+            asyncio.run(
+                start_server_after_scope_seed(start_server, database_cleanup)
+            )
+        self.assertEqual(calls, ["start", "database"])
 
     def test_runtime_job_pins_node_and_runs_browser_gate(self):
         root = Path(__file__).resolve().parents[3]

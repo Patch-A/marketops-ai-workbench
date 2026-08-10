@@ -252,11 +252,19 @@ async def run_cleanup_steps(primary_failure: BaseException | None, *cleanup_step
         except BaseException as error:
             failures.append(error)
     if len(failures) > 1:
-        cleanup_failure = ExceptionGroup("browser gate cleanup failures", failures)
+        cleanup_failure = BaseExceptionGroup("browser gate cleanup failures", failures)
     else:
         cleanup_failure = failures[0] if failures else None
     raise_cleanup_failure(primary_failure, cleanup_failure)
     return tuple(failures)
+
+
+async def start_server_after_scope_seed(start_server, cleanup_database):
+    try:
+        return start_server()
+    except BaseException as primary_failure:
+        await run_cleanup_steps(primary_failure, cleanup_database)
+        raise
 
 
 async def run(browser: Path, work_root: Path, output: Path, node: str) -> None:
@@ -300,24 +308,31 @@ async def run(browser: Path, work_root: Path, output: Path, node: str) -> None:
 
     work_root.mkdir(parents=True, exist_ok=True)
     await seed_scope(asyncpg, admin_dsn, scope)
-    server = subprocess.Popen(
-        [
-            sys.executable,
-            "-m",
-            "uvicorn",
-            "apps.api.main:app",
-            "--host",
-            "127.0.0.1",
-            "--port",
-            str(port),
-            "--log-level",
-            "warning",
-        ],
-        cwd=ROOT,
-        env=environment,
-        stdin=subprocess.DEVNULL,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+
+    async def cleanup_database() -> None:
+        await cleanup_scope(asyncpg, admin_dsn, scope.organization_id)
+
+    server = await start_server_after_scope_seed(
+        lambda: subprocess.Popen(
+            [
+                sys.executable,
+                "-m",
+                "uvicorn",
+                "apps.api.main:app",
+                "--host",
+                "127.0.0.1",
+                "--port",
+                str(port),
+                "--log-level",
+                "warning",
+            ],
+            cwd=ROOT,
+            env=environment,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        ),
+        cleanup_database,
     )
 
     async def cleanup_server() -> None:
@@ -327,9 +342,6 @@ async def run(browser: Path, work_root: Path, output: Path, node: str) -> None:
         except subprocess.TimeoutExpired:
             server.kill()
             await asyncio.to_thread(server.wait)
-
-    async def cleanup_database() -> None:
-        await cleanup_scope(asyncpg, admin_dsn, scope.organization_id)
 
     try:
         await asyncio.to_thread(wait_for_server, base_url, username, token)
