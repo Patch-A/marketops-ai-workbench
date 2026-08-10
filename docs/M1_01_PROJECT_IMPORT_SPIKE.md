@@ -1,6 +1,6 @@
 # M1-01 项目与已批准方案导入切片
 
-状态：`Browser/server cutover implemented; real Chromium acceptance pending`
+状态：`Completed for the bounded M1-01 acceptance contract`
 
 日期：`2026-08-10`
 
@@ -8,7 +8,7 @@
 
 验证第一条用户路径：用户创建项目，选择项目原始资料和已批准方案版本，服务器计算 SHA-256、保留两个不可变文件版本，并在浏览器刷新后从 PostgreSQL 恢复项目摘要。
 
-这不是 M1-01 的最终完成证据。浏览器和 Server API 候选实现已接通，但真实 PostgreSQL 18.4、FastAPI 与 Chromium 的联合门禁、独立审查和同一提交上的完整 CI 仍未形成最终证据。
+M1-01 的受限验收已完成：提交 `cd3ff09d3b84fbd71342c5e3728cc45898918d25` 通过真实 PostgreSQL 18.4、FastAPI 与 Chromium 联合门禁，GitHub Actions run `31397741577` 的 `static-checks` 与 `m1-01-runtime` 均成功，非实现者最终复审为 `CLEAN APPROVE`，未发现 P0/P1/P2。
 
 ## 已实现
 
@@ -41,16 +41,17 @@ node scripts/check_project_import.mjs
 
 这些结果属于已被替换的浏览器本地原型，只保留为历史交互证据，不能证明当前 Server API cutover。当前真实浏览器门禁见 runtime integration plan 的 WP5D。
 
-## 尚未通过的最终门槛
+## 最终门槛证据
 
-- WP1-WP5C 已有各自记录的 PostgreSQL、RLS、幂等、重启、备份恢复和 orphan cleanup CI 证据，但它们不能替代浏览器 cutover。
-- WP5D 必须在 Linux CI 中用真实 PostgreSQL 18.4、哈希锁 Python runtime、FastAPI 和 Chromium 完成上传、POST 后 GET、刷新、根路径恢复、本地存储污染/清除、网络失败与重试、多视口及凭据暴露检查。
-- 前后端实现和 gate 仍需非实现者审查；同一最终提交的完整 GitHub CI 通过前 `M1-01` 必须保持 `in_progress`。
+- WP1-WP5C 的 PostgreSQL、RLS、幂等、重启、连接丢失回滚、应用级逻辑备份恢复和 orphan cleanup 证据均保留在 runtime integration plan 中。
+- WP5D 在 Linux CI 中使用真实 PostgreSQL 18.4、哈希锁 Python runtime、FastAPI 和 Chromium 完成上传、POST 后 GET、刷新、根路径恢复、本地存储污染/清除、网络失败与稳定重试、多视口及凭据暴露检查。
+- 浏览器门禁的 12 项聚焦单测通过；OpenAPI 通过 23 项守卫和 37 项变异；前端 Server API 契约检查通过。
+- 非实现者对 `cd3ff09` 和同 SHA run `31397741577` 的最终复审为 `CLEAN APPROVE`，确认 `BaseExceptionGroup` 清理边界和服务器启动失败后的 scope cleanup 均由可执行失败路径覆盖。
 - 即使 M1-01 完成，也只证明合成数据上的单用户私有部署导入闭环，不证明生产认证、跨浏览器、需求、ROI、节省时间、复用或付费。
 
-## 下一工作包
+## 下一任务
 
-运行 WP5D 真实浏览器门禁，完成独立安全/浏览器审查并核对 GitHub CI 证据。只有这些检查通过后，主集成者才能更新进度注册表并关闭 M1-01。
+进入 M1-02：从已批准方案提取交付物、里程碑、约束和假设，保留来源引用，并要求用户逐条确认、修改或拒绝。M1-02 不负责自动生成完整排期；可编辑 WBS 与确定性排期属于 M1-03。
 
 ### Explicit prototype limits
 
@@ -65,4 +66,4 @@ node scripts/check_project_import.mjs
 - `scripts/check_m1_01_postgres_contract.py` passes 23 static guards and weakening mutations, including rejection of open project/artifact/audit policies, mutable artifact identity, and unapproved proposal selection. This is not proof that PostgreSQL 18.4 executes the migration correctly.
 - `apps/api/marketops_import/service.py` defines the dependency-neutral transaction order, path-streamed SHA-256, 25 MiB limits, full UTF-8 traversal for Markdown/CSV, basic DOCX validation, scoped manifest idempotency, explicit authenticated approval, object integrity checks, UUID output, server-only scope, and stable failure codes. Twenty-five unit tests pass with public/synthetic files and fake adapters.
 - `apps/api/openapi/project-import.openapi.yaml` freezes the authenticated multipart POST plus scoped list/detail reads, Basic/Bearer choices, `no-store`, Location, stable errors and display-only project metadata. Twenty-three contract guards and thirty-seven weakening mutations pass locally.
-- The asynchronous HTTP, asyncpg, local-object, recovery, backup/restore and orphan-cleanup packages have their separately bounded evidence. The remaining completion boundary is WP5D real Chromium evidence, independent review and final same-commit CI.
+- The asynchronous HTTP, asyncpg, local-object, recovery, backup/restore, orphan-cleanup, and real Chromium packages have separately bounded evidence. Commit `cd3ff09` and GitHub Actions run `31397741577` passed the final non-implementer review with no P0/P1/P2 findings.

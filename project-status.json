@@ -3,7 +3,7 @@
   "project": {
     "name": "MarketOps AI Workbench",
     "repository": "https://github.com/Patch-A/marketops-ai-workbench",
-    "updatedAt": "2026-08-08",
+    "updatedAt": "2026-08-10",
     "statusPolicy": "A task is completed only after its acceptance check passes and completion evidence is recorded. The generated status report is not a substitute for product or market validation."
   },
   "milestones": [
@@ -245,7 +245,21 @@
       "name": "M1: Proposal-to-schedule vertical slice",
       "goal": "Turn an approved proposal into a usable, reviewable execution plan.",
       "tasks": [
-        { "id": "M1-01", "title": "Project, file, and approved-proposal import", "owner": "Engineering", "status": "in_progress", "dependsOn": ["M0-06"], "acceptance": "A user can create a project, retain the source file, and select an approved proposal version." },
+        {
+          "id": "M1-01",
+          "title": "Project, file, and approved-proposal import",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["M0-06"],
+          "acceptance": "A user can create a project, retain the source file, and select an approved proposal version.",
+          "completedAt": "2026-08-10",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M1_01_PROJECT_IMPORT_SPIKE.md", "note": "Records the bounded import and refresh behavior, final checks, review result, and explicit non-production limits." },
+            { "kind": "git_commit", "ref": "cd3ff09d3b84fbd71342c5e3728cc45898918d25", "note": "Reviewed implementation commit for the server-backed import, recovery, and browser cutover path." },
+            { "kind": "url", "ref": "https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31397741577", "note": "Same-SHA static and PostgreSQL 18.4/FastAPI/Chromium runtime jobs passed." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Local focused checks passed; same-SHA GitHub CI passed; a non-implementer final review returned CLEAN APPROVE with no P0/P1/P2 findings. Evidence proves only the documented synthetic single-user private-deployment path." }
+        },
         { "id": "M1-02", "title": "Deliverable extraction and review", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-01"], "acceptance": "Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval." },
         { "id": "M1-03", "title": "Editable WBS and deterministic schedule", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-02"], "acceptance": "A user can edit WBS, dependencies, dates, and buffers; schedule changes recalculate deterministically." },
         { "id": "M1-04", "title": "Execution state, export, and audit", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-03"], "acceptance": "Task status, blockers, actual dates, CSV/XLSX export, audit entries, and error recovery work for the validation project." },
