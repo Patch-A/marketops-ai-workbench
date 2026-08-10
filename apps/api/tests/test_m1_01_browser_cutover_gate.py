@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import subprocess
 import unittest
 from pathlib import Path
 
@@ -8,6 +10,8 @@ from scripts.run_m1_01_browser_cutover_gate import (
     EVIDENCE_KEYS,
     MAX_SAFE_FAILURE_LENGTH,
     build_parser,
+    raise_cleanup_failure,
+    run_cleanup_steps,
     safe_browser_failure_message,
     validate_browser_result,
     validate_evidence,
@@ -151,7 +155,12 @@ class BrowserCutoverGateContractTests(unittest.TestCase):
             "Storage.clearDataForOrigin",
             "failNextProjectRead = true",
             "expectedNetworkFailureLogConsumed",
-            "path === expectedNetworkFailurePath",
+            "path === expected.path",
+            "expectedNetworkFailureRequestId",
+            "Network.loadingFailed",
+            "net::ERR_CONNECTION_RESET",
+            "matchesExpectedConnectionResetLog",
+            "injected network failure was not bound to the expected request and error",
             "injected network failure did not target the server project read",
             "refresh repeated the import POST",
             "credentials appeared in the browser URL",
@@ -169,6 +178,69 @@ class BrowserCutoverGateContractTests(unittest.TestCase):
         self.assertNotIn("from 'playwright'", source)
         self.assertNotIn("from 'puppeteer'", source)
         self.assertNotIn("console.log(token", source)
+
+    def test_connection_reset_allowlist_rejects_same_path_other_errors(self):
+        root = Path(__file__).resolve().parents[3]
+        completed = subprocess.run(
+            [
+                "node",
+                str(root / "scripts" / "run_m1_01_browser_flow.mjs"),
+                "--self-test-network-failure-matcher",
+            ],
+            cwd=root,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            timeout=10,
+            check=False,
+        )
+        self.assertEqual(completed.returncode, 0, completed.stderr)
+        self.assertEqual(
+            completed.stdout.strip(), "browser network failure matcher passed"
+        )
+
+    def test_cleanup_failure_does_not_replace_primary_failure(self):
+        primary = ValueError("primary browser failure")
+        cleanup = RuntimeError("cleanup failure")
+        self.assertIsNone(raise_cleanup_failure(primary, cleanup))
+        with self.assertRaisesRegex(RuntimeError, "browser gate cleanup failed") as raised:
+            raise_cleanup_failure(None, cleanup)
+        self.assertIs(raised.exception.__cause__, cleanup)
+
+        root = Path(__file__).resolve().parents[3]
+        source = (root / "scripts" / "run_m1_01_browser_cutover_gate.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("primary_failure = error", source)
+        self.assertIn(
+            "await run_cleanup_steps(primary_failure, cleanup_server, cleanup_database)",
+            source,
+        )
+
+    def test_both_cleanup_steps_run_and_double_failure_preserves_primary(self):
+        calls = []
+
+        async def server_cleanup():
+            calls.append("server")
+            raise RuntimeError("server cleanup failed")
+
+        async def database_cleanup():
+            calls.append("database")
+            raise RuntimeError("database cleanup failed")
+
+        primary = ValueError("primary browser failure")
+        failures = asyncio.run(
+            run_cleanup_steps(primary, server_cleanup, database_cleanup)
+        )
+        self.assertEqual(calls, ["server", "database"])
+        self.assertEqual(len(failures), 2)
+
+        calls.clear()
+        with self.assertRaisesRegex(RuntimeError, "browser gate cleanup failed") as raised:
+            asyncio.run(run_cleanup_steps(None, server_cleanup, database_cleanup))
+        self.assertEqual(calls, ["server", "database"])
+        self.assertIsInstance(raised.exception.__cause__, ExceptionGroup)
+        self.assertEqual(len(raised.exception.__cause__.exceptions), 2)
 
     def test_runtime_job_pins_node_and_runs_browser_gate(self):
         root = Path(__file__).resolve().parents[3]

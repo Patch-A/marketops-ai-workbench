@@ -237,7 +237,30 @@ async def verify_server_facts(
     }
 
 
+def raise_cleanup_failure(
+    primary_failure: BaseException | None, cleanup_failure: BaseException | None
+) -> None:
+    if primary_failure is None and cleanup_failure is not None:
+        raise RuntimeError("browser gate cleanup failed") from cleanup_failure
+
+
+async def run_cleanup_steps(primary_failure: BaseException | None, *cleanup_steps):
+    failures = []
+    for cleanup_step in cleanup_steps:
+        try:
+            await cleanup_step()
+        except BaseException as error:
+            failures.append(error)
+    if len(failures) > 1:
+        cleanup_failure = ExceptionGroup("browser gate cleanup failures", failures)
+    else:
+        cleanup_failure = failures[0] if failures else None
+    raise_cleanup_failure(primary_failure, cleanup_failure)
+    return tuple(failures)
+
+
 async def run(browser: Path, work_root: Path, output: Path, node: str) -> None:
+    primary_failure = None
     try:
         import asyncpg
     except ImportError as error:  # pragma: no cover - runtime gate only
@@ -296,6 +319,18 @@ async def run(browser: Path, work_root: Path, output: Path, node: str) -> None:
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
     )
+
+    async def cleanup_server() -> None:
+        server.terminate()
+        try:
+            await asyncio.to_thread(server.wait, 5)
+        except subprocess.TimeoutExpired:
+            server.kill()
+            await asyncio.to_thread(server.wait)
+
+    async def cleanup_database() -> None:
+        await cleanup_scope(asyncpg, admin_dsn, scope.organization_id)
+
     try:
         await asyncio.to_thread(wait_for_server, base_url, username, token)
         completed = await asyncio.to_thread(
@@ -368,14 +403,11 @@ async def run(browser: Path, work_root: Path, output: Path, node: str) -> None:
         validate_evidence(evidence)
         write_json(output, evidence)
         print(output.read_text(encoding="utf-8"), end="")
+    except BaseException as error:
+        primary_failure = error
+        raise
     finally:
-        server.terminate()
-        try:
-            await asyncio.to_thread(server.wait, 5)
-        except subprocess.TimeoutExpired:
-            server.kill()
-            await asyncio.to_thread(server.wait)
-        await cleanup_scope(asyncpg, admin_dsn, scope.organization_id)
+        await run_cleanup_steps(primary_failure, cleanup_server, cleanup_database)
 
 
 def build_parser() -> argparse.ArgumentParser:

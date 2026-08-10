@@ -172,6 +172,89 @@ function safePath(url, origin) {
   }
 }
 
+function matchesExpectedConnectionResetLog(entry, path, expected) {
+  const text = entry?.text || '';
+  return entry?.source === 'network'
+    && path === expected.path
+    && entry?.networkRequestId === expected.requestId
+    && expected.errorText === 'net::ERR_CONNECTION_RESET'
+    && text.includes('net::ERR_CONNECTION_RESET');
+}
+
+function classifyNetworkFailureEvent(method, params, origin, expected, requestPaths) {
+  if (method === 'Network.loadingFailed') {
+    const path = requestPaths.get(params.requestId) || 'unknown';
+    if (params.requestId === expected.requestId) {
+      if (params.errorText === 'net::ERR_CONNECTION_RESET') {
+        return { kind: 'expected-loading-failed', path };
+      }
+      return { kind: 'failure', category: `network-loading-failed:${path}:${params.errorText || 'unknown'}` };
+    }
+    if (params.canceled) return { kind: 'ignored-cancellation' };
+    return { kind: 'failure', category: `network-loading-failed:${path}:${params.errorText || 'unknown'}` };
+  }
+  if (method === 'Log.entryAdded' && ['error', 'warning'].includes(params.entry?.level)) {
+    const entry = params.entry;
+    const source = entry?.source || 'unknown';
+    const path = safePath(entry?.url || '', origin);
+    if (matchesExpectedConnectionResetLog(entry, path, expected)) {
+      return { kind: 'expected-log', path, category: `log-${entry.level}:network:${path}` };
+    }
+    if (
+      source === 'network'
+      && path === expected.path
+      && entry?.networkRequestId === expected.requestId
+      && !expected.errorText
+      && (entry?.text || '').includes('net::ERR_CONNECTION_RESET')
+    ) return { kind: 'pending-expected-log', path };
+    return { kind: 'failure', category: `log-${entry?.level}:${source}:${path}` };
+  }
+  return { kind: 'not-network-failure' };
+}
+
+function runNetworkFailureMatcherSelfTest() {
+  const origin = 'http://127.0.0.1:4173';
+  const expected = {
+    path: '/v1/projects/project-1',
+    requestId: 'network-1',
+    errorText: 'net::ERR_CONNECTION_RESET',
+  };
+  const entry = {
+    level: 'error',
+    source: 'network',
+    networkRequestId: 'network-1',
+    url: `${origin}/v1/projects/project-1`,
+    text: 'Failed to load resource: net::ERR_CONNECTION_RESET',
+  };
+  const requestPaths = new Map([
+    ['network-1', expected.path],
+    ['network-2', expected.path],
+  ]);
+  const accepted = [
+    ['Network.loadingFailed', { requestId: 'network-1', errorText: 'net::ERR_CONNECTION_RESET' }, 'expected-loading-failed'],
+    ['Log.entryAdded', { entry }, 'expected-log'],
+  ];
+  for (const [method, params, kind] of accepted) {
+    const result = classifyNetworkFailureEvent(method, params, origin, expected, requestPaths);
+    if (result.kind !== kind) throw new Error(`expected ${kind}, received ${result.kind}`);
+  }
+  const rejected = [
+    ['Network.loadingFailed', { requestId: 'network-1', errorText: 'net::ERR_CERT_INVALID' }],
+    ['Network.loadingFailed', { requestId: 'network-1', errorText: 'net::ERR_NAME_NOT_RESOLVED' }],
+    ['Network.loadingFailed', { requestId: 'network-2', errorText: 'net::ERR_CONNECTION_RESET' }],
+    ['Log.entryAdded', { entry: { ...entry, text: 'Failed to load resource: net::ERR_CERT_INVALID' } }],
+    ['Log.entryAdded', { entry: { ...entry, text: 'Failed to load resource: net::ERR_NAME_NOT_RESOLVED' } }],
+    ['Log.entryAdded', { entry: { ...entry, networkRequestId: 'network-2' } }],
+    ['Log.entryAdded', { entry: { ...entry, source: 'security' } }],
+  ];
+  for (const [method, params] of rejected) {
+    const result = classifyNetworkFailureEvent(method, params, origin, expected, requestPaths);
+    if (result.kind !== 'failure') {
+      throw new Error(`network failure classifier accepted ${result.kind}`);
+    }
+  }
+}
+
 async function verifyStaticAssets(baseUrl, username, token) {
   const authorization = `Basic ${Buffer.from(`${username}:${token}`).toString('base64')}`;
   for (const asset of ['', 'index.html', 'app.js', 'project-import.js', 'styles.css']) {
@@ -225,11 +308,15 @@ async function run(args) {
 
     const origin = new URL(baseUrl).origin;
     const requests = [];
+    const requestPaths = new Map();
     const externalRequests = [];
     const consoleFailures = [];
     let authChallenges = 0;
     let failNextProjectRead = false;
     let expectedNetworkFailurePath = '';
+    let expectedNetworkFailureRequestId = '';
+    let expectedNetworkFailureErrorText = '';
+    let pendingExpectedNetworkFailureLog;
     let expectedNetworkFailureLogConsumed = false;
     let asynchronousFailure;
 
@@ -264,6 +351,10 @@ async function run(args) {
           ) {
             failNextProjectRead = false;
             expectedNetworkFailurePath = parsed.pathname;
+            expectedNetworkFailureRequestId = params.networkId || '';
+            if (!expectedNetworkFailureRequestId) {
+              throw new Error('injected network failure did not expose a network request id');
+            }
             await client.send('Fetch.failRequest', {
               requestId: params.requestId,
               errorReason: 'ConnectionReset',
@@ -271,8 +362,33 @@ async function run(args) {
           } else {
             await client.send('Fetch.continueRequest', { requestId: params.requestId });
           }
+        } else if (method === 'Network.loadingFailed') {
+          const expected = {
+            path: expectedNetworkFailurePath,
+            requestId: expectedNetworkFailureRequestId,
+            errorText: expectedNetworkFailureErrorText,
+          };
+          const outcome = classifyNetworkFailureEvent(method, params, origin, expected, requestPaths);
+          if (outcome.kind === 'expected-loading-failed') {
+            expectedNetworkFailureErrorText = params.errorText || '';
+            if (pendingExpectedNetworkFailureLog) {
+              const resolvedExpected = {
+                path: expectedNetworkFailurePath,
+                requestId: expectedNetworkFailureRequestId,
+                errorText: expectedNetworkFailureErrorText,
+              };
+              if (!matchesExpectedConnectionResetLog(
+                pendingExpectedNetworkFailureLog.entry,
+                pendingExpectedNetworkFailureLog.path,
+                resolvedExpected,
+              )) throw new Error('injected network failure log did not match its request and error');
+              expectedNetworkFailureLogConsumed = true;
+              pendingExpectedNetworkFailureLog = undefined;
+            }
+          } else if (outcome.kind === 'failure') consoleFailures.push(outcome.category);
         } else if (method === 'Network.requestWillBeSent') {
           const path = safePath(params.request?.url || '', origin);
+          requestPaths.set(params.requestId, path);
           if (path.startsWith('external:')) externalRequests.push(path);
           else requests.push({ method: params.request?.method, path });
         } else if (method === 'Runtime.exceptionThrown') {
@@ -280,16 +396,19 @@ async function run(args) {
         } else if (method === 'Runtime.consoleAPICalled' && ['error', 'warning'].includes(params.type)) {
           consoleFailures.push(`console-${params.type}`);
         } else if (method === 'Log.entryAdded' && ['error', 'warning'].includes(params.entry?.level)) {
-          const source = params.entry?.source || 'unknown';
           const path = safePath(params.entry?.url || '', origin);
-          if (
-            source === 'network'
-            && path === expectedNetworkFailurePath
-            && !expectedNetworkFailureLogConsumed
-          ) {
+          const expected = {
+            path: expectedNetworkFailurePath,
+            requestId: expectedNetworkFailureRequestId,
+            errorText: expectedNetworkFailureErrorText,
+          };
+          const outcome = classifyNetworkFailureEvent(method, params, origin, expected, requestPaths);
+          if (!expectedNetworkFailureLogConsumed && outcome.kind === 'expected-log') {
             expectedNetworkFailureLogConsumed = true;
+          } else if (!expectedNetworkFailureLogConsumed && outcome.kind === 'pending-expected-log') {
+            pendingExpectedNetworkFailureLog = { entry: params.entry, path };
           } else {
-            consoleFailures.push(`log-${params.entry.level}:${source}:${path}`);
+            consoleFailures.push(outcome.category);
           }
         }
       }).catch((error) => {
@@ -357,6 +476,9 @@ async function run(args) {
     await waitForExpression(client, "document.querySelector('#importSummary')?.dataset.state === 'ready' && document.querySelector('#importProjectName')?.textContent === 'WP5D Browser Cutover'", 'network retry recovery');
     if (expectedNetworkFailurePath !== `/v1/projects/${projectId}`) {
       throw new Error('injected network failure did not target the server project read');
+    }
+    if (!expectedNetworkFailureRequestId || expectedNetworkFailureErrorText !== 'net::ERR_CONNECTION_RESET') {
+      throw new Error('injected network failure was not bound to the expected request and error');
     }
 
     await client.send('Storage.clearDataForOrigin', {
@@ -465,10 +587,15 @@ async function run(args) {
   }
 }
 
-try {
-  const result = await run(parseArgs(process.argv.slice(2)));
-  process.stdout.write(`${JSON.stringify(result)}\n`);
-} catch (error) {
-  process.stderr.write(`browser gate failed: ${error.message}\n`);
-  process.exitCode = 1;
+if (process.argv[2] === '--self-test-network-failure-matcher') {
+  runNetworkFailureMatcherSelfTest();
+  process.stdout.write('browser network failure matcher passed\n');
+} else {
+  try {
+    const result = await run(parseArgs(process.argv.slice(2)));
+    process.stdout.write(`${JSON.stringify(result)}\n`);
+  } catch (error) {
+    process.stderr.write(`browser gate failed: ${error.message}\n`);
+    process.exitCode = 1;
+  }
 }
