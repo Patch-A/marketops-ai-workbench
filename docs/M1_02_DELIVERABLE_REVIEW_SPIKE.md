@@ -161,3 +161,15 @@ Forbidden paths for this package: `project-status.json`, `docs/PROJECT_STATUS.md
 - 不在 M1-02 生成完整 WBS、倒排排期、甘特图或关键路径。
 - 不做通用聊天、语音、飞书/企微连接器、市场监控或自动知识提升。
 - 不把模型建议、公开案例或合成数据写成已确认项目事实。
+
+## 8. WP1：确定性候选契约与提取器
+
+- Task ID：`M1-02`；基线提交：`7487aad525d9fd3cfbef25c1c174df81d644ca25`。
+- Owned paths：`apps/api/marketops_extract/__init__.py`、`apps/api/marketops_extract/contract.py`、`apps/api/marketops_extract/deterministic.py`、`apps/api/tests/test_m1_02_extraction_contract.py`、`apps/api/tests/test_m1_02_deterministic_extractor.py`。
+- Forbidden paths：`project-status.json`、`docs/PROJECT_STATUS.md`、顶层 CI、数据库迁移、HTTP/OpenAPI、M1-01 实现与测试、真实客户资料、模型 SDK 和新依赖。
+- Frozen input：一个已批准方案版本的 UUID 与 SHA-256，以及来自受审解析器的 `heading`、`paragraph`、`table` blocks；每个可提取内容必须有稳定 section path 和行/表格单元格坐标。
+- Frozen output：仅包含 `deliverable | milestone | constraint | assumption` 的不可变候选；候选分类仅为 `fact | hypothesis`；候选 ID 对相同来源版本、类别、文本和坐标稳定；所有候选默认 `pending`，不得输出人工批准决定。
+- Failure contract：拒绝非法 UUID/SHA-256、未知 block/location 字段、空文本、越界或非单调坐标、重复来源位置、未知候选类别、缺少来源引用，以及不能无歧义映射的表格。失败不得返回部分候选。
+- Extraction boundary：只从明确的章节和列名识别合成 fixture 中的交付物、里程碑、约束和假设；不推断负责人、日期、依赖、ROI 或未写明事项。模型适配器不在 WP1 范围。
+- Acceptance commands：`python -m unittest apps.api.tests.test_m1_02_extraction_contract apps.api.tests.test_m1_02_deterministic_extractor -v`；`python -m compileall -q apps/api/marketops_extract`；`git diff --check`。
+- Reviewer role：非实现者检查候选/决定分离、稳定 ID、来源完整性、重复与未知字段失败、合成 fixture 期望和无部分结果行为。WP1 通过不等于 M1-02 完成，也不证明真实方案质量、节省时间或付费价值。
