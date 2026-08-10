@@ -6,7 +6,9 @@ from pathlib import Path
 from scripts.run_m1_01_browser_cutover_gate import (
     BROWSER_RESULT_KEYS,
     EVIDENCE_KEYS,
+    MAX_SAFE_FAILURE_LENGTH,
     build_parser,
+    safe_browser_failure_message,
     validate_browser_result,
     validate_evidence,
 )
@@ -98,6 +100,41 @@ class BrowserCutoverGateContractTests(unittest.TestCase):
         changed["viewportResults"].pop("375")
         with self.assertRaises(RuntimeError):
             validate_browser_result(changed)
+
+    def test_browser_failure_diagnostic_is_bounded_and_redacted(self):
+        token = "deployment-token-value"
+        dsn = "postgresql://user:password@database.example/marketops"
+        username = "marketops-user"
+        local_path = "/home/runner/work/repository/chromium-profile"
+        stderr = (
+            "browser gate failed: token="
+            + token
+            + " dsn="
+            + dsn
+            + " user="
+            + username
+            + " path="
+            + local_path
+            + " "
+            + ("failure-context " * 100)
+        )
+
+        diagnostic = safe_browser_failure_message(
+            stderr,
+            sensitive_values=(token, dsn, username, local_path),
+        )
+
+        for forbidden in (token, dsn, username, local_path, "password"):
+            with self.subTest(forbidden=forbidden):
+                self.assertNotIn(forbidden, diagnostic)
+        self.assertLessEqual(len(diagnostic), MAX_SAFE_FAILURE_LENGTH)
+        self.assertTrue(diagnostic.endswith("..."))
+
+    def test_empty_browser_failure_diagnostic_stays_actionable(self):
+        self.assertEqual(
+            safe_browser_failure_message(None, sensitive_values=()),
+            "browser gate returned no diagnostic",
+        )
 
     def test_node_flow_uses_cdp_auth_and_exercises_fact_source_failures(self):
         root = Path(__file__).resolve().parents[3]

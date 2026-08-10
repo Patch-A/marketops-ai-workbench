@@ -8,6 +8,7 @@ import asyncio
 import base64
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -58,6 +59,35 @@ EVIDENCE_KEYS = {
     "serverFacts",
     "claimBoundary",
 }
+MAX_SAFE_FAILURE_LENGTH = 800
+
+
+def safe_browser_failure_message(
+    stderr: str | None, *, sensitive_values: tuple[str, ...]
+) -> str:
+    """Return a bounded diagnostic from the controlled Node browser gate."""
+    message = (stderr or "").strip()
+    if not message:
+        return "browser gate returned no diagnostic"
+
+    for value in sorted(
+        {item for item in sensitive_values if item}, key=len, reverse=True
+    ):
+        message = message.replace(value, "[redacted]")
+        message = message.replace(value.replace("\\", "/"), "[redacted]")
+
+    message = re.sub(
+        r"(?i)postgres(?:ql)?://[^\s]+", "[redacted-dsn]", message
+    )
+    message = re.sub(
+        r"(?i)\b(?:authorization|password|token)\s*[:=]\s*[^\s]+",
+        "[redacted-credential]",
+        message,
+    )
+    message = " ".join(message.split())
+    if len(message) > MAX_SAFE_FAILURE_LENGTH:
+        message = message[: MAX_SAFE_FAILURE_LENGTH - 3] + "..."
+    return message
 
 
 def free_port() -> int:
@@ -288,14 +318,30 @@ async def run(browser: Path, work_root: Path, output: Path, node: str) -> None:
             env=browser_environment,
             stdin=subprocess.DEVNULL,
             stdout=subprocess.PIPE,
-            stderr=subprocess.DEVNULL,
+            stderr=subprocess.PIPE,
             text=True,
             encoding="utf-8",
             timeout=90,
             check=False,
         )
         if completed.returncode != 0:
-            raise RuntimeError("real Chromium browser flow failed")
+            diagnostic = safe_browser_failure_message(
+                completed.stderr,
+                sensitive_values=(
+                    token,
+                    admin_dsn,
+                    app_dsn,
+                    username,
+                    str(ROOT.resolve()),
+                    str(browser.resolve()),
+                    str(work_root.resolve()),
+                    str(object_root.resolve()),
+                    str(profile.resolve()),
+                    str(source.resolve()),
+                    str(proposal.resolve()),
+                ),
+            )
+            raise RuntimeError(f"real Chromium browser flow failed: {diagnostic}")
         try:
             browser_result = json.loads(completed.stdout)
         except json.JSONDecodeError as error:
