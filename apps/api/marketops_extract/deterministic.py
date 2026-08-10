@@ -83,6 +83,11 @@ def _global_location_span(location: Any) -> tuple[str, int, int]:
         return ("rows", raw["row"], raw["row"])
     if location.kind in {"docx_paragraph", "docx_table"}:
         return ("body", raw["bodyIndex"], raw["bodyIndex"])
+    if location.kind == "docx_table_cell":
+        # Normalized cells do not carry bodyIndex; keep them in a bounded
+        # coordinate family instead of guessing their position in the body.
+        coordinate = raw["table"] * 1_000_000_000 + raw["row"] * 10_000 + raw["column"]
+        return ("docx_cells", coordinate, coordinate)
     raise ExtractionContractError("INVALID_LOCATION", "unsupported location ordering")
 
 

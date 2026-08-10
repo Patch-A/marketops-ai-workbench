@@ -245,6 +245,26 @@ class DeterministicExtractorTests(unittest.TestCase):
         }]
         self.assertEqual(len(self.extract(blocks)), 1)
 
+    def test_standalone_normalized_docx_cell_is_supported(self):
+        blocks = [{
+            "kind": "table", "text": "A", "columnName": "Deliverable",
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table_cell", "part": "word/document.xml", "table": 1, "row": 1, "column": 1},
+        }]
+        self.assertEqual(len(self.extract(blocks)), 1)
+
+    def test_standalone_normalized_docx_cells_are_ordered_within_table(self):
+        blocks = [{
+            "kind": "table", "text": "A", "columnName": "Deliverable",
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table_cell", "part": "word/document.xml", "table": 1, "row": 1, "column": 1},
+        }, {
+            "kind": "table", "text": "B", "columnName": "Deliverable",
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table_cell", "part": "word/document.xml", "table": 1, "row": 2, "column": 1},
+        }]
+        self.assertEqual(len(self.extract(blocks)), 2)
+
     def test_multiple_semantic_columns_are_ambiguous(self):
         blocks = [{
             "kind": "table", "columns": ["Deliverable", "Deliverable description"], "rows": [{
