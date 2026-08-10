@@ -71,31 +71,49 @@ def _global_location_order(location: Any, parent: Any | None = None) -> tuple[st
     raise ExtractionContractError("INVALID_LOCATION", "unsupported location ordering")
 
 
+def _global_location_span(location: Any) -> tuple[str, int, int]:
+    raw = location.as_dict()
+    if location.kind == "line_range":
+        return ("lines", raw["startLine"], raw["endLine"])
+    if location.kind == "markdown_table_cell":
+        return ("lines", raw["line"], raw["line"])
+    if location.kind == "csv_range":
+        return ("rows", raw["startRow"], raw["endRow"])
+    if location.kind == "csv_cell":
+        return ("rows", raw["row"], raw["row"])
+    if location.kind in {"docx_paragraph", "docx_table"}:
+        return ("body", raw["bodyIndex"], raw["bodyIndex"])
+    raise ExtractionContractError("INVALID_LOCATION", "unsupported location ordering")
+
+
 def _validate_block_order(blocks: tuple[ParserBlock, ...]) -> None:
     seen: set[tuple[Any, ...]] = set()
-    previous_global: tuple[str, int, int, int] | None = None
+    previous_family: str | None = None
+    previous_end: int | None = None
     for block in blocks:
         identity = block.location.identity()
         if identity in seen:
             raise ExtractionContractError("DUPLICATE_LOCATION", "parser blocks reuse a source location")
         seen.add(identity)
-        key = _global_location_order(block.location)
-        if previous_global is not None and key[0] != previous_global[0]:
+        family, start, end = _global_location_span(block.location)
+        if previous_family is not None and family != previous_family:
             raise ExtractionContractError("MIXED_LOCATION_FAMILY", "parser blocks use mixed source coordinate families")
-        if previous_global is not None and key <= previous_global:
+        if previous_end is not None and start <= previous_end:
             raise ExtractionContractError("NON_MONOTONIC_LOCATION", "parser blocks are not in source order")
-        previous_global = key
+        previous_family = family
+        previous_end = end
+        previous_cell: tuple[str, int, int, int] | None = None
         for cell in block.cells:
             cell_identity = cell.location.identity()
             if cell_identity in seen:
                 raise ExtractionContractError("DUPLICATE_LOCATION", "parser blocks reuse a source location")
             seen.add(cell_identity)
             cell_key = _global_location_order(cell.location, block.location)
-            if previous_global is not None and cell_key[0] != previous_global[0]:
+            if cell_key[0] != family:
                 raise ExtractionContractError("MIXED_LOCATION_FAMILY", "table cells use mixed source coordinate families")
-            if previous_global is not None and cell_key <= previous_global:
+            if previous_cell is not None and cell_key <= previous_cell:
                 raise ExtractionContractError("NON_MONOTONIC_LOCATION", "table cells are not in source order")
-            previous_global = cell_key
+            previous_cell = cell_key
 
 
 class DeterministicExtractor:

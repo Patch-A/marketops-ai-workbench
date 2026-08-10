@@ -86,6 +86,17 @@ class ExtractionContractTests(unittest.TestCase):
             **self.valid_input(blocks=[paragraph(3), paragraph(2)]),
         )
 
+    def test_overlapping_ranges_are_rejected_but_adjacent_ranges_are_valid(self):
+        overlapping = [paragraph(1)]
+        overlapping[0]["location"] = {"kind": "line_range", "startLine": 1, "endLine": 10}
+        overlapping.append(paragraph(2))
+        self.assert_code("NON_MONOTONIC_LOCATION", **self.valid_input(blocks=overlapping))
+
+        adjacent = [paragraph(1)]
+        adjacent[0]["location"] = {"kind": "line_range", "startLine": 1, "endLine": 10}
+        adjacent.append(paragraph(11))
+        self.assertEqual(len(extract_candidates(**self.valid_input(blocks=adjacent))), 2)
+
     def test_failure_does_not_expose_partial_candidates(self):
         with self.assertRaises(ExtractionContractError) as raised:
             extract_candidates(**self.valid_input(blocks=[paragraph(2), paragraph(1, text="")]))

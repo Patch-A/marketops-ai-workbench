@@ -162,6 +162,89 @@ class DeterministicExtractorTests(unittest.TestCase):
             self.extract(blocks)
         self.assertEqual(raised.exception.code, "INVALID_LOCATION")
 
+    def test_outer_table_range_high_water_mark_rejects_following_overlap(self):
+        blocks = [
+            {
+                "kind": "table", "columns": ["Deliverable"], "rows": [{
+                    "rowNumber": 9,
+                    "cells": [{"column": "Deliverable", "value": "A", "location": {"kind": "markdown_table_cell", "line": 9, "columnIndex": 1}}],
+                }],
+                "sectionPath": ["Deliverables"],
+                "location": {"kind": "line_range", "startLine": 7, "endLine": 10},
+            },
+            {
+                "kind": "paragraph", "text": "Overlap", "sectionPath": ["Constraints"],
+                "location": {"kind": "line_range", "startLine": 10, "endLine": 10},
+            },
+        ]
+        with self.assertRaises(ExtractionContractError) as raised:
+            self.extract(blocks)
+        self.assertEqual(raised.exception.code, "NON_MONOTONIC_LOCATION")
+
+    def test_outer_table_range_boundary_is_valid(self):
+        blocks = [{
+            "kind": "table", "columns": ["Deliverable"], "rows": [{
+                "rowNumber": 9,
+                "cells": [{"column": "Deliverable", "value": "A", "location": {"kind": "markdown_table_cell", "line": 9, "columnIndex": 1}}],
+            }],
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "line_range", "startLine": 7, "endLine": 10},
+        }, {
+            "kind": "paragraph", "text": "Next", "sectionPath": ["Constraints"],
+            "location": {"kind": "line_range", "startLine": 11, "endLine": 11},
+        }]
+        self.assertEqual(len(self.extract(blocks)), 2)
+
+    def test_table_row_number_must_match_cell_coordinate(self):
+        blocks = [{
+            "kind": "table", "columns": ["Deliverable"], "rows": [{
+                "rowNumber": 9,
+                "cells": [{"column": "Deliverable", "value": "A", "location": {"kind": "markdown_table_cell", "line": 8, "columnIndex": 1}}],
+            }],
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "line_range", "startLine": 7, "endLine": 10},
+        }]
+        with self.assertRaises(ExtractionContractError) as raised:
+            self.extract(blocks)
+        self.assertEqual(raised.exception.code, "INVALID_LOCATION")
+
+    def test_table_column_position_must_match_header_position(self):
+        blocks = [{
+            "kind": "table", "columns": ["Deliverable"], "rows": [{
+                "rowNumber": 9,
+                "cells": [{"column": "Deliverable", "value": "A", "location": {"kind": "markdown_table_cell", "line": 9, "columnIndex": 99}}],
+            }],
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "line_range", "startLine": 7, "endLine": 10},
+        }]
+        with self.assertRaises(ExtractionContractError) as raised:
+            self.extract(blocks)
+        self.assertEqual(raised.exception.code, "INVALID_LOCATION")
+
+    def test_docx_cell_must_share_outer_part_and_table_identity(self):
+        blocks = [{
+            "kind": "table", "columns": ["Deliverable"], "rows": [{
+                "rowNumber": 1,
+                "cells": [{"column": "Deliverable", "value": "A", "location": {"kind": "docx_table_cell", "part": "word/header1.xml", "table": 1, "row": 1, "column": 1}}],
+            }],
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table", "part": "word/document.xml", "bodyIndex": 1, "table": 1},
+        }]
+        with self.assertRaises(ExtractionContractError) as raised:
+            self.extract(blocks)
+        self.assertEqual(raised.exception.code, "INVALID_LOCATION")
+
+    def test_docx_matching_coordinate_identity_is_valid(self):
+        blocks = [{
+            "kind": "table", "columns": ["Deliverable"], "rows": [{
+                "rowNumber": 1,
+                "cells": [{"column": "Deliverable", "value": "A", "location": {"kind": "docx_table_cell", "part": "word/document.xml", "table": 1, "row": 1, "column": 1}}],
+            }],
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table", "part": "word/document.xml", "bodyIndex": 1, "table": 1},
+        }]
+        self.assertEqual(len(self.extract(blocks)), 1)
+
     def test_multiple_semantic_columns_are_ambiguous(self):
         blocks = [{
             "kind": "table", "columns": ["Deliverable", "Deliverable description"], "rows": [{

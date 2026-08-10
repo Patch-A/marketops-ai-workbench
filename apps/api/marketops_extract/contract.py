@@ -95,7 +95,7 @@ class SourceLocation:
             required = ("line", "columnIndex")
         elif location_kind == "csv_cell":
             allowed = frozenset({"kind", "row", "columnIndex", "columnName"})
-            required = ("row", "columnIndex")
+            required = ("row", "columnIndex", "columnName")
         elif location_kind == "docx_table_cell":
             allowed = frozenset({"kind", "part", "table", "row", "column"})
             required = ("part", "table", "row", "column")
@@ -231,7 +231,11 @@ class ParserBlock:
             elif location.kind == "csv_range":
                 valid = inner["kind"] == "csv_cell" and outer["startRow"] <= inner["row"] <= outer["endRow"]
             elif location.kind == "docx_table":
-                valid = inner["kind"] == "docx_table_cell" and inner["table"] == outer["table"]
+                valid = (
+                    inner["kind"] == "docx_table_cell"
+                    and inner["part"] == outer["part"]
+                    and inner["table"] == outer["table"]
+                )
             else:
                 valid = False
             if not valid:
@@ -274,6 +278,29 @@ class ParserBlock:
             parsed_row = tuple(TableCell.from_mapping(cell) for cell in cells)
             if tuple(cell.column for cell in parsed_row) != tuple(item.strip() for item in columns):
                 raise AmbiguousTableError("table cell columns do not match the table header")
+            for column_index, cell in enumerate(parsed_row, start=1):
+                location = cell.location.as_dict()
+                if cell.location.kind == "markdown_table_cell":
+                    valid_location = (
+                        location["line"] == row_number
+                        and location["columnIndex"] == column_index
+                    )
+                elif cell.location.kind == "csv_cell":
+                    valid_location = (
+                        location["row"] == row_number
+                        and location["columnIndex"] == column_index
+                        and location["columnName"] == cell.column
+                    )
+                else:
+                    valid_location = (
+                        location["row"] == row_number
+                        and location["column"] == column_index
+                    )
+                if not valid_location:
+                    raise ExtractionContractError(
+                        "INVALID_LOCATION",
+                        "table cell coordinates do not match the table row",
+                    )
             parsed_cells.extend(parsed_row)
         return None, None, tuple(parsed_cells)
 
