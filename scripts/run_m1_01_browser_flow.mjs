@@ -229,6 +229,8 @@ async function run(args) {
     const consoleFailures = [];
     let authChallenges = 0;
     let failNextProjectRead = false;
+    let expectedNetworkFailurePath = '';
+    let expectedNetworkFailureLogConsumed = false;
     let asynchronousFailure;
 
     client.on((method, params) => {
@@ -261,6 +263,7 @@ async function run(args) {
             && parsed.pathname.startsWith('/v1/projects')
           ) {
             failNextProjectRead = false;
+            expectedNetworkFailurePath = parsed.pathname;
             await client.send('Fetch.failRequest', {
               requestId: params.requestId,
               errorReason: 'ConnectionReset',
@@ -279,7 +282,15 @@ async function run(args) {
         } else if (method === 'Log.entryAdded' && ['error', 'warning'].includes(params.entry?.level)) {
           const source = params.entry?.source || 'unknown';
           const path = safePath(params.entry?.url || '', origin);
-          consoleFailures.push(`log-${params.entry.level}:${source}:${path}`);
+          if (
+            source === 'network'
+            && path === expectedNetworkFailurePath
+            && !expectedNetworkFailureLogConsumed
+          ) {
+            expectedNetworkFailureLogConsumed = true;
+          } else {
+            consoleFailures.push(`log-${params.entry.level}:${source}:${path}`);
+          }
         }
       }).catch((error) => {
         asynchronousFailure = error;
@@ -344,6 +355,9 @@ async function run(args) {
     await waitForExpression(client, "document.querySelector('#importSummary')?.dataset.state === 'error'", 'network failure state');
     await evaluate(client, "document.querySelector('#retryProjectLoad').click(); true");
     await waitForExpression(client, "document.querySelector('#importSummary')?.dataset.state === 'ready' && document.querySelector('#importProjectName')?.textContent === 'WP5D Browser Cutover'", 'network retry recovery');
+    if (expectedNetworkFailurePath !== `/v1/projects/${projectId}`) {
+      throw new Error('injected network failure did not target the server project read');
+    }
 
     await client.send('Storage.clearDataForOrigin', {
       origin,

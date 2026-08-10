@@ -136,6 +136,7 @@ h3 { font-size: 13px; line-height: 1.4; margin: 8px 0 6px; }
 .progress-row b { color: var(--ink); font: 11px ui-monospace, 'Cascadia Mono', Consolas, monospace; }
 .progress-track { height: 5px; flex: 0 1 185px; background: var(--line); border-radius: 4px; overflow: hidden; }
 .progress-track span { display: block; height: 100%; background: var(--action); border-radius: inherit; }
+.progress-track .progress-fill-58 { width: 58%; }
 .workflow-steps { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-top: 22px; border-top: 1px solid var(--line); padding-top: 14px; }
 .workflow-step { min-width: 0; text-align: left; border: 0; border-top: 2px solid var(--line); padding: 8px 3px 0; background: transparent; color: var(--ink-soft); }
 .workflow-step:hover { border-color: var(--action); }

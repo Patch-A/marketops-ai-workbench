@@ -371,6 +371,7 @@ for (const forbidden of ['clientName', 'sha256Blob', 'createProjectRecord', 'cre
 assert.equal(/<script[^>]+src=["']https?:\/\//i.test(htmlSource), false, 'the authenticated page must not execute external scripts');
 assert.equal(htmlSource.includes('unpkg.com'), false);
 assert.equal(htmlSource.includes('clientName'), false);
+assert.equal(/\sstyle\s*=/.test(htmlSource), false, 'inline styles must not bypass the server CSP');
 assert.equal(styleSource.includes('@import url('), false, 'the authenticated page must not make external font imports');
 assert.equal(/["']Authorization["']\s*:/i.test(appSource), false, 'app.js must not set an authorization header');
 assert.equal(/["']Authorization["']\s*:/i.test(moduleSource), false, 'the browser client must not set an authorization header');
