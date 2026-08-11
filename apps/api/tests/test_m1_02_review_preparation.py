@@ -7,8 +7,12 @@ import unittest
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
-from apps.api.marketops_extract.contract import SourceLocation
-from apps.api.marketops_extract.parser import ParserWarning, RuntimeParserResult
+from apps.api.marketops_extract.contract import ParserBlock, SourceLocation
+from apps.api.marketops_extract.parser import (
+    MAX_BLOCK_TEXT_CHARS,
+    ParserWarning,
+    RuntimeParserResult,
+)
 from apps.api.marketops_review.preparation import (
     ApprovedProposalPreparationService,
     ApprovedProposalSource,
@@ -330,6 +334,63 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.code, "CANDIDATE_LIMIT_EXCEEDED")
         self.assertEqual(review.requests, [])
+
+    async def test_injected_parser_cannot_bypass_block_or_cell_text_limits(self):
+        good_service, _ = self.service()
+        parsed = await good_service.parser.parse(
+            payload=PAYLOAD, filename="approved.md", media_type="text/markdown"
+        )
+        oversized_text = "x" * (MAX_BLOCK_TEXT_CHARS + 1)
+        oversized_block = dataclasses.replace(parsed.blocks[1], text=oversized_text)
+        oversized_cell = ParserBlock.from_mapping(
+            {
+                "kind": "table",
+                "columns": ["Deliverable"],
+                "rows": [
+                    {
+                        "rowNumber": 2,
+                        "cells": [
+                            {
+                                "column": "Deliverable",
+                                "value": oversized_text,
+                                "location": {
+                                    "kind": "markdown_table_cell",
+                                    "line": 2,
+                                    "columnIndex": 1,
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "headerRowExplicit": True,
+                "sectionPath": ["Deliverables"],
+                "location": {
+                    "kind": "line_range",
+                    "startLine": 1,
+                    "endLine": 2,
+                },
+            }
+        )
+
+        for blocks in ((oversized_block,), (oversized_cell,)):
+            with self.subTest(kind=blocks[0].kind):
+                parser_result = RuntimeParserResult(
+                    parsed.document_format,
+                    parsed.size_bytes,
+                    parsed.source_sha256,
+                    blocks,
+                    (),
+                )
+                review = FakeReviewService()
+                service, _ = self.service(
+                    parser=FakeParser(result=parser_result), review=review
+                )
+                with self.assertRaises(PreparationFailure) as raised:
+                    await service.prepare_and_create_run(
+                        PreparationRequest(PROJECT_ID), self.scope
+                    )
+                self.assertEqual(raised.exception.code, "PARSER_LIMIT_EXCEEDED")
+                self.assertEqual(review.requests, [])
 
     async def test_repository_object_parser_and_service_failures_are_sanitized(self):
         failures = (

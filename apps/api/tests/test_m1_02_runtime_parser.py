@@ -10,7 +10,10 @@ from apps.api.marketops_extract import DeterministicExtractor
 from apps.api.marketops_extract.parser import (
     DOCX_MEDIA_TYPE,
     MAX_BLOCK_TEXT_CHARS,
+    MAX_DOCX_XML_BYTES,
     MAX_PARSER_BLOCKS,
+    MAX_PARSER_TABLE_CELLS,
+    MAX_PARSER_WARNINGS,
     MAX_TABLE_COLUMNS,
     MAX_TEXT_LINES,
     RuntimeParseFailure,
@@ -24,10 +27,11 @@ VERSION_ID = "00000000-0000-4000-8000-000000000201"
 def docx_payload(
     *,
     extra_inline: str = "",
+    extra_body: str = "",
     extra_entries: tuple[tuple[str, str | bytes], ...] = (),
 ) -> bytes:
     document = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main" xmlns:m="http://schemas.openxmlformats.org/officeDocument/2006/math">
   <w:body>
     <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Deliverables</w:t></w:r></w:p>
     <w:p><w:r><w:t>Registration page</w:t>{extra_inline}</w:r></w:p>
@@ -36,6 +40,7 @@ def docx_payload(
       <w:tr><w:trPr><w:tblHeader/></w:trPr><w:tc><w:p><w:r><w:t>Milestone</w:t></w:r></w:p></w:tc></w:tr>
       <w:tr><w:tc><w:p><w:r><w:t>Venue locked</w:t></w:r></w:p></w:tc></w:tr>
     </w:tbl>
+    {extra_body}
     <w:sectPr/>
   </w:body>
 </w:document>"""
@@ -64,6 +69,21 @@ def unsafe_docx_payload(extra_name: str | None = None, *, duplicate=False) -> by
             if extra_name is not None:
                 package.writestr(extra_name, b"unsafe")
     return output.getvalue()
+
+
+class OversizedXmlArchive:
+    class Entry:
+        file_size = MAX_DOCX_XML_BYTES + 1
+
+    def __init__(self):
+        self.read_called = False
+
+    def getinfo(self, _name):
+        return self.Entry()
+
+    def read(self, _name):
+        self.read_called = True
+        raise AssertionError("oversized XML must be rejected before archive.read")
 
 
 class RuntimeProposalParserTests(unittest.IsolatedAsyncioTestCase):
@@ -151,6 +171,12 @@ class RuntimeProposalParserTests(unittest.IsolatedAsyncioTestCase):
         cases = (
             (b"<w:drawing/>", "drawings_present"),
             (b"<w:instrText>PAGE</w:instrText>", "fields_present"),
+            (b'<w:fldChar w:fldCharType="begin"/>', "fields_present"),
+            (
+                b"<m:oMath><m:r><m:t>x+y</m:t></m:r></m:oMath>",
+                "office_math_present",
+            ),
+            (b"<m:oMathPara/>", "office_math_present"),
         )
         for xml, expected_warning in cases:
             payload = docx_payload(extra_inline=xml.decode("ascii"))
@@ -183,6 +209,11 @@ class RuntimeProposalParserTests(unittest.IsolatedAsyncioTestCase):
                 "text/markdown",
             ),
             (b"line\n" * MAX_TEXT_LINES, "proposal.txt", "text/plain"),
+            (
+                b"> quote\n" * (MAX_PARSER_WARNINGS + 1),
+                "proposal.md",
+                "text/markdown",
+            ),
         )
         for payload, filename, media_type in cases:
             with self.subTest(filename=filename), self.assertRaises(
@@ -204,6 +235,11 @@ class RuntimeProposalParserTests(unittest.IsolatedAsyncioTestCase):
         ).encode("utf-8")
         cases = (
             (b"x" * (MAX_BLOCK_TEXT_CHARS + 1), "proposal.txt", "text/plain"),
+            (
+                b"a" * 60000 + b"\n" + b"b" * 60000,
+                "proposal.md",
+                "text/markdown",
+            ),
             (wide_table, "proposal.md", "text/markdown"),
         )
 
@@ -217,6 +253,35 @@ class RuntimeProposalParserTests(unittest.IsolatedAsyncioTestCase):
                     media_type=media_type,
                 )
             self.assertEqual(raised.exception.code, "DOCUMENT_LIMIT_EXCEEDED")
+
+    async def test_docx_rejects_zero_cell_row_expansion(self):
+        empty_rows = "".join(
+            "<w:tr><w:trPr><w:tblHeader/></w:trPr></w:tr>"
+            for _ in range(MAX_PARSER_TABLE_CELLS + 1)
+        )
+        payload = docx_payload(extra_body=f"<w:tbl>{empty_rows}</w:tbl>")
+
+        with self.assertRaises(RuntimeParseFailure) as raised:
+            await self.parser.parse(
+                payload=payload,
+                filename="proposal.docx",
+                media_type=DOCX_MEDIA_TYPE,
+            )
+
+        self.assertEqual(raised.exception.code, "DOCUMENT_LIMIT_EXCEEDED")
+
+    def test_docx_xml_parts_are_rejected_before_archive_read(self):
+        for name in ("word/document.xml", "word/styles.xml"):
+            archive = OversizedXmlArchive()
+            with self.subTest(name=name), self.assertRaises(
+                RuntimeParseFailure
+            ) as raised:
+                if name == "word/document.xml":
+                    self.parser._read_xml(archive, name)
+                else:
+                    self.parser._load_docx_styles(archive, {name})
+            self.assertEqual(raised.exception.code, "DOCUMENT_LIMIT_EXCEEDED")
+            self.assertFalse(archive.read_called)
 
     async def test_format_encoding_and_invalid_docx_fail_with_sanitized_errors(self):
         cases = (

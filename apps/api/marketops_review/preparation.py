@@ -11,6 +11,7 @@ from uuid import UUID
 from apps.api.marketops_extract.contract import Candidate, ExtractionContractError, ParserBlock
 from apps.api.marketops_extract.deterministic import DeterministicExtractor
 from apps.api.marketops_extract.parser import (
+    MAX_BLOCK_TEXT_CHARS,
     MAX_PARSER_BLOCKS,
     MAX_PARSER_TABLE_CELLS,
     MAX_PARSER_WARNINGS,
@@ -345,6 +346,18 @@ class ApprovedProposalPreparationService:
                 if isinstance(block, ParserBlock)
             )
             > MAX_PARSER_TABLE_CELLS
+            or any(
+                (
+                    block.text is not None
+                    and len(block.text) > MAX_BLOCK_TEXT_CHARS
+                )
+                or any(
+                    len(cell.value) > MAX_BLOCK_TEXT_CHARS
+                    for cell in block.cells
+                )
+                for block in result.blocks
+                if isinstance(block, ParserBlock)
+            )
         ):
             raise PreparationFailure(
                 "PARSER_LIMIT_EXCEEDED",
