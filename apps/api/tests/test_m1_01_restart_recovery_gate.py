@@ -94,6 +94,13 @@ class RecoveryEvidenceValidationTests(unittest.TestCase):
 
 
 class RecoveryWorkflowContractTests(unittest.TestCase):
+    def test_import_snapshot_counts_only_import_audit_events(self):
+        root = Path(__file__).resolve().parents[3]
+        source = (root / "scripts" / "run_m1_01_restart_recovery_gate.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("action = 'project_imported'", source)
+
     def test_runtime_job_runs_all_recovery_phases_in_order(self):
         root = Path(__file__).resolve().parents[3]
         workflow = (root / ".github" / "workflows" / "quality.yml").read_text(

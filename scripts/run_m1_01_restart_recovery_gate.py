@@ -275,10 +275,12 @@ async def project_snapshot(
         counts = {}
         for label, table in table_names.items():
             project_column = "id" if table == "projects" else "project_id"
+            action_filter = "AND action = 'project_imported'" if table == "audit_events" else ""
             counts[label] = await connection.fetchval(
                 f"""
                 SELECT count(*) FROM marketops.{table}
                 WHERE organization_id = $1 AND {project_column} = $2
+                  {action_filter}
                 """,
                 organization_id,
                 project_id,
