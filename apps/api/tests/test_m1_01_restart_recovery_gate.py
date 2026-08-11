@@ -99,7 +99,8 @@ class RecoveryWorkflowContractTests(unittest.TestCase):
         source = (root / "scripts" / "run_m1_01_restart_recovery_gate.py").read_text(
             encoding="utf-8"
         )
-        self.assertIn("action = 'project_imported'", source)
+        self.assertIn("action = 'project.imported_with_approved_proposal'", source)
+        self.assertNotIn("action = 'project_imported'", source)
 
     def test_runtime_job_runs_all_recovery_phases_in_order(self):
         root = Path(__file__).resolve().parents[3]
