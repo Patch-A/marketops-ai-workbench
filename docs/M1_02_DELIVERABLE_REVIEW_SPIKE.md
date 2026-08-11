@@ -188,3 +188,37 @@ Forbidden paths for this package: `project-status.json`, `docs/PROJECT_STATUS.md
 - WP1 只有候选契约和确定性提取器，没有数据库持久化、审核版本、审计事件、HTTP API、UI、权限门禁、并发冲突处理或 M1-03 handoff。
 - 公开资料和合成 fixture 只能证明工程行为；不能证明需求、ROI、节省时间、重复使用、真实项目质量或付费意愿。
 - `M1-02` 继续保持 `in_progress`。下一工作包必须先实现项目范围内的候选持久化、不可变审核版本、逐条审核审计和权限/冲突失败路径，再接 UI。
+
+## 9. WP2A：项目范围持久化与不可变审核版本
+
+### 四象限复检
+
+| 象限 | 当前结论 | 执行约束 |
+| --- | --- | --- |
+| 共同已知 | 候选来自同项目已批准方案；候选不是人工决定；每次批准、修改或拒绝必须可追溯。 | 候选、审核版本和决定分离；原候选与旧审核版本只追加不覆盖。 |
+| 用户已知、实现未知 | 真实用户更偏好逐条还是批量审核、是否需要多人同时审核，尚无行为数据。 | P0 先实现单候选原子操作和完整新快照；批量操作与多人工作流留到真实使用验证后。 |
+| 用户未知、实现已知 | 新增业务表会改变备份/恢复 allowlist、应用角色权限、RLS 证明和运行时 gate。 | WP2A 不只加 migration；必须同步扩展备份、恢复、权限和隔离验证，否则审核数据可能在恢复后丢失。 |
+| 共同未知 | 并发审核冲突频率、完整快照的存储增长和真实方案候选规模尚无证据。 | 用两个并发 reviewer 争用同一 `expectedReviewVersion` 的最小实验；记录候选数、版本数、冲突数和事务耗时，不把合成结果外推为生产容量。 |
+
+### 工作包契约
+
+- Task ID：`M1-02`；基线提交：`a1669172465468e3d5286ad5eff601c02ae78890`。
+- Owned paths：新增 `apps/api/marketops_review/**`、`apps/api/migrations/0002_extraction_review.sql`、对应 `apps/api/tests/test_m1_02_review_*.py` 与 `apps/api/tests/postgres/test_m1_02_review_runtime.py`。备份、恢复、权限 gate 和顶层 CI 的适配由主集成者单独审查后修改。
+- Forbidden paths：`project-status.json`、`docs/PROJECT_STATUS.md`、M1-01 的 `0001` migration、对象存储/import/browser/cleanup 行为、前端、连接器、跨项目检索、真实客户资料和新依赖。
+- Frozen input：服务器注入的 organization/workspace/client/actor scope、项目 ID、已批准 proposal artifact/version/hash、WP1 的完整候选批次，以及审核请求的 `expectedReviewVersion`、单个 candidate ID、`approve | modify | reject`、原因、可选评论和修改后文本。
+- Frozen output：一个项目范围 extraction run、不可变候选集合、从版本 1 开始的不可变完整审核快照、逐条决定和 append-only audit event。候选 ID、原文、来源引用与旧版本不得被更新或删除。
+- Review semantics：版本 1 为全部 `pending`；每次操作复制上一版完整快照并只改变一个候选，生成 `version + 1`。`modify` 必须有非空 replacement text；三种人工动作都必须有 reason。只有最新完整版本可供后续读取，旧版本仍可查看。
+- Conflict semantics：请求必须携带 `expectedReviewVersion`；与数据库最新版本不一致时返回稳定 `REVIEW_CONFLICT`，且不得写入 review version、decision 或 audit event。禁止 last-write-wins。
+- Source gate：run 的 artifact/version/hash 必须与项目当前已批准 proposal 完全一致；候选 citation 必须仍匹配该 source version/hash。失败返回 `INVALID_PROPOSAL_STATE` 或 `SOURCE_CITATION_INVALID`，不得部分保存。
+- Scope gate：所有新表启用并强制 RLS；读取和写入必须同时匹配 workspace、client、project 与非空 actor。跨项目或跨客户对象在应用角色视角下不可见，不返回存在性差异。
+- Atomicity gate：创建 run、候选、初始版本、完整 pending snapshot 和 audit 必须同事务提交；每次审核的新版本、完整 snapshot 和 audit 也必须同事务提交。任一步失败全部回滚。
+- Recovery gate：新增表必须进入应用级逻辑备份/恢复 allowlist；隔离恢复后 run、候选、所有审核版本、决定、审计、RLS 和应用角色权限必须与源快照一致。旧的项目导入恢复证据不得因扩展而失效。
+- Acceptance commands：focused unit tests、migration/static contract tests、PostgreSQL 18.4 RLS/concurrency/rollback runtime tests、backup/restore gate、完整 `apps/api` 测试、`compileall`、`check-docs`、progress check 和 `git diff --check`。同一提交 CI 与非实现者复审均通过后，WP2A 才可关闭。
+
+### WP2A 最小并发实验
+
+固定一个含两个候选的合成 run，两个 reviewer 同时基于 `expectedReviewVersion = 1` 修改同一候选。唯一可变因素是提交先后；成功信号是恰好一个事务生成版本 2，另一个得到 `REVIEW_CONFLICT`，数据库中没有版本 3、重复决定或孤立 audit。失败信号是 last-write-wins、两个事务都成功、部分 snapshot、跨 scope 可见或恢复后审核历史缺失。
+
+## 10. WP2B 与 UI 边界
+
+WP2A 通过后，WP2B 才暴露创建 run、读取候选/历史和逐条审核 HTTP API，并冻结 OpenAPI、认证、错误 envelope、`no-store`、重试和取消语义。浏览器 UI 必须消费服务器事实源，显示来源摘录、事实/假设、pending/approve/modify/reject、冲突刷新和失败恢复；静态 mockup 不构成功能完成证据。
