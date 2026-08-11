@@ -429,7 +429,6 @@ async def attest_application_role(asyncpg, app_dsn: str) -> dict[str, object]:
         relation_privileges = await connection.fetch(
             f"""
             SELECT relation.relname AS object_name,
-                   attribute.attname AS column_name,
                    privilege,
                    pg_catalog.has_table_privilege(
                        current_user, relation.oid, privilege
@@ -452,6 +451,7 @@ async def attest_application_role(asyncpg, app_dsn: str) -> dict[str, object]:
         column_privileges = await connection.fetch(
             f"""
             SELECT relation.relname AS object_name,
+                   attribute.attname AS column_name,
                    privilege,
                    pg_catalog.has_column_privilege(
                        current_user, relation.oid, attribute.attnum, privilege
