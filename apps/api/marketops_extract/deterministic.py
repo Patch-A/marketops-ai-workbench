@@ -60,41 +60,49 @@ def _global_location_order(location: Any, parent: Any | None = None) -> tuple[st
     if location.kind == "csv_cell":
         return ("rows", raw["row"], 1, raw["columnIndex"])
     if location.kind == "docx_paragraph":
-        return ("body", raw["bodyIndex"], raw["paragraph"], 0)
+        return (f"docx_body:{raw['part']}", raw["bodyIndex"], raw["paragraph"], 0)
     if location.kind == "docx_table":
-        return ("body", raw["bodyIndex"], raw["table"], 0)
+        return (f"docx_body:{raw['part']}", raw["bodyIndex"], raw["table"], 0)
     if location.kind == "docx_table_cell":
         if parent is not None and parent.kind == "docx_table":
             outer = parent.as_dict()
-            return ("body", outer["bodyIndex"], outer["table"], raw["row"] * 100000 + raw["column"])
-        return ("body", raw["table"], raw["row"], raw["column"])
+            return (
+                f"docx_body:{outer['part']}",
+                outer["bodyIndex"],
+                raw["row"],
+                raw["column"],
+            )
+        return (f"docx_cells:{raw['part']}", raw["table"], raw["row"], raw["column"])
     raise ExtractionContractError("INVALID_LOCATION", "unsupported location ordering")
 
 
-def _global_location_span(location: Any) -> tuple[str, int, int]:
+def _global_location_span(location: Any) -> tuple[str, tuple[int, int, int], tuple[int, int, int]]:
     raw = location.as_dict()
     if location.kind == "line_range":
-        return ("lines", raw["startLine"], raw["endLine"])
+        return ("lines", (raw["startLine"], 0, 0), (raw["endLine"], 2, 0))
     if location.kind == "markdown_table_cell":
-        return ("lines", raw["line"], raw["line"])
+        key = (raw["line"], 1, raw["columnIndex"])
+        return ("lines", key, key)
     if location.kind == "csv_range":
-        return ("rows", raw["startRow"], raw["endRow"])
+        return ("rows", (raw["startRow"], 0, 0), (raw["endRow"], 2, 0))
     if location.kind == "csv_cell":
-        return ("rows", raw["row"], raw["row"])
+        key = (raw["row"], 1, raw["columnIndex"])
+        return ("rows", key, key)
     if location.kind in {"docx_paragraph", "docx_table"}:
-        return ("body", raw["bodyIndex"], raw["bodyIndex"])
+        key = (raw["bodyIndex"], 0, 0)
+        return (f"docx_body:{raw['part']}", key, key)
     if location.kind == "docx_table_cell":
         # Normalized cells do not carry bodyIndex; keep them in a bounded
         # coordinate family instead of guessing their position in the body.
-        coordinate = raw["table"] * 1_000_000_000 + raw["row"] * 10_000 + raw["column"]
-        return ("docx_cells", coordinate, coordinate)
+        key = (raw["table"], raw["row"], raw["column"])
+        return (f"docx_cells:{raw['part']}", key, key)
     raise ExtractionContractError("INVALID_LOCATION", "unsupported location ordering")
 
 
 def _validate_block_order(blocks: tuple[ParserBlock, ...]) -> None:
     seen: set[tuple[Any, ...]] = set()
     previous_family: str | None = None
-    previous_end: int | None = None
+    previous_end: tuple[int, int, int] | None = None
     for block in blocks:
         identity = block.location.identity()
         if identity in seen:

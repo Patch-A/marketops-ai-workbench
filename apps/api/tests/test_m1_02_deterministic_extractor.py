@@ -265,6 +265,34 @@ class DeterministicExtractorTests(unittest.TestCase):
         }]
         self.assertEqual(len(self.extract(blocks)), 2)
 
+    def test_standalone_docx_cell_order_has_no_numeric_compression_collision(self):
+        blocks = [{
+            "kind": "table", "text": "A", "columnName": "Deliverable",
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table_cell", "part": "word/document.xml", "table": 1, "row": 2, "column": 1},
+        }, {
+            "kind": "table", "text": "B", "columnName": "Deliverable",
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table_cell", "part": "word/document.xml", "table": 1, "row": 1, "column": 10002},
+        }]
+        with self.assertRaises(ExtractionContractError) as raised:
+            self.extract(blocks)
+        self.assertEqual(raised.exception.code, "NON_MONOTONIC_LOCATION")
+
+    def test_standalone_docx_cells_cannot_mix_parts(self):
+        blocks = [{
+            "kind": "table", "text": "A", "columnName": "Deliverable",
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table_cell", "part": "word/document.xml", "table": 1, "row": 1, "column": 1},
+        }, {
+            "kind": "table", "text": "B", "columnName": "Deliverable",
+            "sectionPath": ["Deliverables"],
+            "location": {"kind": "docx_table_cell", "part": "word/header1.xml", "table": 1, "row": 2, "column": 1},
+        }]
+        with self.assertRaises(ExtractionContractError) as raised:
+            self.extract(blocks)
+        self.assertEqual(raised.exception.code, "MIXED_LOCATION_FAMILY")
+
     def test_multiple_semantic_columns_are_ambiguous(self):
         blocks = [{
             "kind": "table", "columns": ["Deliverable", "Deliverable description"], "rows": [{
