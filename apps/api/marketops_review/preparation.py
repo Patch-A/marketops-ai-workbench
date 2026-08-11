@@ -8,9 +8,12 @@ from dataclasses import dataclass
 from typing import AsyncContextManager, Protocol
 from uuid import UUID
 
-from apps.api.marketops_extract.contract import Candidate, ExtractionContractError
+from apps.api.marketops_extract.contract import Candidate, ExtractionContractError, ParserBlock
 from apps.api.marketops_extract.deterministic import DeterministicExtractor
 from apps.api.marketops_extract.parser import (
+    MAX_PARSER_BLOCKS,
+    MAX_PARSER_TABLE_CELLS,
+    MAX_PARSER_WARNINGS,
     RuntimeParseFailure,
     RuntimeParserResult,
     RuntimeProposalParser,
@@ -19,6 +22,7 @@ from apps.api.marketops_import.service import MAX_FILE_SIZE_BYTES, StoredObject
 from apps.api.marketops_review.service import (
     CreateReviewRunRequest,
     CreateReviewRunResult,
+    MAX_REVIEW_CANDIDATES,
     ReviewFailure,
     ReviewScopeContext,
 )
@@ -313,9 +317,14 @@ class ApprovedProposalPreparationService:
             )
         except asyncio.CancelledError:
             raise
-        except RuntimeParseFailure:
+        except RuntimeParseFailure as error:
             raise PreparationFailure(
-                "PARSER_FAILED", "approved proposal could not be parsed"
+                (
+                    "PARSER_LIMIT_EXCEEDED"
+                    if error.code == "DOCUMENT_LIMIT_EXCEEDED"
+                    else "PARSER_FAILED"
+                ),
+                "approved proposal could not be parsed",
             ) from None
         except Exception:
             raise PreparationFailure(
@@ -324,6 +333,22 @@ class ApprovedProposalPreparationService:
         if not isinstance(result, RuntimeParserResult):
             raise PreparationFailure(
                 "PARSER_FAILED", "approved proposal parser returned invalid output"
+            )
+        if (
+            not isinstance(result.blocks, tuple)
+            or not isinstance(result.warnings, tuple)
+            or len(result.blocks) > MAX_PARSER_BLOCKS
+            or len(result.warnings) > MAX_PARSER_WARNINGS
+            or sum(
+                len(block.cells)
+                for block in result.blocks
+                if isinstance(block, ParserBlock)
+            )
+            > MAX_PARSER_TABLE_CELLS
+        ):
+            raise PreparationFailure(
+                "PARSER_LIMIT_EXCEEDED",
+                "approved proposal parser output exceeds review limits",
             )
         if (
             result.size_bytes != source.size_bytes
@@ -360,6 +385,11 @@ class ApprovedProposalPreparationService:
         if not isinstance(candidates, tuple) or not candidates:
             raise PreparationFailure(
                 "NO_CANDIDATES", "approved proposal produced no review candidates"
+            )
+        if len(candidates) > MAX_REVIEW_CANDIDATES:
+            raise PreparationFailure(
+                "CANDIDATE_LIMIT_EXCEEDED",
+                "approved proposal produced too many review candidates",
             )
         if any(not isinstance(candidate, Candidate) for candidate in candidates):
             raise PreparationFailure(

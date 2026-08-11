@@ -307,6 +307,52 @@ class ReviewPreparationPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     await source_reader.read_approved_proposal(scope, project_id)
                 )
 
+    async def test_top_level_semantic_table_round_trips_empty_section_path(self):
+        self.proposal_bytes = (
+            b"| Deliverable | Owner |\n"
+            b"| --- | --- |\n"
+            b"| Registration page | Marketing |\n"
+        )
+        self.proposal_path.write_bytes(self.proposal_bytes)
+        imported = await self._import_approved_proposal()
+        review_scope = ReviewScopeContext(
+            self.organization_id,
+            self.workspace_id,
+            self.client_id,
+            self.actor_id,
+        )
+        review_service = ReviewService(
+            repository=AsyncpgReviewRepository(self.pool),
+            id_factory=identifier,
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        prepared = await ApprovedProposalPreparationService(
+            source_reader=AsyncpgApprovedProposalSourceReader(self.pool),
+            object_store=self.object_store,
+            review_service=review_service,
+        ).prepare_and_create_run(
+            PreparationRequest(
+                project_id=imported.project_id,
+                expected_proposal_version_id=imported.proposal_version_id,
+                expected_proposal_sha256=hashlib.sha256(
+                    self.proposal_bytes
+                ).hexdigest(),
+            ),
+            review_scope,
+        )
+
+        read_model = await review_service.read_review(
+            imported.project_id,
+            prepared.review_result.run.run_id,
+            review_scope,
+        )
+
+        self.assertEqual(len(read_model.candidates), 1)
+        self.assertEqual(
+            read_model.candidates[0].candidate.source_citation.section_path,
+            (),
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

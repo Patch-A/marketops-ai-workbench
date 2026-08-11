@@ -252,6 +252,19 @@ class ReviewReadPostgresTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(decision_call[2], (RUN_ID, 2))
         self.assertIn("review_version <= $2", decision_call[1])
 
+    async def test_top_level_semantic_table_candidate_can_have_empty_section_path(self):
+        for rows in self.connection.candidates.values():
+            for row in rows:
+                row["section_path"] = []
+
+        result = await self.repository.get_review(
+            self.scope, PROJECT_ID, RUN_ID, None
+        )
+
+        self.assertTrue(
+            all(view.candidate.source_citation.section_path == () for view in result.candidates)
+        )
+
     async def test_missing_version_and_cross_actor_return_none(self):
         missing = await self.repository.get_review(
             self.scope, PROJECT_ID, RUN_ID, 99

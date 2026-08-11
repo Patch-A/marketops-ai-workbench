@@ -9,6 +9,7 @@ from apps.api.marketops_extract import Candidate, SourceCitation, SourceLocation
 from apps.api.marketops_review import (
     ApprovedProposal,
     CreateReviewRunRequest,
+    MAX_REVIEW_CANDIDATES,
     ReviewFailure,
     ReviewRequest,
     ReviewScopeContext,
@@ -640,6 +641,16 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
                 self.create_request(candidates=()), self.scope
             )
         self.assertEqual(empty_error.exception.code, "INVALID_INPUT")
+        self.assertEqual(repository.transactions, 0)
+
+        with self.assertRaises(ReviewFailure) as limit_error:
+            await self.service(repository).create_run(
+                self.create_request(
+                    candidates=(self.candidates[0],) * (MAX_REVIEW_CANDIDATES + 1)
+                ),
+                self.scope,
+            )
+        self.assertEqual(limit_error.exception.code, "INVALID_INPUT")
         self.assertEqual(repository.transactions, 0)
 
     async def test_noncanonical_uuid_casing_fails_before_repository(self):

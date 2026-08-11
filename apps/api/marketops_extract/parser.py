@@ -30,6 +30,26 @@ DOCX_MEDIA_TYPE = (
 _TEXT_MEDIA_TYPES = frozenset({"text/markdown", "text/plain"})
 _MAX_DOCX_ENTRIES = 2048
 _MAX_EXPANDED_DOCX_BYTES = MAX_FILE_SIZE_BYTES * 4
+MAX_PARSER_BLOCKS = 5000
+MAX_PARSER_TABLE_CELLS = 5000
+MAX_PARSER_WARNINGS = 100
+MAX_TEXT_LINES = 20000
+MAX_TABLE_COLUMNS = 256
+MAX_BLOCK_TEXT_CHARS = 100000
+MAX_DOCX_XML_BYTES = 10 * 1024 * 1024
+_UNSUPPORTED_DOCX_CONTENT = (
+    ("drawing", "drawings_present"),
+    ("pict", "legacy_drawings_present"),
+    ("object", "embedded_objects_present"),
+    ("hyperlink", "hyperlinks_present"),
+    ("fldSimple", "fields_present"),
+    ("instrText", "fields_present"),
+    ("sdt", "structured_document_tags_present"),
+    ("footnoteReference", "footnote_references_present"),
+    ("endnoteReference", "endnote_references_present"),
+    ("commentReference", "comment_references_present"),
+    ("sym", "symbols_present"),
+)
 
 
 class RuntimeParseFailure(RuntimeError):
@@ -83,6 +103,7 @@ class RuntimeProposalParser:
                 raw_blocks, warning_codes = self._parse_plain_text(payload)
             else:
                 raw_blocks, warning_codes = self._parse_docx(payload)
+            self._validate_output_limits(raw_blocks, warning_codes)
             blocks = tuple(ParserBlock.from_mapping(block) for block in raw_blocks)
         except RuntimeParseFailure:
             raise
@@ -124,10 +145,12 @@ class RuntimeProposalParser:
     @classmethod
     def _parse_markdown(cls, payload: bytes) -> tuple[list[dict], list[str]]:
         text = cls._decode_text(payload)
+        cls._validate_text_line_count(text)
         lines = text.splitlines()
         blocks: list[dict] = []
         warnings: list[str] = []
         sections: dict[int, str] = {}
+        table_cell_count = 0
         index = 0
         while index < len(lines):
             line = lines[index]
@@ -177,10 +200,14 @@ class RuntimeProposalParser:
                 and "|" in line
                 and cls._is_markdown_separator(lines[index + 1])
             ):
-                table, next_index, table_warnings = cls._markdown_table(
-                    lines, index, sections
+                table, next_index, table_warnings, observed_cells = cls._markdown_table(
+                    lines,
+                    index,
+                    sections,
+                    MAX_PARSER_TABLE_CELLS - table_cell_count,
                 )
                 warnings.extend(table_warnings)
+                table_cell_count += observed_cells
                 if table is not None:
                     blocks.append(table)
                 index = next_index
@@ -236,17 +263,31 @@ class RuntimeProposalParser:
 
     @classmethod
     def _markdown_table(
-        cls, lines: list[str], start_index: int, sections: dict[int, str]
-    ) -> tuple[dict | None, int, list[str]]:
+        cls,
+        lines: list[str],
+        start_index: int,
+        sections: dict[int, str],
+        remaining_cells: int,
+    ) -> tuple[dict | None, int, list[str], int]:
         warnings: list[str] = []
         headers = cls._split_markdown_row(lines[start_index])
+        if len(headers) > MAX_TABLE_COLUMNS:
+            raise RuntimeParseFailure(
+                "DOCUMENT_LIMIT_EXCEEDED", "proposal table has too many columns"
+            )
         index = start_index + 2
         rows: list[dict] = []
+        observed_cells = 0
         valid = bool(headers) and all(headers) and len(set(headers)) == len(headers)
         if not valid:
             warnings.append("invalid_markdown_table_header")
         while index < len(lines) and lines[index].strip() and "|" in lines[index]:
             values = cls._split_markdown_row(lines[index])
+            observed_cells += len(values)
+            if observed_cells > remaining_cells:
+                raise RuntimeParseFailure(
+                    "DOCUMENT_LIMIT_EXCEEDED", "proposal has too many table cells"
+                )
             row_line = index + 1
             if len(values) != len(headers) or any(not value for value in values):
                 valid = False
@@ -274,7 +315,7 @@ class RuntimeProposalParser:
             valid = False
             warnings.append("empty_markdown_table")
         if not valid:
-            return None, index, warnings
+            return None, index, warnings, observed_cells
         return (
             {
                 "kind": "table",
@@ -286,11 +327,13 @@ class RuntimeProposalParser:
             },
             index,
             warnings,
+            observed_cells,
         )
 
     @classmethod
     def _parse_plain_text(cls, payload: bytes) -> tuple[list[dict], list[str]]:
         text = cls._decode_text(payload)
+        cls._validate_text_line_count(text)
         blocks: list[dict] = []
         sections: dict[int, str] = {}
         for line_number, raw in enumerate(text.splitlines(), start=1):
@@ -364,13 +407,18 @@ class RuntimeProposalParser:
                 or sum(entry.file_size for entry in entries) > _MAX_EXPANDED_DOCX_BYTES
             ):
                 raise RuntimeParseFailure("INVALID_DOCUMENT", "proposal DOCX is unsafe")
+            package_warnings = cls._docx_package_warnings(names)
             root = cls._read_xml(archive, "word/document.xml")
             styles = cls._load_docx_styles(archive, names)
 
         body = root.find("w:body", NS)
         if body is None:
             raise RuntimeParseFailure("INVALID_DOCUMENT", "proposal DOCX has no body")
-        warnings: list[str] = []
+        if len(body) > MAX_PARSER_BLOCKS:
+            raise RuntimeParseFailure(
+                "DOCUMENT_LIMIT_EXCEEDED", "proposal has too many document blocks"
+            )
+        warnings = package_warnings
         for tag, code in (
             ("ins", "tracked_insertions_present"),
             ("del", "tracked_deletions_present"),
@@ -378,17 +426,25 @@ class RuntimeProposalParser:
         ):
             if root.find(f".//w:{tag}", NS) is not None:
                 warnings.append(code)
+        for tag, code in _UNSUPPORTED_DOCX_CONTENT:
+            if root.find(f".//w:{tag}", NS) is not None and code not in warnings:
+                warnings.append(code)
 
         blocks: list[dict] = []
         sections: dict[int, str] = {}
         paragraph_index = 0
         table_index = 0
+        table_cell_count = 0
         for body_index, child in enumerate(list(body), start=1):
             if child.tag == W("p"):
                 paragraph_index += 1
                 text = cls._paragraph_text(child)
                 if not text:
                     continue
+                if len(text) > MAX_BLOCK_TEXT_CHARS:
+                    raise RuntimeParseFailure(
+                        "DOCUMENT_LIMIT_EXCEEDED", "proposal paragraph is too long"
+                    )
                 style_node = child.find("w:pPr/w:pStyle", NS)
                 style_id = style_node.get(W("val")) if style_node is not None else None
                 style = styles.get(style_id or "")
@@ -417,10 +473,15 @@ class RuntimeProposalParser:
                 blocks.append(block)
             elif child.tag == W("tbl"):
                 table_index += 1
-                table, table_warnings = cls._docx_table(
-                    child, body_index, table_index, sections
+                table, table_warnings, observed_cells = cls._docx_table(
+                    child,
+                    body_index,
+                    table_index,
+                    sections,
+                    MAX_PARSER_TABLE_CELLS - table_cell_count,
                 )
                 warnings.extend(table_warnings)
+                table_cell_count += observed_cells
                 if table is not None:
                     blocks.append(table)
             elif child.tag != W("sectPr"):
@@ -440,6 +501,22 @@ class RuntimeProposalParser:
             or re.match(r"^[A-Za-z]:/", name) is not None
         )
 
+    @staticmethod
+    def _docx_package_warnings(names: set[str]) -> list[str]:
+        checks = (
+            (lambda name: name.startswith("word/header") and name.endswith(".xml"), "headers_present"),
+            (lambda name: name.startswith("word/footer") and name.endswith(".xml"), "footers_present"),
+            (lambda name: name == "word/footnotes.xml", "footnotes_present"),
+            (lambda name: name == "word/endnotes.xml", "endnotes_present"),
+            (lambda name: name.startswith("word/comments"), "comments_present"),
+            (lambda name: name.startswith("word/media/"), "media_present"),
+            (lambda name: name.startswith("word/embeddings/"), "embedded_objects_present"),
+            (lambda name: name.startswith("word/charts/"), "charts_present"),
+            (lambda name: name.startswith("word/diagrams/"), "diagrams_present"),
+            (lambda name: name.startswith("word/activeX/"), "active_content_present"),
+        )
+        return [code for predicate, code in checks if any(predicate(name) for name in names)]
+
     @classmethod
     def _docx_table(
         cls,
@@ -447,23 +524,42 @@ class RuntimeProposalParser:
         body_index: int,
         table_index: int,
         sections: dict[int, str],
-    ) -> tuple[dict | None, list[str]]:
+        remaining_cells: int,
+    ) -> tuple[dict | None, list[str], int]:
         warnings: list[str] = []
         if table.find(".//w:tbl", NS) is not None:
-            return None, ["nested_docx_table"]
+            return None, ["nested_docx_table"], 0
         table_rows = table.findall("w:tr", NS)
         if not table_rows or table_rows[0].find("w:trPr/w:tblHeader", NS) is None:
-            return None, ["docx_table_header_not_explicit"]
+            return None, ["docx_table_header_not_explicit"], 0
         raw_rows: list[list[str]] = []
+        observed_cells = 0
         for row in table_rows:
             row_values: list[str] = []
-            for cell in row.findall("w:tc", NS):
+            cells: list[ElementTree.Element] = []
+            for cell in row.iterfind("w:tc", NS):
+                cells.append(cell)
+                if len(cells) > MAX_TABLE_COLUMNS:
+                    raise RuntimeParseFailure(
+                        "DOCUMENT_LIMIT_EXCEEDED", "proposal table has too many columns"
+                    )
+            observed_cells += len(cells)
+            if observed_cells > remaining_cells:
+                raise RuntimeParseFailure(
+                    "DOCUMENT_LIMIT_EXCEEDED", "proposal has too many table cells"
+                )
+            for cell in cells:
                 if (
                     cell.find("w:tcPr/w:gridSpan", NS) is not None
                     or cell.find("w:tcPr/w:vMerge", NS) is not None
                 ):
                     warnings.append("merged_docx_table_cell")
-                row_values.append(cls._docx_cell_text(cell))
+                value = cls._docx_cell_text(cell)
+                if len(value) > MAX_BLOCK_TEXT_CHARS:
+                    raise RuntimeParseFailure(
+                        "DOCUMENT_LIMIT_EXCEEDED", "proposal table cell is too long"
+                    )
+                row_values.append(value)
             raw_rows.append(row_values)
         headers = raw_rows[0]
         valid = bool(headers) and all(headers) and len(set(headers)) == len(headers)
@@ -498,7 +594,7 @@ class RuntimeProposalParser:
             valid = False
             warnings.append("empty_docx_table")
         if warnings or not valid:
-            return None, warnings
+            return None, warnings, observed_cells
         return (
             {
                 "kind": "table",
@@ -514,13 +610,24 @@ class RuntimeProposalParser:
                 },
             },
             warnings,
+            observed_cells,
         )
 
     @staticmethod
     def _read_xml(archive: ZipFile, name: str) -> ElementTree.Element:
         try:
+            if archive.getinfo(name).file_size > MAX_DOCX_XML_BYTES:
+                raise RuntimeParseFailure(
+                    "DOCUMENT_LIMIT_EXCEEDED", "proposal DOCX XML is too large"
+                )
             payload = archive.read(name)
+            if len(payload) > MAX_DOCX_XML_BYTES:
+                raise RuntimeParseFailure(
+                    "DOCUMENT_LIMIT_EXCEEDED", "proposal DOCX XML is too large"
+                )
             return ElementTree.fromstring(payload)
+        except RuntimeParseFailure:
+            raise
         except (KeyError, ElementTree.ParseError, RuntimeError):
             raise RuntimeParseFailure("INVALID_DOCUMENT", "proposal DOCX XML is invalid") from None
 
@@ -599,6 +706,54 @@ class RuntimeProposalParser:
         return text
 
     @staticmethod
+    def _validate_text_line_count(text: str) -> None:
+        line_count = 1
+        line_length = 0
+        index = 0
+        while index < len(text):
+            character = text[index]
+            if character == "\r":
+                if index + 1 < len(text) and text[index + 1] == "\n":
+                    index += 1
+                line_count += 1
+                line_length = 0
+            elif character in "\n\v\f\x1c\x1d\x1e\x85\u2028\u2029":
+                line_count += 1
+                line_length = 0
+            else:
+                line_length += 1
+            if line_count > MAX_TEXT_LINES:
+                raise RuntimeParseFailure(
+                    "DOCUMENT_LIMIT_EXCEEDED", "proposal has too many text lines"
+                )
+            if line_length > MAX_BLOCK_TEXT_CHARS:
+                raise RuntimeParseFailure(
+                    "DOCUMENT_LIMIT_EXCEEDED", "proposal text line is too long"
+                )
+            index += 1
+
+    @staticmethod
+    def _validate_output_limits(blocks: list[dict], warnings: list[str]) -> None:
+        if len(blocks) > MAX_PARSER_BLOCKS:
+            raise RuntimeParseFailure(
+                "DOCUMENT_LIMIT_EXCEEDED", "proposal has too many parser blocks"
+            )
+        if len(warnings) > MAX_PARSER_WARNINGS:
+            raise RuntimeParseFailure(
+                "DOCUMENT_LIMIT_EXCEEDED", "proposal has too many parser warnings"
+            )
+        table_cells = sum(
+            len(row.get("cells", ()))
+            for block in blocks
+            if block.get("kind") == "table"
+            for row in block.get("rows", ())
+        )
+        if table_cells > MAX_PARSER_TABLE_CELLS:
+            raise RuntimeParseFailure(
+                "DOCUMENT_LIMIT_EXCEEDED", "proposal has too many table cells"
+            )
+
+    @staticmethod
     def _section_snapshot(sections: dict[int, str]) -> list[str]:
         return [sections[level] for level in sorted(sections)]
 
@@ -631,12 +786,20 @@ class RuntimeProposalParser:
                 escaped = True
             elif character == "|":
                 cells.append("".join(current).strip())
+                if len(cells) > MAX_TABLE_COLUMNS:
+                    raise RuntimeParseFailure(
+                        "DOCUMENT_LIMIT_EXCEEDED", "proposal table has too many columns"
+                    )
                 current = []
             else:
                 current.append(character)
         if escaped:
             current.append("\\")
         cells.append("".join(current).strip())
+        if len(cells) > MAX_TABLE_COLUMNS:
+            raise RuntimeParseFailure(
+                "DOCUMENT_LIMIT_EXCEEDED", "proposal table has too many columns"
+            )
         return cells
 
     @classmethod

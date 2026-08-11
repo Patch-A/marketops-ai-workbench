@@ -15,6 +15,7 @@ from apps.api.marketops_extract import Candidate
 SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 REVIEW_ACTIONS = frozenset({"approve", "modify", "reject"})
 REVIEW_STATUSES = frozenset({"pending", "approve", "modify", "reject"})
+MAX_REVIEW_CANDIDATES = 1000
 
 
 class ReviewFailure(RuntimeError):
@@ -472,6 +473,8 @@ class ReviewService:
             raise ReviewFailure("INVALID_INPUT", "candidate batch must be immutable")
         if not request.candidates:
             raise ReviewFailure("INVALID_INPUT", "candidate batch must not be empty")
+        if len(request.candidates) > MAX_REVIEW_CANDIDATES:
+            raise ReviewFailure("INVALID_INPUT", "candidate batch exceeds the review limit")
         candidate_ids: set[str] = set()
         for candidate in request.candidates:
             if not isinstance(candidate, Candidate):

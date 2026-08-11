@@ -893,7 +893,6 @@ def _json_text_sequence(value: Any) -> Sequence[str]:
     parsed = _json_value(value)
     if (
         not _row_sequence(parsed)
-        or not parsed
         or any(not isinstance(item, str) or not item.strip() for item in parsed)
     ):
         raise ReviewPostgresError("database JSON text array is invalid")

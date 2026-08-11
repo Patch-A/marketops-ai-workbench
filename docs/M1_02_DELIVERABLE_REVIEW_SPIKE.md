@@ -1,6 +1,6 @@
 # M1-02 交付物提取与人工审核切片
 
-状态：`WP1 passed; persistence and review workflow pending`
+状态：`WP1/WP2A passed; WP2B-0 corrections under review; HTTP/UI pending`
 
 日期：`2026-08-11`
 
@@ -289,6 +289,7 @@ WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verif
 - Package R：owned paths 为 review service/read DTO、PostgreSQL 只读查询及其 unit/runtime tests。读取最新或指定不可变 snapshot，按 ordinal 返回完整 candidate/citation/status/replacement 和截至该版本的 decision；不存在、跨 scope、非创建 actor 和不完整行统一失败关闭。禁止 preparation、HTTP、OpenAPI、migration、registry、顶层 CI 和前端。
 - 主集成者 owned paths 为本节文档、跨包导出、冲突修复、最终测试和提交；`project-status.json`、手工编辑 `docs/PROJECT_STATUS.md`、现有 `0001/0002` migration、import 写入/backup/cleanup 行为、根前端、连接器、跨项目检索、真实客户资料、凭据和新依赖仍禁止修改。
 - Frozen preparation：对象 key 只能来自 RLS 范围内的当前 approved proposal 行；在共享对象锁内验证 size/hash，parser 输出 hash 必须再次匹配。任何 parser warning、unsupported block、零候选、source 变化或取消都不得创建部分 run。
+- Provisional safety limits：运行时文本最多 20,000 行、5,000 个 parser blocks、5,000 个表格单元格、100 个 warnings，单个文本块最多 100,000 字符，单个 DOCX XML part 最多 10 MiB，最终 review candidates 最多 1,000 个。任一超限都必须在数据库写入前失败。这些是防资源耗尽的工程护栏，尚未由真实方案规模验证；后续只能依据脱敏样本分布和运行指标调整，不能静默放宽。
 - Frozen read output：run 摘要、最新 version、可用连续 versions，以及选定完整 snapshot 的 candidates/citations/status/replacement/decision。GET 读取不得加 `FOR UPDATE`，不得产生 audit 或其他写入。
 - Acceptance commands：focused parser/preparation/read service/adapter tests；PostgreSQL 18.4 下真实 source/read、跨 scope/actor、latest/history/完整性测试；现有 WP1/WP2A 与备份恢复回归；完整 `apps/api` suite；`compileall`、文档/progress 与 `git diff --check`。同一提交 CI 与非实现者复审通过后只关闭 WP2B-0，不能关闭 WP2B 或 M1-02。
 - Reviewer role：非实现者检查对象路径和 hash 不可伪造、parser 失败关闭、候选只由服务器生成、RLS/actor 读取、历史 as-of decision、完整性、取消传播、敏感错误净化和既有导入/恢复无回归。实现者测试不能替代最终审查。

@@ -9,6 +9,10 @@ from zipfile import ZIP_DEFLATED, ZipFile
 from apps.api.marketops_extract import DeterministicExtractor
 from apps.api.marketops_extract.parser import (
     DOCX_MEDIA_TYPE,
+    MAX_BLOCK_TEXT_CHARS,
+    MAX_PARSER_BLOCKS,
+    MAX_TABLE_COLUMNS,
+    MAX_TEXT_LINES,
     RuntimeParseFailure,
     RuntimeProposalParser,
 )
@@ -17,12 +21,16 @@ from apps.api.marketops_extract.parser import (
 VERSION_ID = "00000000-0000-4000-8000-000000000201"
 
 
-def docx_payload() -> bytes:
-    document = """<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+def docx_payload(
+    *,
+    extra_inline: str = "",
+    extra_entries: tuple[tuple[str, str | bytes], ...] = (),
+) -> bytes:
+    document = f"""<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
   <w:body>
     <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Deliverables</w:t></w:r></w:p>
-    <w:p><w:r><w:t>Registration page</w:t></w:r></w:p>
+    <w:p><w:r><w:t>Registration page</w:t>{extra_inline}</w:r></w:p>
     <w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>Milestones</w:t></w:r></w:p>
     <w:tbl>
       <w:tr><w:trPr><w:tblHeader/></w:trPr><w:tc><w:p><w:r><w:t>Milestone</w:t></w:r></w:p></w:tc></w:tr>
@@ -39,6 +47,8 @@ def docx_payload() -> bytes:
     with ZipFile(output, "w", ZIP_DEFLATED) as package:
         package.writestr("word/document.xml", document)
         package.writestr("word/styles.xml", styles)
+        for name, content in extra_entries:
+            package.writestr(name, content)
     return output.getvalue()
 
 
@@ -136,6 +146,77 @@ class RuntimeProposalParserTests(unittest.IsolatedAsyncioTestCase):
             ["unsupported_markdown_code_fence"],
         )
         self.assertTrue(all(block.kind in {"heading", "paragraph", "table"} for block in result.blocks))
+
+    async def test_docx_visual_and_field_content_are_never_silently_dropped(self):
+        cases = (
+            (b"<w:drawing/>", "drawings_present"),
+            (b"<w:instrText>PAGE</w:instrText>", "fields_present"),
+        )
+        for xml, expected_warning in cases:
+            payload = docx_payload(extra_inline=xml.decode("ascii"))
+            with self.subTest(expected_warning=expected_warning):
+                result = await self.parser.parse(
+                    payload=payload,
+                    filename="proposal.docx",
+                    media_type=DOCX_MEDIA_TYPE,
+                )
+                self.assertIn(
+                    expected_warning,
+                    [warning.code for warning in result.warnings],
+                )
+
+        packaged = docx_payload(
+            extra_entries=(("word/header1.xml", b"<header>content</header>"),)
+        )
+        result = await self.parser.parse(
+            payload=packaged,
+            filename="proposal.docx",
+            media_type=DOCX_MEDIA_TYPE,
+        )
+        self.assertIn("headers_present", [warning.code for warning in result.warnings])
+
+    async def test_supported_text_is_bounded_before_candidate_creation(self):
+        cases = (
+            (
+                b"# Deliverables\n" + b"- item\n" * (MAX_PARSER_BLOCKS + 1),
+                "proposal.md",
+                "text/markdown",
+            ),
+            (b"line\n" * MAX_TEXT_LINES, "proposal.txt", "text/plain"),
+        )
+        for payload, filename, media_type in cases:
+            with self.subTest(filename=filename), self.assertRaises(
+                RuntimeParseFailure
+            ) as raised:
+                await self.parser.parse(
+                    payload=payload,
+                    filename=filename,
+                    media_type=media_type,
+                )
+            self.assertEqual(raised.exception.code, "DOCUMENT_LIMIT_EXCEEDED")
+
+    async def test_long_line_and_wide_markdown_table_fail_before_block_expansion(self):
+        columns = [f"Column {index}" for index in range(MAX_TABLE_COLUMNS + 1)]
+        wide_table = (
+            "| " + " | ".join(columns) + " |\n"
+            "| " + " | ".join("---" for _ in columns) + " |\n"
+            "| " + " | ".join("value" for _ in columns) + " |\n"
+        ).encode("utf-8")
+        cases = (
+            (b"x" * (MAX_BLOCK_TEXT_CHARS + 1), "proposal.txt", "text/plain"),
+            (wide_table, "proposal.md", "text/markdown"),
+        )
+
+        for payload, filename, media_type in cases:
+            with self.subTest(filename=filename), self.assertRaises(
+                RuntimeParseFailure
+            ) as raised:
+                await self.parser.parse(
+                    payload=payload,
+                    filename=filename,
+                    media_type=media_type,
+                )
+            self.assertEqual(raised.exception.code, "DOCUMENT_LIMIT_EXCEEDED")
 
     async def test_format_encoding_and_invalid_docx_fail_with_sanitized_errors(self):
         cases = (

@@ -7,12 +7,14 @@ import unittest
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
+from apps.api.marketops_extract.contract import SourceLocation
 from apps.api.marketops_extract.parser import ParserWarning, RuntimeParserResult
 from apps.api.marketops_review.preparation import (
     ApprovedProposalPreparationService,
     ApprovedProposalSource,
     ApprovedProposalSourceReadError,
     AsyncpgApprovedProposalSourceReader,
+    MAX_REVIEW_CANDIDATES,
     PreparationFailure,
     PreparationRequest,
 )
@@ -290,6 +292,44 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
                     )
                 self.assertEqual(raised.exception.code, code)
                 self.assertEqual(review.requests, [])
+
+    async def test_candidate_batch_limit_fails_before_review_write(self):
+        good_service, _ = self.service()
+        parsed = await good_service.parser.parse(
+            payload=PAYLOAD, filename="approved.md", media_type="text/markdown"
+        )
+        paragraph = parsed.blocks[1]
+        blocks = (parsed.blocks[0],) + tuple(
+            dataclasses.replace(
+                paragraph,
+                text=f"Deliverable {index}",
+                location=SourceLocation.from_mapping(
+                    {
+                        "kind": "line_range",
+                        "startLine": index + 2,
+                        "endLine": index + 2,
+                    }
+                ),
+            )
+            for index in range(MAX_REVIEW_CANDIDATES + 1)
+        )
+        oversized = RuntimeParserResult(
+            parsed.document_format,
+            parsed.size_bytes,
+            parsed.source_sha256,
+            blocks,
+            (),
+        )
+        review = FakeReviewService()
+        service, _ = self.service(parser=FakeParser(result=oversized), review=review)
+
+        with self.assertRaises(PreparationFailure) as raised:
+            await service.prepare_and_create_run(
+                PreparationRequest(PROJECT_ID), self.scope
+            )
+
+        self.assertEqual(raised.exception.code, "CANDIDATE_LIMIT_EXCEEDED")
+        self.assertEqual(review.requests, [])
 
     async def test_repository_object_parser_and_service_failures_are_sanitized(self):
         failures = (

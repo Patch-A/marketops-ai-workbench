@@ -11,6 +11,9 @@ from .contract import (
 )
 from .deterministic import DeterministicExtractor, extract_candidates
 from .parser import (
+    MAX_PARSER_BLOCKS,
+    MAX_PARSER_TABLE_CELLS,
+    MAX_PARSER_WARNINGS,
     ParserWarning,
     RuntimeParseFailure,
     RuntimeParserResult,
@@ -22,6 +25,9 @@ __all__ = [
     "DeterministicExtractor",
     "AmbiguousTableError",
     "ExtractionContractError",
+    "MAX_PARSER_BLOCKS",
+    "MAX_PARSER_TABLE_CELLS",
+    "MAX_PARSER_WARNINGS",
     "ParserBlock",
     "ParserWarning",
     "RuntimeParseFailure",
