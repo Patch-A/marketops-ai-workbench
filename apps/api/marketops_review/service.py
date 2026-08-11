@@ -287,14 +287,19 @@ class ReviewService:
                         "CANDIDATE_NOT_FOUND",
                         "candidate is not available in this review run",
                     )
+                current_item = previous.items[candidate_index]
+                next_status = normalized.action
+                if (
+                    current_item.status == next_status
+                    and current_item.replacement_text == normalized.replacement_text
+                ):
+                    raise ReviewFailure(
+                        "INVALID_INPUT", "review action must change candidate state"
+                    )
                 next_items = list(previous.items)
                 next_items[candidate_index] = ReviewSnapshotItem(
                     candidate_id=normalized.candidate_id,
-                    status={
-                        "approve": "approve",
-                        "modify": "modify",
-                        "reject": "reject",
-                    }[normalized.action],
+                    status=next_status,
                     replacement_text=normalized.replacement_text,
                 )
                 next_version = previous.version + 1

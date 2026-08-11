@@ -227,6 +227,16 @@ Forbidden paths for this package: `project-status.json`, `docs/PROJECT_STATUS.md
 - 首轮独立 commit review 发现批准方案读取未声明锁定、UUID 大写输入被接受但未统一归一化两项 P2；修复后最终 review 未发现可执行 correctness regression。reviewer 的只读环境没有 Python launcher，因此它没有重复执行 Python 测试，该限制由同一工作区的上述可复现测试证据补充，但不能描述成 reviewer 亲自复跑。
 - WP2A-1 仅关闭领域服务包。`apps/api/migrations/0002_extraction_review.sql`、PostgreSQL adapter、RLS/ACL、真实并发事务、备份恢复和 HTTP/UI 均未实现；WP2A 与 M1-02 继续为 `in_progress`。
 
+### WP2A-2 数据库与恢复工作包契约
+
+- Task ID：`M1-02`；基线提交：`bd97b40011dc1dc6d28ff8cf74e498bdaaed1ecb`。
+- Owned paths：`apps/api/migrations/0002_extraction_review.sql`、`apps/api/marketops_review/postgres.py`、`apps/api/marketops_review/__init__.py`、对应 unit/PostgreSQL runtime tests，以及为新增业务表所必需的 migration、ACL、备份恢复 gate 和 CI 适配。主集成者负责所有修改和最终提交；探索 Agent 只返回只读分析。
+- Forbidden paths：`project-status.json`、`docs/PROJECT_STATUS.md`、`0001_project_import.sql`、HTTP/UI、对象存储和 cleanup 行为、跨项目知识检索、真实客户资料、凭据和新依赖。
+- Frozen input/output：沿用 WP2A-1 的领域对象与错误码；adapter 只能把服务器 scope 和 project ID 写入事务本地配置，并以不可变行保存 run、候选、完整 snapshot、snapshot item、decision 和现有 audit event。数据库错误不得回显 SQL、DSN 或输入内容。
+- Schema decision：审核数据使用独立的 extraction run、candidate、snapshot、snapshot item 和 decision 表；review audit 复用 `audit_events`，避免第二套审计事实源。所有新表保存完整 workspace/client/project scope，启用并强制 RLS，禁止更新、删除和截断。
+- Acceptance：静态契约和 adapter unit tests 先通过；随后 PostgreSQL 18.4 实测跨 scope 不可见、批准方案 `FOR UPDATE`、同版本并发一胜一冲突、任一步失败无部分行、应用角色无越权；最后扩展逻辑备份恢复，证明新增审核历史、RLS、owner 和权限在隔离恢复后保持。HTTP/UI 不属于本包完成证据。
+- Reviewer role：非实现者复查 SQL 约束、RLS/ACL、事务锁顺序、错误翻译、备份 allowlist 和恢复证明。实现者的本地测试或同一模型判断不能替代最终审查。
+
 ## 10. WP2B 与 UI 边界
 
 WP2A 通过后，WP2B 才暴露创建 run、读取候选/历史和逐条审核 HTTP API，并冻结 OpenAPI、认证、错误 envelope、`no-store`、重试和取消语义。浏览器 UI 必须消费服务器事实源，显示来源摘录、事实/假设、pending/approve/modify/reject、冲突刷新和失败恢复；静态 mockup 不构成功能完成证据。

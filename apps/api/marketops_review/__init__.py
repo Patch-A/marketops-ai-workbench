@@ -15,6 +15,7 @@ from .service import (
     ReviewSnapshot,
     ReviewSnapshotItem,
 )
+from .postgres import AsyncpgReviewRepository, ReviewPostgresError
 
 __all__ = [
     "ApprovedProposal",
@@ -30,4 +31,6 @@ __all__ = [
     "ReviewService",
     "ReviewSnapshot",
     "ReviewSnapshotItem",
+    "AsyncpgReviewRepository",
+    "ReviewPostgresError",
 ]

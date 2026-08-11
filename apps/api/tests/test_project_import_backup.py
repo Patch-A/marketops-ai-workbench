@@ -10,6 +10,7 @@ from uuid import UUID
 from apps.api.marketops_import.backup import (
     BUSINESS_TABLES,
     BackupBundleError,
+    MIGRATION_SET,
     MIGRATION_SHA256,
     canonical_archive_path,
     create_backup_bundle,
@@ -68,10 +69,7 @@ class BackupBundleTests(unittest.TestCase):
                 "dumpVersionNum": 180004,
                 "restoreVersionNum": 180004,
             },
-            migration={
-                "name": "0001_project_import.sql",
-                "sha256": MIGRATION_SHA256,
-            },
+            migrations=MIGRATION_SET,
             snapshot=self.snapshot,
         )
 
@@ -97,7 +95,7 @@ class BackupBundleTests(unittest.TestCase):
             object_root=self.object_root,
             objects=self.records,
             postgres={"serverVersionNum": 180004, "dumpVersionNum": 180004, "restoreVersionNum": 180004},
-            migration={"name": "0001_project_import.sql", "sha256": MIGRATION_SHA256},
+            migrations=MIGRATION_SET,
             snapshot=self.snapshot,
         )
         with self.assertRaisesRegex(BackupBundleError, "must not already exist"):
@@ -152,9 +150,40 @@ class BackupBundleTests(unittest.TestCase):
         with self.assertRaisesRegex(BackupBundleError, "18.4"):
             validate_manifest(bad)
 
-        bad = {**base, "migration": {**base["migration"], "sha256": "d" * 64}}
-        with self.assertRaisesRegex(BackupBundleError, "migration checksum"):
+        bad_migrations = [dict(item) for item in base["migrations"]]
+        bad_migrations[1]["sha256"] = "d" * 64
+        bad = {**base, "migrations": bad_migrations}
+        with self.assertRaisesRegex(BackupBundleError, "migration set"):
             validate_manifest(bad)
+
+    def test_legacy_v1_manifest_remains_explicitly_readable(self):
+        legacy_tables = BUSINESS_TABLES[:7]
+        manifest = {
+            "schemaVersion": 1,
+            "taskId": "M1-01",
+            "postgres": {
+                "serverVersionNum": 180004,
+                "dumpVersionNum": 180004,
+                "restoreVersionNum": 180004,
+            },
+            "migration": {"name": "0001_project_import.sql", "sha256": MIGRATION_SHA256},
+            "database": {
+                "archivePath": "database.dump",
+                "sha256": "d" * 64,
+                "tableData": list(legacy_tables),
+            },
+            "snapshot": {
+                table: {"count": 0, "rowSetSha256": "e" * 64}
+                for table in legacy_tables
+            },
+            "objects": [
+                {
+                    **self.records[0],
+                    "archivePath": canonical_archive_path(self.records[0]["storageKey"]),
+                }
+            ],
+        }
+        self.assertEqual(validate_manifest(manifest)["schemaVersion"], 1)
 
     def test_storage_keys_require_canonical_scope_and_paths(self):
         record = self.records[0]
@@ -190,8 +219,8 @@ class BackupBundleTests(unittest.TestCase):
                 text = manifest_path.read_text(encoding="utf-8")
                 if target == "root":
                     text = text.replace(
-                        '"schemaVersion": 1',
-                        '"schemaVersion": 0,\n  "schemaVersion": 1',
+                        '"schemaVersion": 2',
+                        '"schemaVersion": 0,\n  "schemaVersion": 2',
                         1,
                     )
                 else:

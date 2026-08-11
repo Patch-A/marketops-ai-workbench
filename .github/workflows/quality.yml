@@ -29,6 +29,7 @@ jobs:
       - name: Check M1-01 server import contracts
         run: |
           python scripts/check_m1_01_postgres_contract.py
+          python scripts/check_m1_02_postgres_contract.py
           python -m unittest discover -s apps/api/tests -p 'test_*.py' -v
           python scripts/check_m1_01_openapi_contract.py
           python scripts/check_m1_01_python_lock.py --static

@@ -13,14 +13,23 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
 
-SCHEMA_VERSION = 1
-TASK_ID = "M1-01"
+SCHEMA_VERSION = 2
+TASK_ID = "M1-02"
+LEGACY_SCHEMA_VERSION = 1
+LEGACY_TASK_ID = "M1-01"
 MIGRATION_NAME = "0001_project_import.sql"
 MIGRATION_PATH = Path(__file__).resolve().parents[1] / "migrations" / MIGRATION_NAME
 MIGRATION_SHA256 = hashlib.sha256(MIGRATION_PATH.read_bytes()).hexdigest()
+REVIEW_MIGRATION_NAME = "0002_extraction_review.sql"
+REVIEW_MIGRATION_PATH = Path(__file__).resolve().parents[1] / "migrations" / REVIEW_MIGRATION_NAME
+REVIEW_MIGRATION_SHA256 = hashlib.sha256(REVIEW_MIGRATION_PATH.read_bytes()).hexdigest()
+MIGRATION_SET = (
+    {"name": MIGRATION_NAME, "sha256": MIGRATION_SHA256},
+    {"name": REVIEW_MIGRATION_NAME, "sha256": REVIEW_MIGRATION_SHA256},
+)
 DATABASE_ARCHIVE_PATH = "database.dump"
 MANIFEST_PATH = "manifest.json"
-BUSINESS_TABLES = (
+LEGACY_BUSINESS_TABLES = (
     "organizations",
     "workspaces",
     "clients",
@@ -28,6 +37,14 @@ BUSINESS_TABLES = (
     "artifacts",
     "artifact_versions",
     "audit_events",
+)
+BUSINESS_TABLES = (
+    *LEGACY_BUSINESS_TABLES,
+    "extraction_runs",
+    "extraction_candidates",
+    "review_snapshots",
+    "review_snapshot_items",
+    "review_decisions",
 )
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _ARCHIVE_PATH = re.compile(r"objects/[0-9a-f]{2}/[0-9a-f]{62}")
@@ -40,12 +57,13 @@ _ROOT_KEYS = frozenset(
         "schemaVersion",
         "taskId",
         "postgres",
-        "migration",
+        "migrations",
         "database",
         "snapshot",
         "objects",
     }
 )
+_LEGACY_ROOT_KEYS = frozenset((*(_ROOT_KEYS - {"migrations"}), "migration"))
 _POSTGRES_KEYS = frozenset({"serverVersionNum", "dumpVersionNum", "restoreVersionNum"})
 _MIGRATION_KEYS = frozenset({"name", "sha256"})
 _DATABASE_KEYS = frozenset({"archivePath", "sha256", "tableData"})
@@ -112,8 +130,20 @@ def _positive_integer(value: Any, label: str) -> int:
 
 
 def validate_manifest(value: Any) -> dict[str, Any]:
-    root = _exact_keys(value, _ROOT_KEYS, "manifest")
-    if root["schemaVersion"] != SCHEMA_VERSION or root["taskId"] != TASK_ID:
+    if not isinstance(value, dict):
+        raise BackupBundleError("manifest fields do not match the frozen schema")
+    version = value.get("schemaVersion")
+    if version == LEGACY_SCHEMA_VERSION:
+        root = _exact_keys(value, _LEGACY_ROOT_KEYS, "manifest")
+        expected_task = LEGACY_TASK_ID
+        tables = LEGACY_BUSINESS_TABLES
+    elif version == SCHEMA_VERSION:
+        root = _exact_keys(value, _ROOT_KEYS, "manifest")
+        expected_task = TASK_ID
+        tables = BUSINESS_TABLES
+    else:
+        raise BackupBundleError("manifest contract version is unsupported")
+    if root["taskId"] != expected_task:
         raise BackupBundleError("manifest contract version is unsupported")
 
     postgres = _exact_keys(root["postgres"], _POSTGRES_KEYS, "postgres")
@@ -121,22 +151,35 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         if _positive_integer(postgres[name], f"postgres.{name}") != 180004:
             raise BackupBundleError("backup requires PostgreSQL 18.4 server and tools")
 
-    migration = _exact_keys(root["migration"], _MIGRATION_KEYS, "migration")
-    if migration["name"] != MIGRATION_NAME:
-        raise BackupBundleError("backup migration name differs from the reviewed migration")
-    if _lower_sha256(migration["sha256"], "migration.sha256") != MIGRATION_SHA256:
-        raise BackupBundleError("backup migration checksum differs from the reviewed migration")
+    if version == LEGACY_SCHEMA_VERSION:
+        migration = _exact_keys(root["migration"], _MIGRATION_KEYS, "migration")
+        if migration["name"] != MIGRATION_NAME:
+            raise BackupBundleError("backup migration name differs from the reviewed migration")
+        if _lower_sha256(migration["sha256"], "migration.sha256") != MIGRATION_SHA256:
+            raise BackupBundleError("backup migration checksum differs from the reviewed migration")
+    else:
+        migrations = root["migrations"]
+        if not isinstance(migrations, list) or len(migrations) != len(MIGRATION_SET):
+            raise BackupBundleError("backup migration set is incomplete")
+        normalized_migrations = []
+        for index, item in enumerate(migrations):
+            record = dict(_exact_keys(item, _MIGRATION_KEYS, f"migrations[{index}]"))
+            record["sha256"] = _lower_sha256(record["sha256"], f"migrations[{index}].sha256")
+            normalized_migrations.append(record)
+        if normalized_migrations != list(MIGRATION_SET):
+            raise BackupBundleError("backup migration set differs from reviewed migrations")
 
     database = _exact_keys(root["database"], _DATABASE_KEYS, "database")
     if database["archivePath"] != DATABASE_ARCHIVE_PATH:
         raise BackupBundleError("database archive path is not canonical")
     _lower_sha256(database["sha256"], "database.sha256")
     table_data = database["tableData"]
-    if not isinstance(table_data, list) or table_data != list(BUSINESS_TABLES):
+    if not isinstance(table_data, list) or table_data != list(tables):
         raise BackupBundleError("database table-data allowlist drifted")
 
-    snapshot = _exact_keys(root["snapshot"], _SNAPSHOT_KEYS, "snapshot")
-    for table in BUSINESS_TABLES:
+    snapshot_keys = frozenset(tables)
+    snapshot = _exact_keys(root["snapshot"], snapshot_keys, "snapshot")
+    for table in tables:
         summary = _exact_keys(snapshot[table], _TABLE_SUMMARY_KEYS, f"snapshot.{table}")
         count = summary["count"]
         if isinstance(count, bool) or not isinstance(count, int) or count < 0:
@@ -278,7 +321,7 @@ def create_backup_bundle(
     object_root: Path | str,
     objects: Iterable[Mapping[str, Any]],
     postgres: Mapping[str, int],
-    migration: Mapping[str, str],
+    migrations: Iterable[Mapping[str, str]],
     snapshot: Mapping[str, Mapping[str, Any]],
 ) -> ValidatedBundle:
     destination_path = Path(destination)
@@ -304,7 +347,7 @@ def create_backup_bundle(
             "schemaVersion": SCHEMA_VERSION,
             "taskId": TASK_ID,
             "postgres": dict(postgres),
-            "migration": dict(migration),
+            "migrations": [dict(migration) for migration in migrations],
             "database": {
                 "archivePath": DATABASE_ARCHIVE_PATH,
                 "sha256": dump_hash,

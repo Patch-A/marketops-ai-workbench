@@ -438,6 +438,27 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "CANDIDATE_NOT_FOUND")
         self.assertEqual(self.state_counts(repository, created.run.run_id), baseline)
 
+    async def test_repeating_the_same_review_state_creates_no_new_version(self):
+        repository, created = await self.create_run()
+        service = self.service(repository)
+        reviewed = await service.review_candidate(
+            PROJECT_ID,
+            created.run.run_id,
+            ReviewRequest(1, CANDIDATE_ONE, "approve", "Ready"),
+            self.scope,
+        )
+        baseline = self.state_counts(repository, created.run.run_id)
+        with self.assertRaises(ReviewFailure) as raised:
+            await service.review_candidate(
+                PROJECT_ID,
+                created.run.run_id,
+                ReviewRequest(2, CANDIDATE_ONE, "approve", "Still ready"),
+                self.scope,
+            )
+        self.assertEqual(raised.exception.code, "INVALID_INPUT")
+        self.assertEqual(reviewed.snapshot.version, 2)
+        self.assertEqual(self.state_counts(repository, created.run.run_id), baseline)
+
     async def test_stale_review_version_returns_stable_conflict_and_writes_nothing(self):
         repository, created = await self.create_run()
         service = self.service(repository)

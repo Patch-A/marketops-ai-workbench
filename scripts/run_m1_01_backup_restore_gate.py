@@ -24,10 +24,18 @@ sys.path.insert(0, str(ROOT))
 from apps.api.marketops_import.backup import (  # noqa: E402
     BUSINESS_TABLES,
     BackupBundleError,
-    MIGRATION_SHA256,
+    MIGRATION_SET,
     create_backup_bundle,
     load_backup_bundle,
     restore_object_bundle,
+)
+from apps.api.marketops_extract import Candidate, SourceCitation, SourceLocation  # noqa: E402
+from apps.api.marketops_review import (  # noqa: E402
+    AsyncpgReviewRepository,
+    CreateReviewRunRequest,
+    ReviewRequest,
+    ReviewScopeContext,
+    ReviewService,
 )
 from apps.api.marketops_import.postgres import AsyncpgImportRepository  # noqa: E402
 from apps.api.marketops_import.service import ProjectImportService, StoredObject  # noqa: E402
@@ -35,7 +43,6 @@ from apps.api.marketops_import.storage import LocalObjectStore  # noqa: E402
 from scripts.run_m1_01_postgres_gate import (  # noqa: E402
     APPLICATION_ROLE,
     DATABASE_NAME,
-    MIGRATION,
     MIGRATOR_ROLE,
     POSTGRES_VERSION_NUM,
     attest_application_role,
@@ -257,7 +264,7 @@ async def database_snapshot(connection: Any) -> dict[str, dict[str, Any]]:
             f"""
             SELECT pg_catalog.to_jsonb(record)::text AS payload
             FROM marketops.{table} AS record
-            ORDER BY record.id
+            ORDER BY pg_catalog.to_jsonb(record)::text
             """
         )
         payloads = [str(row["payload"]) for row in rows]
@@ -309,12 +316,15 @@ async def export_bundle(
             raise RuntimeError("source PostgreSQL server is not version 18.4")
         async with connection.transaction(isolation="repeatable_read", readonly=True):
             snapshot_id = await connection.fetchval("SELECT pg_catalog.pg_export_snapshot()")
-            source_migration = await connection.fetchval(
-                "SELECT pg_catalog.encode(sha256, 'hex') FROM marketops.schema_migrations WHERE migration_name = $1",
-                MIGRATION.name,
+            source_migrations = await connection.fetch(
+                """
+                SELECT migration_name, pg_catalog.encode(sha256, 'hex') AS sha256
+                FROM marketops.schema_migrations
+                ORDER BY migration_name
+                """
             )
-            if source_migration != MIGRATION_SHA256:
-                raise RuntimeError("source migration registry differs from the reviewed migration")
+            if [dict(row) for row in source_migrations] != list(MIGRATION_SET):
+                raise RuntimeError("source migration registry differs from reviewed migrations")
             snapshot = await database_snapshot(connection)
             objects = await referenced_objects(connection)
             await asyncio.to_thread(create_database_dump, container_id, snapshot_id, dump_path)
@@ -333,7 +343,7 @@ async def export_bundle(
                 "dumpVersionNum": dump_version,
                 "restoreVersionNum": restore_version,
             },
-            migration={"name": MIGRATION.name, "sha256": MIGRATION_SHA256},
+            migrations=MIGRATION_SET,
             snapshot=snapshot,
         )
 
@@ -413,12 +423,15 @@ async def restored_security(asyncpg: Any, admin_dsn: str, app_dsn: str) -> dict[
         registry = observed["schema_migrations"]
         if registry != {"owner": MIGRATOR_ROLE, "rls": False, "forceRls": False}:
             raise RuntimeError("restored migration registry contract drifted")
-        checksum = await connection.fetchval(
-            "SELECT pg_catalog.encode(sha256, 'hex') FROM marketops.schema_migrations WHERE migration_name = $1",
-            MIGRATION.name,
+        checksums = await connection.fetch(
+            """
+            SELECT migration_name, pg_catalog.encode(sha256, 'hex') AS sha256
+            FROM marketops.schema_migrations
+            ORDER BY migration_name
+            """
         )
-        if checksum != MIGRATION_SHA256:
-            raise RuntimeError("restored migration registry checksum drifted")
+        if [dict(row) for row in checksums] != list(MIGRATION_SET):
+            raise RuntimeError("restored migration registry checksums drifted")
     finally:
         await connection.close()
     role = await attest_application_role(asyncpg, app_dsn)
@@ -542,6 +555,82 @@ async def negative_bundle_checks(bundle_root: Path, work_root: Path) -> dict[str
     return results
 
 
+async def seed_review_history(asyncpg: Any, admin_dsn: str, app_dsn: str, scope: Any, committed: Mapping[str, Any]) -> dict[str, Any]:
+    connection = await asyncpg.connect(admin_dsn)
+    try:
+        source = await connection.fetchrow(
+            """
+            SELECT version.proposal_version,
+                   pg_catalog.encode(version.sha256, 'hex') AS sha256
+            FROM marketops.artifact_versions AS version
+            WHERE version.id = $1
+              AND version.project_id = $2
+              AND version.approval_status = 'approved'
+            """,
+            committed["proposalVersionId"],
+            committed["projectId"],
+        )
+    finally:
+        await connection.close()
+    if source is None:
+        raise RuntimeError("approved proposal source for review recovery is missing")
+
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=2)
+    try:
+        review_scope = ReviewScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        service = ReviewService(
+            repository=AsyncpgReviewRepository(pool),
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        candidate_id = str(uuid4())
+        candidate = Candidate(
+            candidate_id=candidate_id,
+            kind="deliverable",
+            text="Publish the synthetic recovery brief.",
+            classification="fact",
+            confidence=0.9,
+            source_citation=SourceCitation(
+                source_version_id=committed["proposalVersionId"],
+                source_sha256=str(source["sha256"]),
+                location=SourceLocation.from_mapping(
+                    {"kind": "line_range", "startLine": 1, "endLine": 1}
+                ),
+                section_path=("Recovery",),
+                quote="Publish the synthetic recovery brief.",
+            ),
+        )
+        created = await service.create_run(
+            CreateReviewRunRequest(
+                project_id=committed["projectId"],
+                proposal_artifact_id=committed["proposalArtifactId"],
+                proposal_version_id=committed["proposalVersionId"],
+                proposal_version=int(source["proposal_version"]),
+                proposal_sha256=str(source["sha256"]),
+                candidates=(candidate,),
+            ),
+            review_scope,
+        )
+        reviewed = await service.review_candidate(
+            committed["projectId"],
+            created.run.run_id,
+            ReviewRequest(1, candidate_id, "approve", "Synthetic recovery decision"),
+            review_scope,
+        )
+        return {
+            "runId": created.run.run_id,
+            "candidateId": candidate_id,
+            "latestReviewVersion": reviewed.snapshot.version,
+        }
+    finally:
+        await pool.close()
+
+
 async def run(work_root: Path, state_path: Path, output: Path) -> None:
     try:
         import asyncpg
@@ -564,6 +653,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
     created_databases: list[str] = []
 
     try:
+        review_history = await seed_review_history(asyncpg, admin_dsn, app_dsn, scope, committed)
         manifest, toc_tables = await export_bundle(
             asyncpg,
             admin_dsn=admin_dsn,
@@ -645,11 +735,11 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         negative["singleTransactionRollbackVerified"] = True
 
         evidence = {
-            "schemaVersion": 1,
-            "taskId": "M1-01",
-            "workPackage": "WP5B-backup-restore",
+            "schemaVersion": 2,
+            "taskId": "M1-02",
+            "workPackage": "WP2A-2-backup-restore",
             "postgresVersionNum": POSTGRES_VERSION_NUM,
-            "migrationSha256": MIGRATION_SHA256,
+            "migrations": list(MIGRATION_SET),
             "databaseTableData": list(toc_tables),
             "snapshot": manifest["snapshot"],
             "objectCount": len(manifest["objects"]),
@@ -665,11 +755,12 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
                 "sourceObjectsUnchanged": True,
                 "security": security,
                 "visibility": visibility,
+                "reviewHistory": review_history,
             },
             "negativeChecks": negative,
             "claimBoundary": (
                 "This synthetic CI experiment establishes application-level logical backup and "
-                "isolated restore for the reviewed PostgreSQL 18.4 migration and current immutable "
+                "isolated restore for the reviewed PostgreSQL 18.4 migrations, non-empty review history, and current immutable "
                 "local-object adapter. It does not establish physical crash consistency, WAL/PITR, "
                 "authenticity, encryption, off-site retention, production cutover, RPO/RTO, "
                 "cross-host or cross-version recovery, demand, ROI, repeat use, payment, or M1-01 completion."

@@ -11,6 +11,7 @@ import os
 import re
 import subprocess
 import sys
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -21,6 +22,7 @@ from apps.api.marketops_import.migrations import run_migrations  # noqa: E402
 
 
 MIGRATION = ROOT / "apps" / "api" / "migrations" / "0001_project_import.sql"
+REVIEW_MIGRATION = ROOT / "apps" / "api" / "migrations" / "0002_extraction_review.sql"
 MIGRATOR_ROLE = "marketops_migrator"
 APPLICATION_ROLE = "marketops_app"
 DATABASE_NAME = "marketops_test"
@@ -55,6 +57,16 @@ EXPECTED_RELATION_PRIVILEGES = frozenset(
         ("artifact_versions", "INSERT"),
         ("audit_events", "SELECT"),
         ("audit_events", "INSERT"),
+        ("extraction_runs", "SELECT"),
+        ("extraction_runs", "INSERT"),
+        ("extraction_candidates", "SELECT"),
+        ("extraction_candidates", "INSERT"),
+        ("review_snapshots", "SELECT"),
+        ("review_snapshots", "INSERT"),
+        ("review_snapshot_items", "SELECT"),
+        ("review_snapshot_items", "INSERT"),
+        ("review_decisions", "SELECT"),
+        ("review_decisions", "INSERT"),
     }
 )
 EXPECTED_FUNCTION_EXECUTE = frozenset(
@@ -153,14 +165,14 @@ async def provision_roles_and_database(
 async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
     connection = await asyncpg.connect(migrator_dsn)
     try:
-        applied = await run_migrations(connection)
-        replayed = await run_migrations(connection)
-        if applied != ("0001_project_import.sql",) or replayed:
-            raise RuntimeError(
-                f"migration replay contract failed: first={applied!r}, second={replayed!r}"
-            )
-        await connection.execute(
-            f"""
+        with tempfile.TemporaryDirectory() as temporary:
+            migration_directory = Path(temporary)
+            (migration_directory / MIGRATION.name).write_bytes(MIGRATION.read_bytes())
+            first = await run_migrations(connection, migration_directory)
+            if first != (MIGRATION.name,):
+                raise RuntimeError(f"base migration contract failed: {first!r}")
+            await connection.execute(
+                f"""
             GRANT USAGE ON SCHEMA marketops TO {APPLICATION_ROLE};
             GRANT SELECT ON
                 marketops.organizations,
@@ -181,26 +193,52 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
                 marketops.current_actor_id()
             TO {APPLICATION_ROLE};
             """
+            )
+            (migration_directory / REVIEW_MIGRATION.name).write_bytes(
+                REVIEW_MIGRATION.read_bytes()
+            )
+            second = await run_migrations(
+                connection,
+                migration_directory,
+                allowed_schema_usage_roles=(APPLICATION_ROLE,),
+            )
+            if second != (REVIEW_MIGRATION.name,):
+                raise RuntimeError(f"review migration upgrade contract failed: {second!r}")
+        await connection.execute(
+            f"""
+            GRANT SELECT, INSERT ON
+                marketops.extraction_runs,
+                marketops.extraction_candidates,
+                marketops.review_snapshots,
+                marketops.review_snapshot_items,
+                marketops.review_decisions
+            TO {APPLICATION_ROLE};
+            """
         )
         post_grant_replay = await run_migrations(
-            connection,
-            allowed_schema_usage_roles=(APPLICATION_ROLE,),
+            connection, allowed_schema_usage_roles=(APPLICATION_ROLE,)
         )
         if post_grant_replay:
             raise RuntimeError(
                 f"post-grant migration replay unexpectedly applied {post_grant_replay!r}"
             )
-        migration_digest = hashlib.sha256(MIGRATION.read_bytes()).digest()
-        recorded = await connection.fetchval(
+        expected_migrations = {
+            MIGRATION.name: hashlib.sha256(MIGRATION.read_bytes()).digest(),
+            REVIEW_MIGRATION.name: hashlib.sha256(REVIEW_MIGRATION.read_bytes()).digest(),
+        }
+        recorded = await connection.fetch(
             """
-            SELECT sha256
+            SELECT migration_name, sha256
             FROM marketops.schema_migrations
-            WHERE migration_name = '0001_project_import.sql'
+            ORDER BY migration_name
             """
         )
-        if bytes(recorded) != migration_digest:
-            raise RuntimeError("migration registry checksum does not match the reviewed SQL")
-        return applied
+        observed_migrations = {
+            str(row["migration_name"]): bytes(row["sha256"]) for row in recorded
+        }
+        if observed_migrations != expected_migrations:
+            raise RuntimeError("migration registry checksums do not match reviewed SQL")
+        return (MIGRATION.name, REVIEW_MIGRATION.name)
     finally:
         await connection.close()
 
