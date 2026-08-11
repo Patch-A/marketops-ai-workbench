@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from apps.api.marketops_import.backup import BUSINESS_TABLES
+from apps.api.marketops_import.backup import BUSINESS_TABLES, LEGACY_BUSINESS_TABLES
 from scripts.run_m1_01_backup_restore_gate import (
     create_database_dump,
     migration_manifest_rows,
@@ -66,7 +66,34 @@ class BackupRestoreCommandTests(unittest.TestCase):
             command = calls[0][0]
             self.assertIn("--snapshot=00000003-0000001B-1", command)
             self.assertIn("--exclude-table-data=marketops.schema_migrations", command)
+            self.assertEqual(
+                [item for item in command if item.startswith("--table=")],
+                [f"--table=marketops.{table}" for table in BUSINESS_TABLES],
+            )
             self.assertNotIn("password", " ".join(command).lower())
+
+    def test_legacy_dump_command_uses_exact_seven_table_allowlist(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "legacy.dump"
+            calls = []
+
+            def runner(command, **kwargs):
+                calls.append(command)
+                kwargs["stdout"].write(b"legacy dump")
+                return Result()
+
+            create_database_dump(
+                "b" * 64,
+                "00000003-0000001B-1",
+                output,
+                tables=LEGACY_BUSINESS_TABLES,
+                runner=runner,
+            )
+
+            self.assertEqual(
+                [item for item in calls[0] if item.startswith("--table=")],
+                [f"--table=marketops.{table}" for table in LEGACY_BUSINESS_TABLES],
+            )
 
     def test_command_failures_do_not_expose_subprocess_stderr(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -83,14 +110,22 @@ class BackupRestoreCommandTests(unittest.TestCase):
 
 
 class DumpTocTests(unittest.TestCase):
-    def valid_toc(self):
+    def valid_toc(self, tables=BUSINESS_TABLES):
         lines = ["; PostgreSQL database dump", ";"]
-        for index, table in enumerate(BUSINESS_TABLES, start=100):
+        for index, table in enumerate(tables, start=100):
             lines.append(f"{index}; 0 200 TABLE DATA marketops {table} marketops_migrator")
         return "\n".join(lines)
 
     def test_accepts_exact_business_table_data(self):
         self.assertEqual(set(validate_dump_toc(self.valid_toc())), set(BUSINESS_TABLES))
+        self.assertEqual(
+            set(
+                validate_dump_toc(
+                    self.valid_toc(LEGACY_BUSINESS_TABLES), LEGACY_BUSINESS_TABLES
+                )
+            ),
+            set(LEGACY_BUSINESS_TABLES),
+        )
 
     def test_rejects_schema_registry_unknown_and_duplicate_entries(self):
         cases = {

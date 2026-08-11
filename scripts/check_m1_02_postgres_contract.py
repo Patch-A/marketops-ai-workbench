@@ -66,13 +66,31 @@ def _validate_policy(sql: str, table: str, failures: list[str]) -> None:
     if halves is None:
         failures.append(f"missing exact scope policy {table}")
         return
+    expected_using = _normalized(
+        "marketops.current_actor_id() IS NOT NULL "
+        "AND workspace_id = marketops.current_workspace_id() "
+        "AND client_id = marketops.current_client_id() "
+        "AND project_id = marketops.current_project_id()"
+    )
+    creator = CREATOR_COLUMNS[table]
+    expected_check = _normalized(
+        "marketops.current_actor_id() IS NOT NULL "
+        "AND workspace_id = marketops.current_workspace_id() "
+        "AND client_id = marketops.current_client_id() "
+        "AND project_id = marketops.current_project_id() "
+        f"AND {creator} = marketops.current_actor_id()"
+    )
+    for half_name, expression, expected in zip(
+        ("USING", "WITH CHECK"), halves, (expected_using, expected_check)
+    ):
+        if _normalized(expression) != expected:
+            failures.append(f"{half_name} scope expression drifted {table}")
     for half_name, expression in zip(("USING", "WITH CHECK"), halves):
         for predicate_name, pattern in SCOPE_PREDICATES.items():
             if re.search(pattern, expression, re.IGNORECASE) is None:
                 failures.append(
                     f"{half_name} missing {predicate_name} scope {table}"
                 )
-    creator = CREATOR_COLUMNS[table]
     require(
         rf"\b{creator}\s*=\s*marketops\.current_actor_id\(\)",
         halves[1],
@@ -271,6 +289,28 @@ def validate_self_mutations(sql: str, adapter: str) -> list[str]:
             ),
             "approved proposal row is not locked FOR UPDATE",
         ),
+        (
+            "workspace conjunction weakened",
+            _mutate_once(
+                sql,
+                r"and\s+workspace_id\s*=\s*marketops\.current_workspace_id\(\)",
+                "OR workspace_id = marketops.current_workspace_id()",
+                "workspace conjunction weakened",
+            ),
+            adapter,
+            "USING scope expression drifted extraction_runs",
+        ),
+        (
+            "actor ownership conjunction weakened",
+            _mutate_once(
+                sql,
+                r"and\s+created_by\s*=\s*marketops\.current_actor_id\(\)",
+                "OR created_by = marketops.current_actor_id()",
+                "actor ownership conjunction weakened",
+            ),
+            adapter,
+            "WITH CHECK scope expression drifted extraction_runs",
+        ),
     )
     failures: list[str] = []
     for case_name, mutated_sql, mutated_adapter, expected in cases:
@@ -302,7 +342,7 @@ def main() -> int:
         return 1
     print(
         f"PASS: M1-02 PostgreSQL static contract "
-        f"({len(TABLES)} forced-RLS append-only tables; 5 self-mutations rejected)"
+        f"({len(TABLES)} forced-RLS append-only tables; 7 self-mutations rejected)"
     )
     print("LIMITATION: static checks do not replace PostgreSQL 18.4 runtime and recovery evidence")
     return 0
