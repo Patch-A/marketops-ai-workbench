@@ -81,8 +81,9 @@ class FakeTransaction:
         if self.repository.fail_stage == stage:
             raise RuntimeError("database password=top-secret")
 
-    async def get_approved_proposal(self, project_id):
+    async def get_approved_proposal_for_update(self, project_id):
         self.trigger("approved_proposal")
+        self.repository.approved_lock_calls += 1
         if project_id != self.project_id:
             return None
         if self.repository.scope_leak:
@@ -172,6 +173,7 @@ class FakeRepository:
         self.snapshots = {}
         self.decisions = []
         self.audit_events = []
+        self.approved_lock_calls = 0
         self.transactions = 0
         self.rollbacks = 0
         self.scopes = []
@@ -282,6 +284,7 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(repository.audit_events), 1)
         self.assertEqual(repository.audit_events[0].action, "review_run_created")
         self.assertEqual(repository.scopes, [(self.scope, PROJECT_ID)])
+        self.assertEqual(repository.approved_lock_calls, 1)
 
     async def test_all_domain_records_and_candidate_batch_are_immutable(self):
         repository, result = await self.create_run()
@@ -616,6 +619,27 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
                 self.create_request(candidates=()), self.scope
             )
         self.assertEqual(empty_error.exception.code, "INVALID_INPUT")
+        self.assertEqual(repository.transactions, 0)
+
+    async def test_noncanonical_uuid_casing_fails_before_repository(self):
+        repository = FakeRepository()
+        repository.approve(self.approved())
+        uppercase_project = "aaaaaaaa-0000-4000-8000-000000000101".upper()
+        with self.assertRaises(ReviewFailure) as create_error:
+            await self.service(repository).create_run(
+                self.create_request(project_id=uppercase_project), self.scope
+            )
+        self.assertEqual(create_error.exception.code, "INVALID_INPUT")
+        self.assertEqual(repository.transactions, 0)
+
+        with self.assertRaises(ReviewFailure) as review_error:
+            await self.service(repository).review_candidate(
+                PROJECT_ID,
+                uppercase_project,
+                ReviewRequest(1, CANDIDATE_ONE, "approve", "Ready"),
+                self.scope,
+            )
+        self.assertEqual(review_error.exception.code, "INVALID_INPUT")
         self.assertEqual(repository.transactions, 0)
 
     async def test_incomplete_repository_snapshot_fails_closed_without_writes(self):

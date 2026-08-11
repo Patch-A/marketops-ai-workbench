@@ -139,7 +139,9 @@ class ReviewResult:
 
 
 class ReviewTransaction(Protocol):
-    async def get_approved_proposal(self, project_id: str) -> ApprovedProposal | None: ...
+    async def get_approved_proposal_for_update(
+        self, project_id: str
+    ) -> ApprovedProposal | None: ...
 
     async def insert_run(self, run: ReviewRun) -> None: ...
 
@@ -225,7 +227,9 @@ class ReviewService:
             async with self.repository.transaction(
                 scope, request.project_id
             ) as transaction:
-                approved = await transaction.get_approved_proposal(request.project_id)
+                approved = await transaction.get_approved_proposal_for_update(
+                    request.project_id
+                )
                 if not self._proposal_matches(approved, request, scope):
                     raise ReviewFailure(
                         "INVALID_PROPOSAL_STATE",
@@ -520,7 +524,7 @@ class ReviewService:
             parsed = UUID(value)
         except (ValueError, AttributeError, TypeError):
             raise ReviewFailure(code, f"{label} must be a UUID") from None
-        if str(parsed) != value.lower():
+        if str(parsed) != value:
             raise ReviewFailure(code, f"{label} must use canonical UUID form")
         return str(parsed)
 
