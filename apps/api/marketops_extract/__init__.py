@@ -10,6 +10,12 @@ from .contract import (
     TableCell,
 )
 from .deterministic import DeterministicExtractor, extract_candidates
+from .parser import (
+    ParserWarning,
+    RuntimeParseFailure,
+    RuntimeParserResult,
+    RuntimeProposalParser,
+)
 
 __all__ = [
     "Candidate",
@@ -17,6 +23,10 @@ __all__ = [
     "AmbiguousTableError",
     "ExtractionContractError",
     "ParserBlock",
+    "ParserWarning",
+    "RuntimeParseFailure",
+    "RuntimeParserResult",
+    "RuntimeProposalParser",
     "SourceCitation",
     "SourceLocation",
     "TableCell",

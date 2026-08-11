@@ -251,3 +251,51 @@ Forbidden paths for this package: `project-status.json`, `docs/PROJECT_STATUS.md
 ## 10. WP2B 与 UI 边界
 
 WP2A 通过后，WP2B 才暴露创建 run、读取候选/历史和逐条审核 HTTP API，并冻结 OpenAPI、认证、错误 envelope、`no-store`、重试和取消语义。浏览器 UI 必须消费服务器事实源，显示来源摘录、事实/假设、pending/approve/modify/reject、冲突刷新和失败恢复；静态 mockup 不构成功能完成证据。
+
+## 11. WP2B：审核 HTTP API 工作包契约
+
+### Job、流程与范围
+
+**Job statement：**面向已经导入并批准方案的认证项目操作者，当其开始方案拆解时，由服务器读取并校验当前已批准方案，创建可追溯审核批次、查看任一审核版本并逐条作出人工决定，使后续 WBS 只消费有来源、可回看且冲突安全的状态。
+
+最小流程为 `authenticate -> create extraction run -> list project runs -> inspect latest or historical snapshot -> submit one decision -> refresh on conflict`。确认事实是批准方案版本/hash、候选原文与来源；确定性提取结果在人工决定前仍是候选；`approve | modify | reject`、理由、评论和替换文本属于人工决定；真实结果与复盘数据不在本包产生。
+
+MVP 只包含以下四个服务器事实源操作：
+
+1. `POST /v1/projects/{projectId}/extraction-runs`：只接收调用方预期的批准方案 version ID/hash；服务器自行读取不可变 proposal 对象、复核 hash、解析并调用 WP1 确定性提取器，再原子创建 run、候选和版本 1。不得接收客户端 candidates、citations、parser blocks 或 scope。
+2. `GET /v1/projects/{projectId}/extraction-runs?limit=...`：按创建时间与 ID 稳定倒序列出当前 scope 的 run 摘要及最新审核版本。
+3. `GET /v1/projects/{projectId}/extraction-runs/{runId}?reviewVersion=...`：不传版本时读取最新完整快照；传版本时读取该不可变历史版本，并返回完整候选、引用、状态和可用版本号。
+4. `POST /v1/projects/{projectId}/extraction-runs/{runId}/decisions`：携带 `expectedReviewVersion`，只改变一个候选并返回新版本；过期版本返回 `REVIEW_CONFLICT`，调用方必须重新读取，禁止盲重试。
+
+WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verified parser blocks -> deterministic candidates -> review run` 的服务器端 preparation，以及 list/latest/history 只读模型；WP2B-1 才实现持久幂等创建、HTTP/OpenAPI 和 runtime 装配。任何 fake preparer 或浏览器提交 candidates/blocks 的测试只能验证 adapter 形状，不能关闭 WP2B。
+
+本包不实现模型提取、批量审核、删除/撤销、多人角色矩阵、WBS handoff、浏览器 UI、连接器、通知、市场监控或知识提升。M1 仍冻结为单部署 actor；项目成员共享与角色矩阵必须在后续权限设计中单独验证，不能从当前 RLS 的“非空 actor”推断为已支持多人协作。
+
+### 状态、数据与安全边界
+
+- 所有端点复用 M1-01 的 Bearer/Basic 认证；organization/workspace/client/actor 只从服务器认证状态注入，body、path 和 query 不得覆盖 scope。
+- JSON body 限制为单个、UTF-8、无重复 key、无未知字段的对象，并在读取时限制总字节数。reason、comment 和 replacement text 均有明确长度上限；创建 body 不能包含 scope、候选、引用或 parser blocks。
+- 所有成功与失败 JSON 响应都带 `Cache-Control: no-store`。错误只返回稳定 `code/message/retryable/requestId`，不得回显 SQL、DSN、token、parser block、候选原文、理由、评论或路径。
+- `REVIEW_NOT_FOUND` 同时覆盖不存在、跨 workspace/client/project 和不可见 run，避免存在性差异；`CANDIDATE_NOT_FOUND` 只在已确认可见的 run 内返回。
+- 当前 schema 没有 extraction-run 幂等键或提取 manifest，因此 WP2B-0 不公开创建 HTTP。WP2B-1 必须先增加受 RLS、备份恢复和冲突检查约束的持久幂等事实，再允许 `Idempotency-Key`；不得用内存缓存、前端防重复或“先 list 再猜”冒充安全重试。决定请求以 `expectedReviewVersion` 实现一次状态迁移；网络结果不确定时先 GET 对账，`REVIEW_CONFLICT` 的 `retryable` 为 false。
+- repository 暂时不可用返回可重试的 `REPOSITORY_FAILURE`；验证错误、冲突和 not-found 不可重试。`asyncio.CancelledError` 必须穿透认证、body 读取、提取、读取和写入，不得转成 JSON 500。
+- PostgreSQL 读取必须在事务本地设置 workspace/client/project/actor scope，依赖 forced RLS，并验证 run、candidate、snapshot 和版本完整性。跨 scope 不可见或任何不完整/不一致行都失败关闭。
+- OpenAPI 是受审静态契约；运行时 schema 必须与提交文件逐字节语义一致，不由 FastAPI 自动推导替代。
+
+### WP2B-0 工作包与验收
+
+- Task ID：`M1-02`；基线提交：`a43319c97ab274e8ed17d8ba4ed2db73e7f8bedb`。
+- Package P：owned paths 为新增正式 parser 模块、服务器 preparation orchestration、对象存储的校验式只读能力、批准 proposal source reader 及其专项测试。输入只有服务器 scope、project ID 与可选 expected proposal identity；输出为已复核 source、零 warning 的 parser result、确定性 candidates 和已提交 review run。禁止 HTTP、OpenAPI、migration、registry、顶层 CI 和前端。
+- Package R：owned paths 为 review service/read DTO、PostgreSQL 只读查询及其 unit/runtime tests。读取最新或指定不可变 snapshot，按 ordinal 返回完整 candidate/citation/status/replacement 和截至该版本的 decision；不存在、跨 scope、非创建 actor 和不完整行统一失败关闭。禁止 preparation、HTTP、OpenAPI、migration、registry、顶层 CI 和前端。
+- 主集成者 owned paths 为本节文档、跨包导出、冲突修复、最终测试和提交；`project-status.json`、手工编辑 `docs/PROJECT_STATUS.md`、现有 `0001/0002` migration、import 写入/backup/cleanup 行为、根前端、连接器、跨项目检索、真实客户资料、凭据和新依赖仍禁止修改。
+- Frozen preparation：对象 key 只能来自 RLS 范围内的当前 approved proposal 行；在共享对象锁内验证 size/hash，parser 输出 hash 必须再次匹配。任何 parser warning、unsupported block、零候选、source 变化或取消都不得创建部分 run。
+- Frozen read output：run 摘要、最新 version、可用连续 versions，以及选定完整 snapshot 的 candidates/citations/status/replacement/decision。GET 读取不得加 `FOR UPDATE`，不得产生 audit 或其他写入。
+- Acceptance commands：focused parser/preparation/read service/adapter tests；PostgreSQL 18.4 下真实 source/read、跨 scope/actor、latest/history/完整性测试；现有 WP1/WP2A 与备份恢复回归；完整 `apps/api` suite；`compileall`、文档/progress 与 `git diff --check`。同一提交 CI 与非实现者复审通过后只关闭 WP2B-0，不能关闭 WP2B 或 M1-02。
+- Reviewer role：非实现者检查对象路径和 hash 不可伪造、parser 失败关闭、候选只由服务器生成、RLS/actor 读取、历史 as-of decision、完整性、取消传播、敏感错误净化和既有导入/恢复无回归。实现者测试不能替代最终审查。
+
+### 风险、未知与最小实验
+
+- 已确认：WP2A 数据库与恢复门禁已通过；现有 FastAPI 有冻结 OpenAPI、认证、`no-store` 和错误 envelope 模式，但 runtime 尚无 proposal 对象读取、正式 parser、review read model 或持久 create idempotency。只加路由不能形成可信审核 API。
+- 合理推测：四个操作足以支撑首个审核 UI；尚无真实使用证据证明用户需要完整版本时间线而不是只看最新版本，也没有证据证明同步解析能覆盖真实文件规模。
+- 共同未知：parser blocks 的真实规模、审核冲突频率、单次候选数、用户是否理解 fact/hypothesis 与引用坐标。工程测试只固定一个变量：两个请求使用同一 `expectedReviewVersion`；成功信号是一个 201、一个 409，GET 只显示一个新完整版本且无部分写入。真实可用性实验再固定“是否显示引用”并记录审核耗时、保留/修改/拒绝率和漏项报告。
+- 失败条件：任何客户端可注入候选/引用、对象 hash 未复核、parser warning 被静默忽略、跨 scope/actor 可见、历史 as-of 状态不完整、错误泄露用户内容、取消被吞，或后续 HTTP blind retry 产生重复 run，都阻止相应工作包通过。

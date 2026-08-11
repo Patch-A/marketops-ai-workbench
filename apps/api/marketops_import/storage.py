@@ -154,6 +154,19 @@ class LocalObjectStore:
             raise ValueError("immutable object is missing")
         await self._verify(destination, stored.size_bytes, stored.sha256)
 
+    async def read_verified_immutable(
+        self, *, kind: str, stored: StoredObject
+    ) -> bytes:
+        """Read retained bytes while verifying their declared identity in one pass."""
+        self._validate_expected(stored.size_bytes, stored.sha256)
+        destination = self._destination(kind, stored.storage_key, stored.sha256)
+        self._reject_symlink_components(destination)
+        if not destination.is_file():
+            raise ValueError("immutable object is missing")
+        return await self._read_and_verify(
+            destination, stored.size_bytes, stored.sha256
+        )
+
     def _destination(self, kind: str, storage_key: str, sha256: str) -> Path:
         if not isinstance(storage_key, str) or not _STORAGE_KEY.fullmatch(storage_key):
             raise ValueError("storage key is outside the project import namespace")
@@ -202,3 +215,22 @@ class LocalObjectStore:
                 await asyncio.sleep(0)
         if observed_size != size_bytes or digest.hexdigest() != sha256:
             raise ValueError("an immutable object already exists with different content")
+
+    @staticmethod
+    async def _read_and_verify(path: Path, size_bytes: int, sha256: str) -> bytes:
+        digest = hashlib.sha256()
+        observed_size = 0
+        payload = bytearray()
+        with path.open("rb") as stored:
+            while chunk := stored.read(_CHUNK_SIZE):
+                observed_size += len(chunk)
+                if observed_size > size_bytes:
+                    raise ValueError(
+                        "an immutable object already exists with different content"
+                    )
+                digest.update(chunk)
+                payload.extend(chunk)
+                await asyncio.sleep(0)
+        if observed_size != size_bytes or digest.hexdigest() != sha256:
+            raise ValueError("an immutable object already exists with different content")
+        return bytes(payload)

@@ -138,6 +138,30 @@ class ReviewResult:
     decision: ReviewDecision
 
 
+@dataclass(frozen=True)
+class ReviewRunSummary:
+    run: ReviewRun
+    latest_review_version: int
+
+
+@dataclass(frozen=True)
+class ReviewCandidateView:
+    ordinal: int
+    candidate: Candidate
+    status: str
+    replacement_text: str | None
+    last_decision: ReviewDecision | None = None
+
+
+@dataclass(frozen=True)
+class ReviewReadModel:
+    run: ReviewRun
+    snapshot: ReviewSnapshot
+    candidates: tuple[ReviewCandidateView, ...]
+    available_review_versions: tuple[int, ...]
+    selected_decision: ReviewDecision | None
+
+
 class ReviewTransaction(Protocol):
     async def get_approved_proposal_for_update(
         self, project_id: str
@@ -167,6 +191,18 @@ class ReviewRepository(Protocol):
         self, scope: ReviewScopeContext, project_id: str
     ) -> AsyncContextManager[ReviewTransaction]: ...
 
+    async def list_review_runs(
+        self, scope: ReviewScopeContext, project_id: str, limit: int
+    ) -> tuple[ReviewRunSummary, ...]: ...
+
+    async def get_review(
+        self,
+        scope: ReviewScopeContext,
+        project_id: str,
+        run_id: str,
+        review_version: int | None,
+    ) -> ReviewReadModel | None: ...
+
 
 class ReviewService:
     def __init__(
@@ -179,6 +215,78 @@ class ReviewService:
         self.repository = repository
         self.id_factory = id_factory
         self.clock = clock
+
+    async def list_runs(
+        self,
+        project_id: str,
+        scope: ReviewScopeContext,
+        *,
+        limit: int = 50,
+    ) -> tuple[ReviewRunSummary, ...]:
+        self._validate_scope(scope)
+        self._uuid(project_id, "project id")
+        if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 100:
+            raise ReviewFailure("INVALID_INPUT", "limit must be between 1 and 100")
+        try:
+            summaries = await self.repository.list_review_runs(scope, project_id, limit)
+        except ReviewFailure:
+            raise
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise ReviewFailure(
+                "REPOSITORY_FAILURE", "review repository operation failed"
+            ) from None
+        if not self._valid_run_summaries(summaries, project_id, scope, limit):
+            raise ReviewFailure(
+                "REPOSITORY_FAILURE", "review repository state is incomplete"
+            )
+        return summaries
+
+    async def read_review(
+        self,
+        project_id: str,
+        run_id: str,
+        scope: ReviewScopeContext,
+        *,
+        review_version: int | None = None,
+    ) -> ReviewReadModel:
+        self._validate_scope(scope)
+        self._uuid(project_id, "project id")
+        self._uuid(run_id, "run id")
+        if review_version is not None and (
+            isinstance(review_version, bool)
+            or not isinstance(review_version, int)
+            or review_version < 1
+        ):
+            raise ReviewFailure("INVALID_INPUT", "review version must be positive")
+        try:
+            result = await self.repository.get_review(
+                scope, project_id, run_id, review_version
+            )
+        except ReviewFailure:
+            raise
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise ReviewFailure(
+                "REPOSITORY_FAILURE", "review repository operation failed"
+            ) from None
+        if result is None:
+            raise ReviewFailure("REVIEW_NOT_FOUND", "review run is not available")
+        if (
+            not isinstance(result, ReviewReadModel)
+            or not self._read_run_in_scope(result.run, project_id, scope)
+            or result.run.run_id != run_id
+        ):
+            raise ReviewFailure("REVIEW_NOT_FOUND", "review run is not available")
+        if not self._valid_read_model(
+            result, project_id, run_id, scope, review_version
+        ):
+            raise ReviewFailure(
+                "REPOSITORY_FAILURE", "review repository state is incomplete"
+            )
+        return result
 
     async def create_run(
         self, request: CreateReviewRunRequest, scope: ReviewScopeContext
@@ -467,6 +575,234 @@ class ReviewService:
             and len({item.candidate_id for item in snapshot.items})
             == run.candidate_count
             and all(item.status in REVIEW_STATUSES for item in snapshot.items)
+        )
+
+    @classmethod
+    def _valid_run_summaries(
+        cls,
+        summaries: object,
+        project_id: str,
+        scope: ReviewScopeContext,
+        limit: int,
+    ) -> bool:
+        if not isinstance(summaries, tuple) or len(summaries) > limit:
+            return False
+        seen: set[str] = set()
+        previous: tuple[datetime, str] | None = None
+        for summary in summaries:
+            if not isinstance(summary, ReviewRunSummary):
+                return False
+            run = summary.run
+            if (
+                not cls._read_run_in_scope(run, project_id, scope)
+                or run.run_id in seen
+                or not cls._valid_run_shape(run)
+                or isinstance(summary.latest_review_version, bool)
+                or not isinstance(summary.latest_review_version, int)
+                or summary.latest_review_version < 1
+            ):
+                return False
+            key = (run.created_at, run.run_id)
+            if previous is not None and previous < key:
+                return False
+            previous = key
+            seen.add(run.run_id)
+        return True
+
+    @classmethod
+    def _valid_read_model(
+        cls,
+        result: object,
+        project_id: str,
+        run_id: str,
+        scope: ReviewScopeContext,
+        requested_version: int | None,
+    ) -> bool:
+        if not isinstance(result, ReviewReadModel):
+            return False
+        run = result.run
+        snapshot = result.snapshot
+        versions = result.available_review_versions
+        if (
+            not isinstance(snapshot, ReviewSnapshot)
+            or not isinstance(snapshot.items, tuple)
+            or any(not isinstance(item, ReviewSnapshotItem) for item in snapshot.items)
+            or not isinstance(versions, tuple)
+            or not versions
+            or any(
+                isinstance(version, bool)
+                or not isinstance(version, int)
+                or version < 1
+                for version in versions
+            )
+        ):
+            return False
+        if (
+            not cls._read_run_in_scope(run, project_id, scope)
+            or run.run_id != run_id
+            or not cls._valid_run_shape(run)
+            or versions != tuple(range(1, versions[-1] + 1))
+            or snapshot.version not in versions
+            or not isinstance(snapshot.version, int)
+            or isinstance(snapshot.version, bool)
+            or (requested_version is None and snapshot.version != versions[-1])
+            or (requested_version is not None and snapshot.version != requested_version)
+            or snapshot.run_id != run.run_id
+            or not cls._canonical_uuid(snapshot.snapshot_id)
+            or snapshot.created_by != scope.actor_id
+            or not cls._aware(snapshot.created_at)
+            or not cls._complete_snapshot(run, snapshot)
+            or not isinstance(result.candidates, tuple)
+            or len(result.candidates) != run.candidate_count
+        ):
+            return False
+        snapshot_items = {item.candidate_id: item for item in snapshot.items}
+        candidate_ids: set[str] = set()
+        for expected_ordinal, view in enumerate(result.candidates, start=1):
+            if not isinstance(view, ReviewCandidateView) or view.ordinal != expected_ordinal:
+                return False
+            candidate = view.candidate
+            if not isinstance(candidate, Candidate) or candidate.candidate_id in candidate_ids:
+                return False
+            item = snapshot_items.get(candidate.candidate_id)
+            citation = candidate.source_citation
+            if (
+                item is None
+                or item.status != view.status
+                or item.replacement_text != view.replacement_text
+                or candidate.review_status != "pending"
+                or citation.source_version_id != run.proposal_version_id
+                or citation.source_sha256.lower() != run.proposal_sha256.lower()
+                or view.status not in REVIEW_STATUSES
+                or (view.status == "modify") != (view.replacement_text is not None)
+                or (
+                    view.replacement_text is not None
+                    and (not isinstance(view.replacement_text, str) or not view.replacement_text.strip())
+                )
+            ):
+                return False
+            candidate_ids.add(candidate.candidate_id)
+        if tuple(item.candidate_id for item in snapshot.items) != tuple(
+            view.candidate.candidate_id for view in result.candidates
+        ):
+            return False
+        for view in result.candidates:
+            last = view.last_decision
+            if view.status == "pending":
+                if last is not None:
+                    return False
+                continue
+            if (
+                not isinstance(last, ReviewDecision)
+                or last.run_id != run.run_id
+                or not 2 <= last.review_version <= snapshot.version
+                or last.candidate_id != view.candidate.candidate_id
+                or last.action != view.status
+                or last.replacement_text != view.replacement_text
+                or last.actor_id != scope.actor_id
+                or not isinstance(last.reason, str)
+                or not last.reason.strip()
+                or not cls._canonical_uuid(last.decision_id)
+                or (
+                    last.comment is not None
+                    and (not isinstance(last.comment, str) or not last.comment.strip())
+                )
+                or not cls._aware(last.created_at)
+            ):
+                return False
+        decision = result.selected_decision
+        if snapshot.version == 1:
+            return decision is None
+        if not isinstance(decision, ReviewDecision):
+            return False
+        decided = next(
+            (
+                view
+                for view in result.candidates
+                if view.candidate.candidate_id == decision.candidate_id
+            ),
+            None,
+        )
+        return bool(
+            decision.run_id == run.run_id
+            and decision.review_version == snapshot.version
+            and decision.action in REVIEW_ACTIONS
+            and isinstance(decision.reason, str)
+            and decision.reason.strip()
+            and cls._canonical_uuid(decision.decision_id)
+            and (
+                decision.comment is None
+                or (isinstance(decision.comment, str) and bool(decision.comment.strip()))
+            )
+            and decision.actor_id == scope.actor_id
+            and cls._aware(decision.created_at)
+            and decided is not None
+            and decided.status == decision.action
+            and decided.replacement_text == decision.replacement_text
+            and decided.last_decision == decision
+            and (decision.action == "modify") == (decision.replacement_text is not None)
+        )
+
+    @staticmethod
+    def _read_run_in_scope(
+        run: object, project_id: str, scope: ReviewScopeContext
+    ) -> bool:
+        return isinstance(run, ReviewRun) and (
+            run.organization_id,
+            run.workspace_id,
+            run.client_id,
+            run.project_id,
+            run.created_by,
+        ) == (
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            project_id,
+            scope.actor_id,
+        )
+
+    @classmethod
+    def _valid_run_shape(cls, run: ReviewRun) -> bool:
+        return bool(
+            all(
+                cls._canonical_uuid(value)
+                for value in (
+                    run.run_id,
+                    run.organization_id,
+                    run.workspace_id,
+                    run.client_id,
+                    run.project_id,
+                    run.proposal_artifact_id,
+                    run.proposal_version_id,
+                    run.created_by,
+                )
+            )
+            and isinstance(run.candidate_count, int)
+            and not isinstance(run.candidate_count, bool)
+            and run.candidate_count > 0
+            and isinstance(run.proposal_version, int)
+            and not isinstance(run.proposal_version, bool)
+            and run.proposal_version > 0
+            and isinstance(run.proposal_sha256, str)
+            and SHA256_PATTERN.fullmatch(run.proposal_sha256) is not None
+            and cls._aware(run.created_at)
+        )
+
+    @staticmethod
+    def _canonical_uuid(value: object) -> bool:
+        if not isinstance(value, str):
+            return False
+        try:
+            return str(UUID(value)) == value
+        except (ValueError, TypeError, AttributeError):
+            return False
+
+    @staticmethod
+    def _aware(value: object) -> bool:
+        return (
+            isinstance(value, datetime)
+            and value.tzinfo is not None
+            and value.utcoffset() is not None
         )
 
     def _validate_scope(self, scope: ReviewScopeContext) -> None:
