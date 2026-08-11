@@ -257,6 +257,16 @@ def _row_set_hash(rows: list[str]) -> str:
     return digest.hexdigest()
 
 
+def migration_manifest_rows(rows: Any) -> list[dict[str, str]]:
+    try:
+        return [
+            {"name": str(row["migration_name"]), "sha256": str(row["sha256"])}
+            for row in rows
+        ]
+    except (KeyError, TypeError):
+        raise RuntimeError("migration registry rows are malformed") from None
+
+
 async def database_snapshot(connection: Any) -> dict[str, dict[str, Any]]:
     snapshot: dict[str, dict[str, Any]] = {}
     for table in BUSINESS_TABLES:
@@ -323,7 +333,7 @@ async def export_bundle(
                 ORDER BY migration_name
                 """
             )
-            if [dict(row) for row in source_migrations] != list(MIGRATION_SET):
+            if migration_manifest_rows(source_migrations) != list(MIGRATION_SET):
                 raise RuntimeError("source migration registry differs from reviewed migrations")
             snapshot = await database_snapshot(connection)
             objects = await referenced_objects(connection)
@@ -430,7 +440,7 @@ async def restored_security(asyncpg: Any, admin_dsn: str, app_dsn: str) -> dict[
             ORDER BY migration_name
             """
         )
-        if [dict(row) for row in checksums] != list(MIGRATION_SET):
+        if migration_manifest_rows(checksums) != list(MIGRATION_SET):
             raise RuntimeError("restored migration registry checksums drifted")
     finally:
         await connection.close()

@@ -8,6 +8,7 @@ from pathlib import Path
 from apps.api.marketops_import.backup import BUSINESS_TABLES
 from scripts.run_m1_01_backup_restore_gate import (
     create_database_dump,
+    migration_manifest_rows,
     postgres_tool_version,
     publish_after_toc_validation,
     replace_database_in_dsn,
@@ -116,6 +117,16 @@ class DumpTocTests(unittest.TestCase):
                 toc_reader=lambda *_args: "999; 2615 200 SCHEMA - marketops owner",
             )
         self.assertEqual(published, [])
+
+    def test_migration_registry_rows_map_to_manifest_shape(self):
+        self.assertEqual(
+            migration_manifest_rows(
+                [{"migration_name": "0001_project_import.sql", "sha256": "a" * 64}]
+            ),
+            [{"name": "0001_project_import.sql", "sha256": "a" * 64}],
+        )
+        with self.assertRaisesRegex(RuntimeError, "malformed"):
+            migration_manifest_rows([{"name": "wrong-shape", "sha256": "a" * 64}])
 
 
 class BackupRestoreWorkflowContractTests(unittest.TestCase):
