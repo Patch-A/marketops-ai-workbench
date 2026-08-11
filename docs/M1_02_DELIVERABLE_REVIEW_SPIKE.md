@@ -237,6 +237,17 @@ Forbidden paths for this package: `project-status.json`, `docs/PROJECT_STATUS.md
 - Acceptance：静态契约和 adapter unit tests 先通过；随后 PostgreSQL 18.4 实测跨 scope 不可见、批准方案 `FOR UPDATE`、同版本并发一胜一冲突、任一步失败无部分行、应用角色无越权；最后扩展逻辑备份恢复，证明新增审核历史、RLS、owner 和权限在隔离恢复后保持。HTTP/UI 不属于本包完成证据。
 - Reviewer role：非实现者复查 SQL 约束、RLS/ACL、事务锁顺序、错误翻译、备份 allowlist 和恢复证明。实现者的本地测试或同一模型判断不能替代最终审查。
 
+### WP2A-2 验收证据
+
+- 最终受审提交：`b207495e58cc66fd02a00844111a9004f933cff4`；GitHub Actions run [31495136866](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31495136866) 的 `headSha` 一致，`static-checks` 与 PostgreSQL 18.4 runtime 均通过。
+- 数据库新增 5 张项目范围、强制 RLS、append-only 审核表；批准方案与 extraction run 使用真实 `FOR UPDATE`。应用角色只增加 `projects.created_by` 与 `extraction_runs.created_by` 两个列级 `UPDATE` 权限来取得行锁，实际修改仍由不可变触发器拒绝。
+- 静态门禁逐表、逐半检查 `USING` 与 `WITH CHECK` 的精确合取结构，并拒绝谓词删除、`AND -> OR`、额外表达式、条件化不可变触发器、缺失 forced RLS 和行锁移除。最终非实现者复审的 30 个只读变异实验全部被拒绝。
+- PostgreSQL runtime 对 5 张审核表分别验证正确 scope 可见，以及错误 workspace、client、project 与空 actor 不可见。双候选并发实验只产生版本 2 和一个 `REVIEW_CONFLICT`；完整 4 个 snapshot item 中未操作候选保持 `pending`，没有版本 3、重复决定或孤立 audit。
+- 当前 v2 逻辑备份恢复覆盖 12 张业务表、两个 migration hash、非空审核历史、对象、owner、forced RLS 和最小权限。额外的真实 v1 实验导出 7 表 data-only dump，加载 schema version 1 bundle，恢复到已应用 `0001 + 0002` 的隔离库，确认 5 张审核表初始为空，再成功创建 `1 run / 1 candidate / 2 snapshots / 2 items / 1 decision` 和 review version 2。
+- 本地完整 `apps/api` 套件通过 272 项，35 项因本机缺少 PostgreSQL、FastAPI、Linux `flock` 或符号链接权限而跳过；同 SHA CI 安装运行依赖后静态套件通过 272 项、跳过 34 项，PostgreSQL runtime 8/8 通过。`compileall`、文档、progress 和 `git diff --check` 均通过。
+- 多轮独立审查先后发现并关闭：静态门禁可被谓词/触发器弱化绕过、advisory lock 与行锁契约冲突、单候选并发不能证明完整快照、v1 只解析不恢复、TOC 缺表未覆盖、migration evidence 漂移，以及 `AND -> OR` 假阳性。最终复审对 `b207495` 返回 `CLEAN APPROVE`，未发现 P0/P1/P2。
+- WP2A-2 只关闭数据库持久化与恢复工作包。它不提供 HTTP、OpenAPI、认证、浏览器审核 UI 或 M1-03 WBS handoff，也不证明生产容量、需求、ROI、节省时间、重复使用或付费。`M1-02` 继续为 `in_progress`，下一工作包是 WP2B 审核 HTTP API。
+
 ## 10. WP2B 与 UI 边界
 
 WP2A 通过后，WP2B 才暴露创建 run、读取候选/历史和逐条审核 HTTP API，并冻结 OpenAPI、认证、错误 envelope、`no-store`、重试和取消语义。浏览器 UI 必须消费服务器事实源，显示来源摘录、事实/假设、pending/approve/modify/reject、冲突刷新和失败恢复；静态 mockup 不构成功能完成证据。
