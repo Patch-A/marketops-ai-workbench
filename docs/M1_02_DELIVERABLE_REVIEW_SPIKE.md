@@ -1,8 +1,8 @@
 # M1-02 交付物提取与人工审核切片
 
-状态：`Kickoff contract; implementation pending`
+状态：`WP1 passed; persistence and review workflow pending`
 
-日期：`2026-08-10`
+日期：`2026-08-11`
 
 ## 1. Job statement
 
@@ -173,3 +173,18 @@ Forbidden paths for this package: `project-status.json`, `docs/PROJECT_STATUS.md
 - Extraction boundary：只从明确的章节和列名识别合成 fixture 中的交付物、里程碑、约束和假设；不推断负责人、日期、依赖、ROI 或未写明事项。模型适配器不在 WP1 范围。
 - Acceptance commands：`python -m unittest apps.api.tests.test_m1_02_extraction_contract apps.api.tests.test_m1_02_deterministic_extractor -v`；`python -m compileall -q apps/api/marketops_extract`；`git diff --check`。
 - Reviewer role：非实现者检查候选/决定分离、稳定 ID、来源完整性、重复与未知字段失败、合成 fixture 期望和无部分结果行为。WP1 通过不等于 M1-02 完成，也不证明真实方案质量、节省时间或付费价值。
+
+### WP1 验收证据
+
+- 受审提交：`10737d0e688ad41ef5192f369101d2f8a76c9b7c`；tree：`66550d9e978b9cb595dd54406ea156d38226470f`。
+- GitHub Actions run [31484373207](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31484373207) 的 `headSha` 与受审提交一致；`static-checks` 和 `m1-01-runtime` 均通过。当前顶层 CI 尚未单独列出 WP1 专项命令，因此同一提交的专项测试仍作为独立证据保留。
+- 本地专项套件通过 `27/27`；完整 `apps/api` 套件通过 `238` 项，`32` 项因本机缺少 PostgreSQL、FastAPI 运行依赖、Linux `flock` 或符号链接权限而跳过；`compileall` 与 `git diff --check` 通过。
+- 合成方案回归稳定产生 10 个候选：6 个交付物、3 个假设、1 个约束；该结果验证确定性工程行为，不验证真实方案召回率、误报率或业务价值。
+- 多轮非实现者审查发现并推动关闭：交错坐标回退、范围重叠、表格越界及身份不一致、重复语义列、`sectionPath` 丢失、未知字段敏感信息回显、normalized DOCX cell 回归、固定进位坐标碰撞和跨 DOCX part 混排。最终独立 `codex review --commit 10737d0e688ad41ef5192f369101d2f8a76c9b7c` 退出码为 0，未输出 P0/P1/P2 finding，且未修改工作区。
+- Git HTTPS push 连续三次连接 GitHub 443 失败后，使用 GitHub Git Data API 按原始字节创建 blob 和 tree，并更新分支。远端与本地最终对齐到同一提交、同一 tree 和同一父提交；该降级路径不改变代码内容。
+
+### WP1 明确限制
+
+- WP1 只有候选契约和确定性提取器，没有数据库持久化、审核版本、审计事件、HTTP API、UI、权限门禁、并发冲突处理或 M1-03 handoff。
+- 公开资料和合成 fixture 只能证明工程行为；不能证明需求、ROI、节省时间、重复使用、真实项目质量或付费意愿。
+- `M1-02` 继续保持 `in_progress`。下一工作包必须先实现项目范围内的候选持久化、不可变审核版本、逐条审核审计和权限/冲突失败路径，再接 UI。
