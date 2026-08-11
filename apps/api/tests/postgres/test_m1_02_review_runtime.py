@@ -334,7 +334,7 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     "SELECT set_config('app.actor_id', $1, true)", self.actor_id
                 )
                 with self.assertRaisesRegex(
-                    self.asyncpg.RaiseError, "append-only"
+                    self.asyncpg.ObjectNotInPrerequisiteStateError, "append-only"
                 ):
                     await connection.execute(
                         "UPDATE marketops.extraction_runs SET created_by = created_by WHERE id = $1",
