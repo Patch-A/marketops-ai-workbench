@@ -34,8 +34,6 @@ SELECT
     set_config('app.actor_id', $4, true)
 """
 
-_ADVISORY_LOCK_SQL = "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))"
-
 _APPROVED_PROPOSAL_FOR_UPDATE_SQL = """
 SELECT
     project.organization_id,
@@ -64,6 +62,7 @@ WHERE project.id = $1
   AND artifact.kind = 'proposal'
   AND version.approval_status = 'approved'
   AND version.proposal_version = project.approved_proposal_number
+FOR UPDATE OF project
 """
 
 _INSERT_RUN_SQL = """
@@ -101,6 +100,7 @@ _VISIBLE_RUN_SQL = """
 SELECT id
 FROM marketops.extraction_runs
 WHERE id = $1
+FOR UPDATE
 """
 
 _LATEST_SNAPSHOT_SQL = """
@@ -193,7 +193,6 @@ class AsyncpgReviewTransaction:
         self, project_id: str
     ) -> ApprovedProposal | None:
         self._require_project(project_id)
-        await self._fetchrow(_ADVISORY_LOCK_SQL, f"review-project:{project_id}")
         row = await self._fetchrow(_APPROVED_PROPOSAL_FOR_UPDATE_SQL, project_id)
         if row is None:
             return None
@@ -274,7 +273,6 @@ class AsyncpgReviewTransaction:
         self, run_id: str
     ) -> ReviewSnapshot | None:
         run = self._known_run(run_id)
-        await self._fetchrow(_ADVISORY_LOCK_SQL, f"review-run:{run_id}")
         if await self._fetchrow(_VISIBLE_RUN_SQL, run_id) is None:
             return None
         row = await self._fetchrow(_LATEST_SNAPSHOT_SQL, run_id)

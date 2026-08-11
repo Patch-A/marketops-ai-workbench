@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import os
 import tempfile
 import unittest
@@ -10,6 +11,7 @@ from uuid import UUID
 from apps.api.marketops_import.backup import (
     BUSINESS_TABLES,
     BackupBundleError,
+    LEGACY_BUSINESS_TABLES,
     MIGRATION_SET,
     MIGRATION_SHA256,
     canonical_archive_path,
@@ -156,8 +158,17 @@ class BackupBundleTests(unittest.TestCase):
         with self.assertRaisesRegex(BackupBundleError, "migration set"):
             validate_manifest(bad)
 
-    def test_legacy_v1_manifest_remains_explicitly_readable(self):
-        legacy_tables = BUSINESS_TABLES[:7]
+    def test_legacy_v1_bundle_loads_and_restores_verified_objects(self):
+        legacy_tables = LEGACY_BUSINESS_TABLES
+        bundle_root = self.root / "legacy-bundle"
+        bundle_root.mkdir()
+        dump_content = b"synthetic legacy custom-format dump"
+        (bundle_root / "database.dump").write_bytes(dump_content)
+        record = self.records[0]
+        archive_path = canonical_archive_path(record["storageKey"])
+        archived_object = bundle_root / archive_path
+        archived_object.parent.mkdir(parents=True)
+        archived_object.write_bytes(b"source")
         manifest = {
             "schemaVersion": 1,
             "taskId": "M1-01",
@@ -169,7 +180,7 @@ class BackupBundleTests(unittest.TestCase):
             "migration": {"name": "0001_project_import.sql", "sha256": MIGRATION_SHA256},
             "database": {
                 "archivePath": "database.dump",
-                "sha256": "d" * 64,
+                "sha256": hashlib.sha256(dump_content).hexdigest(),
                 "tableData": list(legacy_tables),
             },
             "snapshot": {
@@ -178,12 +189,25 @@ class BackupBundleTests(unittest.TestCase):
             },
             "objects": [
                 {
-                    **self.records[0],
-                    "archivePath": canonical_archive_path(self.records[0]["storageKey"]),
+                    **record,
+                    "archivePath": archive_path,
                 }
             ],
         }
-        self.assertEqual(validate_manifest(manifest)["schemaVersion"], 1)
+        (bundle_root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_backup_bundle(bundle_root)
+        restored = restore_object_bundle(loaded, self.root / "legacy-restored")
+
+        self.assertEqual(loaded.manifest["schemaVersion"], 1)
+        restored_object = restored / Path(archive_path).relative_to("objects")
+        self.assertEqual(restored_object.read_bytes(), b"source")
+        self.assertEqual(
+            hashlib.sha256(restored_object.read_bytes()).hexdigest(), record["sha256"]
+        )
 
     def test_storage_keys_require_canonical_scope_and_paths(self):
         record = self.records[0]

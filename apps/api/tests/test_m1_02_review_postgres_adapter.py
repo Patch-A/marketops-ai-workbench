@@ -82,8 +82,6 @@ class FakeConnection:
         self.calls.append(("fetchrow", query, args))
         if "set_config('app.workspace_id'" in query:
             return {"scope": True}
-        if "pg_advisory_xact_lock" in query:
-            return {"locked": True}
         if "FROM marketops.projects AS project" in query:
             return {
                 "organization_id": ORGANIZATION_ID,
@@ -190,9 +188,8 @@ class ReviewPostgresAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((connection.transactions, connection.commits, connection.rollbacks), (1, 1, 0))
         statements = [query for _, query, _ in connection.calls]
         self.assertIn("set_config('app.project_id', $3, true)", statements[0])
-        lock_index = next(i for i, query in enumerate(statements) if "pg_advisory_xact_lock" in query)
         source_index = next(i for i, query in enumerate(statements) if "FROM marketops.projects AS project" in query)
-        self.assertLess(lock_index, source_index)
+        self.assertIn("FOR UPDATE OF project", statements[source_index])
         self.assertEqual(sum("INSERT INTO marketops.extraction_candidates" in query for query in statements), 1)
         self.assertEqual(sum("INSERT INTO marketops.review_snapshot_items" in query for query in statements), 1)
         self.assertEqual(sum("INSERT INTO marketops.audit_events" in query for query in statements), 1)
@@ -209,7 +206,11 @@ class ReviewPostgresAdapterTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result.snapshot.version, 2)
         statements = [query for _, query, _ in connection.calls]
-        lock_index = next(i for i, query in enumerate(statements) if "review-run:" in str(connection.calls[i][2]))
+        lock_index = next(
+            i
+            for i, query in enumerate(statements)
+            if "FROM marketops.extraction_runs" in query and "FOR UPDATE" in query
+        )
         latest_index = next(i for i, query in enumerate(statements) if "ORDER BY review_version DESC" in query)
         self.assertLess(lock_index, latest_index)
         self.assertEqual(sum("INSERT INTO marketops.review_decisions" in query for query in statements), 1)

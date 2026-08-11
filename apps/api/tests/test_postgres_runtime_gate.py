@@ -4,6 +4,7 @@ import unittest
 
 from scripts.run_m1_01_postgres_gate import (
     APPLICATION_ROLE,
+    EXPECTED_COLUMN_UPDATE_PRIVILEGES,
     EXPECTED_FUNCTION_EXECUTE,
     EXPECTED_RELATION_PRIVILEGES,
     _validate_application_attestation,
@@ -38,6 +39,30 @@ def rows_for_pairs(pairs: frozenset[tuple[str, str]]) -> list[dict[str, object]]
     ]
 
 
+def column_rows() -> list[dict[str, object]]:
+    rows = [
+        {
+            "object_name": object_name,
+            "column_name": "id",
+            "privilege": privilege,
+            "granted": True,
+            "grantable": False,
+        }
+        for object_name, privilege in sorted(EXPECTED_RELATION_PRIVILEGES)
+    ]
+    rows.extend(
+        {
+            "object_name": object_name,
+            "column_name": column_name,
+            "privilege": "UPDATE",
+            "granted": True,
+            "grantable": False,
+        }
+        for object_name, column_name in sorted(EXPECTED_COLUMN_UPDATE_PRIVILEGES)
+    )
+    return rows
+
+
 def valid_attestation(**overrides):
     values = {
         "role": baseline_role(),
@@ -47,7 +72,7 @@ def valid_attestation(**overrides):
             {"privilege": "USAGE", "granted": True, "grantable": False},
         ],
         "relation_privileges": rows_for_pairs(EXPECTED_RELATION_PRIVILEGES),
-        "column_privileges": rows_for_pairs(EXPECTED_RELATION_PRIVILEGES),
+        "column_privileges": column_rows(),
         "sequence_privileges": [],
         "function_privileges": [
             {
@@ -148,6 +173,13 @@ class RuntimeGatePrivilegeAttestationTests(unittest.TestCase):
         self.assertEqual(
             evidence["functionExecute"], sorted(EXPECTED_FUNCTION_EXECUTE)
         )
+        self.assertEqual(
+            evidence["columnUpdatePrivileges"],
+            [
+                "marketops.extraction_runs.created_by",
+                "marketops.projects.created_by",
+            ],
+        )
 
     def test_replication_role_fails_closed(self):
         role = baseline_role()
@@ -202,11 +234,31 @@ class RuntimeGatePrivilegeAttestationTests(unittest.TestCase):
             valid_attestation(relation_privileges=relation_privileges)
 
     def test_column_only_update_fails_closed(self):
-        column_privileges = rows_for_pairs(
-            EXPECTED_RELATION_PRIVILEGES | {("audit_events", "UPDATE")}
+        column_privileges = column_rows()
+        column_privileges.append(
+            {
+                "object_name": "audit_events",
+                "column_name": "created_by",
+                "privilege": "UPDATE",
+                "granted": True,
+                "grantable": False,
+            }
         )
 
-        with self.assertRaisesRegex(RuntimeError, "column privileges"):
+        with self.assertRaisesRegex(RuntimeError, "column UPDATE privileges"):
+            valid_attestation(column_privileges=column_privileges)
+
+    def test_missing_required_column_lock_privilege_fails_closed(self):
+        column_privileges = [
+            row
+            for row in column_rows()
+            if not (
+                row["object_name"] == "extraction_runs"
+                and row["privilege"] == "UPDATE"
+            )
+        ]
+
+        with self.assertRaisesRegex(RuntimeError, "column UPDATE privileges"):
             valid_attestation(column_privileges=column_privileges)
 
     def test_sequence_privilege_fails_closed(self):
@@ -223,7 +275,7 @@ class RuntimeGatePrivilegeAttestationTests(unittest.TestCase):
             valid_attestation(sequence_privileges=sequence_privileges)
 
     def test_column_grant_option_fails_closed(self):
-        column_privileges = rows_for_pairs(EXPECTED_RELATION_PRIVILEGES)
+        column_privileges = column_rows()
         column_privileges[0]["grantable"] = True
 
         with self.assertRaisesRegex(RuntimeError, "column.*grant options"):

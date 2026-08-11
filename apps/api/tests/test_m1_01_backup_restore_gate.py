@@ -102,6 +102,20 @@ class DumpTocTests(unittest.TestCase):
             with self.subTest(label=label), self.assertRaises(RuntimeError):
                 validate_dump_toc(toc)
 
+    def test_rejects_each_missing_required_table_entry(self):
+        valid_lines = self.valid_toc().splitlines()
+        for table in BUSINESS_TABLES:
+            with self.subTest(table=table), self.assertRaisesRegex(
+                RuntimeError, "incomplete or duplicated"
+            ):
+                validate_dump_toc(
+                    "\n".join(
+                        line
+                        for line in valid_lines
+                        if f" TABLE DATA marketops {table} " not in line
+                    )
+                )
+
     def test_toc_drift_fails_before_bundle_publisher_runs(self):
         published = []
 

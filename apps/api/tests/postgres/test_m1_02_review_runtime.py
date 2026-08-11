@@ -175,12 +175,12 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 datetime.now(timezone.utc),
             )
 
-    def candidate(self):
+    def candidate(self, *, kind="deliverable", text="Publish the runtime review brief."):
         candidate_id = str(uuid4())
         return Candidate(
             candidate_id=candidate_id,
-            kind="deliverable",
-            text="Publish the runtime review brief.",
+            kind=kind,
+            text=text,
             classification="fact",
             confidence=0.95,
             source_citation=SourceCitation(
@@ -190,7 +190,7 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     {"kind": "line_range", "startLine": 1, "endLine": 1}
                 ),
                 section_path=("Runtime",),
-                quote="Publish the runtime review brief.",
+                quote=text,
             ),
         )
 
@@ -202,7 +202,12 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
         )
 
     async def create_run(self):
-        candidate = self.candidate()
+        candidates = (
+            self.candidate(),
+            self.candidate(
+                kind="milestone", text="Approve the runtime launch checkpoint."
+            ),
+        )
         created = await self.service().create_run(
             CreateReviewRunRequest(
                 self.project_id,
@@ -210,17 +215,19 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 self.version_id,
                 1,
                 self.source_hash,
-                (candidate,),
+                candidates,
             ),
             self.scope,
         )
-        return candidate, created
+        return candidates, created
 
-    async def _visible_count(self, *, client_id, project_id, actor_id):
+    async def _visible_counts(
+        self, *, workspace_id, client_id, project_id, actor_id
+    ):
         async with self.pool.acquire() as connection:
             async with connection.transaction():
                 await connection.execute(
-                    "SELECT set_config('app.workspace_id', $1, true)", self.workspace_id
+                    "SELECT set_config('app.workspace_id', $1, true)", workspace_id
                 )
                 await connection.execute(
                     "SELECT set_config('app.client_id', $1, true)", client_id
@@ -231,45 +238,68 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await connection.execute(
                     "SELECT set_config('app.actor_id', $1, true)", actor_id
                 )
-                return await connection.fetchval(
-                    "SELECT count(*) FROM marketops.extraction_runs WHERE project_id = $1",
+                row = await connection.fetchrow(
+                    """
+                    SELECT
+                      (SELECT count(*) FROM marketops.extraction_runs WHERE project_id = $1) AS extraction_runs,
+                      (SELECT count(*) FROM marketops.extraction_candidates WHERE project_id = $1) AS extraction_candidates,
+                      (SELECT count(*) FROM marketops.review_snapshots WHERE project_id = $1) AS review_snapshots,
+                      (SELECT count(*) FROM marketops.review_snapshot_items WHERE project_id = $1) AS review_snapshot_items,
+                      (SELECT count(*) FROM marketops.review_decisions WHERE project_id = $1) AS review_decisions
+                    """,
                     self.project_id,
                 )
+                return dict(row)
 
     async def test_forced_rls_hides_cross_scope_and_append_only_rows(self):
-        _, created = await self.create_run()
+        candidates, created = await self.create_run()
+        await self.service().review_candidate(
+            self.project_id,
+            created.run.run_id,
+            ReviewRequest(
+                1, candidates[0].candidate_id, "approve", "RLS runtime evidence"
+            ),
+            self.scope,
+        )
+        expected = {
+            "extraction_runs": 1,
+            "extraction_candidates": 2,
+            "review_snapshots": 2,
+            "review_snapshot_items": 4,
+            "review_decisions": 1,
+        }
         self.assertEqual(
-            await self._visible_count(
+            await self._visible_counts(
+                workspace_id=self.workspace_id,
                 client_id=self.client_id,
                 project_id=self.project_id,
                 actor_id=self.actor_id,
             ),
-            1,
+            expected,
         )
-        self.assertEqual(
-            await self._visible_count(
-                client_id=str(uuid4()),
-                project_id=self.project_id,
-                actor_id=self.actor_id,
-            ),
-            0,
+        hidden = {table: 0 for table in expected}
+        scope_cases = (
+            (str(uuid4()), self.client_id, self.project_id, self.actor_id),
+            (self.workspace_id, str(uuid4()), self.project_id, self.actor_id),
+            (self.workspace_id, self.client_id, str(uuid4()), self.actor_id),
+            (self.workspace_id, self.client_id, self.project_id, ""),
         )
-        self.assertEqual(
-            await self._visible_count(
-                client_id=self.client_id,
-                project_id=str(uuid4()),
-                actor_id=self.actor_id,
-            ),
-            0,
-        )
-        self.assertEqual(
-            await self._visible_count(
-                client_id=self.client_id,
-                project_id=self.project_id,
-                actor_id="",
-            ),
-            0,
-        )
+        for workspace_id, client_id, project_id, actor_id in scope_cases:
+            with self.subTest(
+                workspace_id=workspace_id,
+                client_id=client_id,
+                project_id=project_id,
+                actor_id=actor_id,
+            ):
+                self.assertEqual(
+                    await self._visible_counts(
+                        workspace_id=workspace_id,
+                        client_id=client_id,
+                        project_id=project_id,
+                        actor_id=actor_id,
+                    ),
+                    hidden,
+                )
         async with self.pool.acquire() as connection:
             async with connection.transaction():
                 await connection.execute(
@@ -289,9 +319,32 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                         "UPDATE marketops.extraction_runs SET candidate_count = 2 WHERE id = $1",
                         created.run.run_id,
                     )
+        async with self.pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.execute(
+                    "SELECT set_config('app.workspace_id', $1, true)", self.workspace_id
+                )
+                await connection.execute(
+                    "SELECT set_config('app.client_id', $1, true)", self.client_id
+                )
+                await connection.execute(
+                    "SELECT set_config('app.project_id', $1, true)", self.project_id
+                )
+                await connection.execute(
+                    "SELECT set_config('app.actor_id', $1, true)", self.actor_id
+                )
+                with self.assertRaisesRegex(
+                    self.asyncpg.RaiseError, "append-only"
+                ):
+                    await connection.execute(
+                        "UPDATE marketops.extraction_runs SET created_by = created_by WHERE id = $1",
+                        created.run.run_id,
+                    )
 
     async def test_concurrent_same_version_has_one_winner_and_no_partial_rows(self):
-        candidate, created = await self.create_run()
+        candidates, created = await self.create_run()
+        candidate = candidates[0]
+        untouched = candidates[1]
 
         async def decide(action):
             try:
@@ -307,6 +360,22 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         results = await asyncio.gather(decide("approve"), decide("reject"))
         self.assertCountEqual(results, [2, "REVIEW_CONFLICT"])
+        latest_items = await self.admin.fetch(
+            """
+            SELECT candidate_id, status
+            FROM marketops.review_snapshot_items
+            WHERE snapshot_id = (
+                SELECT id FROM marketops.review_snapshots
+                WHERE run_id = $1
+                ORDER BY review_version DESC
+                LIMIT 1
+            )
+            """,
+            created.run.run_id,
+        )
+        statuses = {str(row["candidate_id"]): row["status"] for row in latest_items}
+        self.assertIn(statuses[candidate.candidate_id], {"approve", "reject"})
+        self.assertEqual(statuses[untouched.candidate_id], "pending")
         counts = await self.admin.fetchrow(
             """
             SELECT
@@ -318,10 +387,11 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
             created.run.run_id,
             created.run.run_id,
         )
-        self.assertEqual(dict(counts), {"snapshots": 2, "items": 2, "decisions": 1, "audits": 2})
+        self.assertEqual(dict(counts), {"snapshots": 2, "items": 4, "decisions": 1, "audits": 2})
 
     async def test_failure_after_snapshot_insert_rolls_back_snapshot_items_and_audit(self):
-        candidate, created = await self.create_run()
+        candidates, created = await self.create_run()
+        candidate = candidates[0]
         failing = FailingDecisionRepository(AsyncpgReviewRepository(self.pool))
         with self.assertRaises(ReviewFailure) as raised:
             await self.service(failing).review_candidate(
@@ -342,7 +412,7 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
             created.run.run_id,
             created.run.run_id,
         )
-        self.assertEqual(dict(counts), {"snapshots": 1, "items": 1, "decisions": 0, "audits": 1})
+        self.assertEqual(dict(counts), {"snapshots": 1, "items": 2, "decisions": 0, "audits": 1})
 
 
 if __name__ == "__main__":

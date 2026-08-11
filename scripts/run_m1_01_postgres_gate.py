@@ -77,6 +77,12 @@ EXPECTED_FUNCTION_EXECUTE = frozenset(
         "current_workspace_id()",
     }
 )
+EXPECTED_COLUMN_UPDATE_PRIVILEGES = frozenset(
+    {
+        ("projects", "created_by"),
+        ("extraction_runs", "created_by"),
+    }
+)
 
 
 def required_environment(name: str) -> str:
@@ -213,6 +219,8 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
                 marketops.review_snapshot_items,
                 marketops.review_decisions
             TO {APPLICATION_ROLE};
+            GRANT UPDATE (created_by) ON marketops.projects TO {APPLICATION_ROLE};
+            GRANT UPDATE (created_by) ON marketops.extraction_runs TO {APPLICATION_ROLE};
             """
         )
         post_grant_replay = await run_migrations(
@@ -314,11 +322,24 @@ def _validate_application_attestation(
     _reject_grant_options(relation_privileges, "relation", "object_name")
 
     observed_columns = _granted_pairs(column_privileges, "object_name")
-    unexpected_columns = sorted(observed_columns - EXPECTED_RELATION_PRIVILEGES)
+    unexpected_columns = sorted(
+        pair for pair in observed_columns
+        if pair[1] != "UPDATE" and pair not in EXPECTED_RELATION_PRIVILEGES
+    )
     if unexpected_columns:
         raise RuntimeError(
             "application column privileges exceed the table privilege matrix: "
             f"{unexpected_columns!r}"
+        )
+    observed_column_updates = frozenset(
+        (str(row["object_name"]), str(row["column_name"]))
+        for row in column_privileges
+        if row["granted"] and row["privilege"] == "UPDATE"
+    )
+    if observed_column_updates != EXPECTED_COLUMN_UPDATE_PRIVILEGES:
+        raise RuntimeError(
+            "application column UPDATE privileges drifted: "
+            f"observed={sorted(observed_column_updates)!r}"
         )
     _reject_grant_options(column_privileges, "column", "object_name")
 
@@ -354,6 +375,10 @@ def _validate_application_attestation(
         "functionExecute": sorted(observed_functions),
         "grantOptions": [],
         "sequencePrivileges": [],
+        "columnUpdatePrivileges": [
+            f"marketops.{table}.{column}"
+            for table, column in sorted(observed_column_updates)
+        ],
         "unexpectedColumnPrivileges": [],
     }
 
@@ -404,6 +429,7 @@ async def attest_application_role(asyncpg, app_dsn: str) -> dict[str, object]:
         relation_privileges = await connection.fetch(
             f"""
             SELECT relation.relname AS object_name,
+                   attribute.attname AS column_name,
                    privilege,
                    pg_catalog.has_table_privilege(
                        current_user, relation.oid, privilege
@@ -532,9 +558,9 @@ async def run(output: Path | None) -> None:
     applied = await migrate_and_grant(asyncpg, migrator_dsn)
     role = await attest_application_role(asyncpg, app_dsn)
     evidence = {
-        "schemaVersion": 1,
-        "taskId": "M1-01",
-        "workPackage": "WP5-bootstrap",
+        "schemaVersion": 2,
+        "taskId": "M1-02",
+        "workPackage": "WP2A-2-postgres-bootstrap",
         "generatedAt": datetime.now(timezone.utc).isoformat(),
         "headSha": git_head(),
         "postgres": {
@@ -547,7 +573,13 @@ async def run(output: Path | None) -> None:
         },
         "migration": {
             "applied": list(applied),
-            "sha256": hashlib.sha256(MIGRATION.read_bytes()).hexdigest(),
+            "reviewed": [
+                {
+                    "name": path.name,
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                }
+                for path in (MIGRATION, REVIEW_MIGRATION)
+            ],
             "replayApplied": [],
             "postGrantReplayApplied": [],
         },
