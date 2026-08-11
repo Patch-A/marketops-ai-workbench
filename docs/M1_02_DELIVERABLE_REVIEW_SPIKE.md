@@ -219,6 +219,14 @@ Forbidden paths for this package: `project-status.json`, `docs/PROJECT_STATUS.md
 
 固定一个含两个候选的合成 run，两个 reviewer 同时基于 `expectedReviewVersion = 1` 修改同一候选。唯一可变因素是提交先后；成功信号是恰好一个事务生成版本 2，另一个得到 `REVIEW_CONFLICT`，数据库中没有版本 3、重复决定或孤立 audit。失败信号是 last-write-wins、两个事务都成功、部分 snapshot、跨 scope 可见或恢复后审核历史缺失。
 
+### WP2A-1 领域服务证据
+
+- 受审提交：`e3d9a0884e486b646327da77056e0d5e99cbb7c2`；GitHub Actions run [31488499868](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31488499868) 的 `headSha` 一致，两个现有 job 均通过。当前顶层 CI 尚未单列 WP2A-1 专项测试。
+- 新增不可变 run、候选批次、完整 review snapshot、单候选 decision、audit event 和 async repository/transaction 协议。创建 run 锁定当前批准方案；每次审核要求 project ID 与 `expectedReviewVersion`，同版本并发只允许一个 winner。
+- 专项测试 `18/18` 通过；本地完整 `apps/api` 测试 `258` 项通过，`32` 项因环境能力跳过；`compileall`、文档/progress 检查和 `git diff --check` 通过。
+- 首轮独立 commit review 发现批准方案读取未声明锁定、UUID 大写输入被接受但未统一归一化两项 P2；修复后最终 review 未发现可执行 correctness regression。reviewer 的只读环境没有 Python launcher，因此它没有重复执行 Python 测试，该限制由同一工作区的上述可复现测试证据补充，但不能描述成 reviewer 亲自复跑。
+- WP2A-1 仅关闭领域服务包。`apps/api/migrations/0002_extraction_review.sql`、PostgreSQL adapter、RLS/ACL、真实并发事务、备份恢复和 HTTP/UI 均未实现；WP2A 与 M1-02 继续为 `in_progress`。
+
 ## 10. WP2B 与 UI 边界
 
 WP2A 通过后，WP2B 才暴露创建 run、读取候选/历史和逐条审核 HTTP API，并冻结 OpenAPI、认证、错误 envelope、`no-store`、重试和取消语义。浏览器 UI 必须消费服务器事实源，显示来源摘录、事实/假设、pending/approve/modify/reject、冲突刷新和失败恢复；静态 mockup 不构成功能完成证据。
