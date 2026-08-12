@@ -431,6 +431,8 @@ GUARDS = (
         == {"artifactId", "versionId", "filename", "mediaType", "sizeBytes"}
         and component_schema(d, "ApprovedProposal").get("type") == "object"
         and component_schema(d, "ApprovedProposal").get("additionalProperties") is False
+        and component_schema(d, "ApprovedProposal").get("properties", {}).get("sha256")
+        == {"type": "string", "pattern": "^[a-f0-9]{64}$"}
         and set(component_schema(d, "ApprovedProposal").get("required", []))
         == {
             "artifactId",
@@ -438,6 +440,7 @@ GUARDS = (
             "filename",
             "mediaType",
             "sizeBytes",
+            "sha256",
             "proposalVersion",
             "approvalStatus",
             "approvedAt",

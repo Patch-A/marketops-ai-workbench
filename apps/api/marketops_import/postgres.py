@@ -102,7 +102,7 @@ _READ_PROJECT_VERSIONS_SQL = """
 SELECT
     artifact.kind, artifact.id AS artifact_id, version.id AS version_id,
     version.proposal_version, version.original_filename, version.media_type,
-    version.byte_size, version.approval_status, version.approved_at
+    version.byte_size, version.sha256, version.approval_status, version.approved_at
 FROM marketops.artifacts AS artifact
 JOIN marketops.artifact_versions AS version
   ON version.organization_id = artifact.organization_id
@@ -185,6 +185,7 @@ class ProjectFileView:
 
 @dataclass(frozen=True)
 class ApprovedProposalView(ProjectFileView):
+    sha256: str
     proposal_version: int
     approval_status: str
     approved_at: datetime
@@ -661,6 +662,7 @@ def _map_project_detail(project: Any, version_rows: list[Any]) -> ProjectDetail:
             filename=proposal["original_filename"],
             media_type=proposal["media_type"],
             size_bytes=proposal["byte_size"],
+            sha256=_hex(proposal["sha256"]),
             proposal_version=proposal["proposal_version"],
             approval_status=proposal["approval_status"],
             approved_at=approved_at,

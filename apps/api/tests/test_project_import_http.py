@@ -415,8 +415,10 @@ class ProjectReadHttpTests(unittest.TestCase):
         self.assertEqual(self.reader.requested_project_id, self.reader.project_id)
         body = response.json()
         self.assertEqual(body["approvedProposal"]["approvalStatus"], "approved")
+        self.assertEqual(body["approvedProposal"]["sha256"], "ab" * 32)
         self.assertEqual(body["sourceFile"]["filename"], "brief.md")
-        for forbidden in ("storageKey", "idempotency", "approvedBy", "sha256"):
+        self.assertNotIn("sha256", body["sourceFile"])
+        for forbidden in ("storageKey", "idempotency", "approvedBy"):
             self.assertNotIn(forbidden, response.text)
 
     def test_invalid_absent_and_foreign_ids_are_indistinguishable(self):
@@ -670,7 +672,7 @@ if HTTP_DEPENDENCIES_AVAILABLE:
                 ProjectFileView(identifier(), identifier(), "brief.md", "text/markdown", 10),
                 ApprovedProposalView(
                     identifier(), identifier(), "proposal.md", "text/markdown", 20,
-                    3, "approved", self.approved_at,
+                    "ab" * 32, 3, "approved", self.approved_at,
                 ),
             )
 

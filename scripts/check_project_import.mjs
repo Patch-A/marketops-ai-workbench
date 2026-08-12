@@ -14,6 +14,8 @@ const {
   loadInitialProject,
   normalizeUpload,
   validateProjectDetail,
+  validateReviewDecisionResult,
+  validateReviewDetail,
 } = require('../project-import.js');
 
 const PROJECT_ID = '11111111-1111-4111-8111-111111111111';
@@ -21,6 +23,11 @@ const SOURCE_ARTIFACT_ID = '22222222-2222-4222-8222-222222222222';
 const SOURCE_VERSION_ID = '33333333-3333-4333-8333-333333333333';
 const PROPOSAL_ARTIFACT_ID = '44444444-4444-4444-8444-444444444444';
 const PROPOSAL_VERSION_ID = '55555555-5555-4555-8555-555555555555';
+const RUN_ID = '66666666-6666-4666-8666-666666666666';
+const CANDIDATE_ID = '77777777-7777-4777-8777-777777777777';
+const DECISION_ID = '88888888-8888-4888-8888-888888888888';
+const ACTOR_ID = '99999999-9999-4999-8999-999999999999';
+const PROPOSAL_SHA256 = 'b'.repeat(64);
 
 function upload(name, content, type = '', lastModified = 1) {
   const blob = new Blob([content], { type });
@@ -74,6 +81,7 @@ function projectDetail(overrides = {}) {
       filename: 'proposal.md',
       mediaType: 'text/markdown',
       sizeBytes: 11,
+      sha256: PROPOSAL_SHA256,
       proposalVersion: 3,
       approvalStatus: 'approved',
       approvedAt: '2026-08-10T08:00:00Z',
@@ -102,6 +110,7 @@ function serverProjectDetail(overrides = {}) {
       filename: detail.proposal.filename,
       mediaType: detail.proposal.mediaType,
       sizeBytes: detail.proposal.sizeBytes,
+      sha256: detail.proposal.sha256,
       proposalVersion: detail.proposal.proposalVersion,
       approvalStatus: detail.proposal.approvalStatus,
       approvedAt: detail.proposal.approvedAt,
@@ -330,6 +339,208 @@ assert.deepEqual(await readClient.listProjects(), {
   }],
 });
 assert.deepEqual(await readClient.getProject(PROJECT_ID), projectDetail());
+
+function reviewSummary(overrides = {}) {
+  return {
+    runId: RUN_ID,
+    proposalVersionId: PROPOSAL_VERSION_ID,
+    proposalSha256: PROPOSAL_SHA256,
+    candidateCount: 1,
+    latestReviewVersion: 1,
+    createdAt: '2026-08-12T08:00:00Z',
+    ...overrides,
+  };
+}
+
+function reviewDecision(overrides = {}) {
+  return {
+    decisionId: DECISION_ID,
+    reviewVersion: 2,
+    candidateId: CANDIDATE_ID,
+    action: 'approve',
+    reason: 'Verified',
+    comment: null,
+    replacementText: null,
+    actorId: ACTOR_ID,
+    createdAt: '2026-08-12T08:01:00Z',
+    ...overrides,
+  };
+}
+
+function reviewDetail(overrides = {}) {
+  return {
+    run: reviewSummary(),
+    selectedReviewVersion: 1,
+    availableReviewVersions: [1],
+    selectedDecision: null,
+    candidates: [{
+      ordinal: 1,
+      candidateId: CANDIDATE_ID,
+      kind: 'deliverable',
+      text: 'Publish the reviewed brief.',
+      classification: 'fact',
+      confidence: 1,
+      sourceCitation: {
+        sourceVersionId: PROPOSAL_VERSION_ID,
+        sourceSha256: PROPOSAL_SHA256,
+        location: { kind: 'line_range', startLine: 2, endLine: 2 },
+        sectionPath: ['Deliverables'],
+        quote: 'Publish the reviewed brief.',
+      },
+      review: { status: 'pending', replacementText: null, lastDecision: null },
+    }],
+    ...overrides,
+  };
+}
+
+const reviewCalls = [];
+const reviewClient = createProjectApiClient({
+  FormDataImpl: CapturingFormData,
+  async fetchImpl(url, options) {
+    reviewCalls.push({ url, options });
+    if (options.method === 'POST' && url.endsWith('/extraction-runs')) {
+      return response(201, {
+        runId: RUN_ID,
+        reviewVersion: 1,
+        candidateCount: 1,
+        proposalVersionId: PROPOSAL_VERSION_ID,
+        proposalSha256: PROPOSAL_SHA256,
+        replayed: false,
+        createdAt: '2026-08-12T08:00:00Z',
+      });
+    }
+    if (options.method === 'POST') {
+      return response(201, { runId: RUN_ID, reviewVersion: 2, decision: reviewDecision() });
+    }
+    if (url.includes(`/${RUN_ID}`)) return response(200, reviewDetail());
+    return response(200, { runs: [reviewSummary()] });
+  },
+});
+assert.equal((await reviewClient.createReviewRun(PROJECT_ID, {
+  expectedProposalVersionId: PROPOSAL_VERSION_ID,
+  expectedProposalSha256: PROPOSAL_SHA256,
+}, { idempotencyKey: 'review-request-001' })).runId, RUN_ID);
+assert.equal((await reviewClient.listReviewRuns(PROJECT_ID)).runs[0].runId, RUN_ID);
+assert.equal((await reviewClient.getReview(PROJECT_ID, RUN_ID)).candidates[0].sourceCitation.quote, 'Publish the reviewed brief.');
+assert.equal((await reviewClient.decideReview(PROJECT_ID, RUN_ID, {
+  expectedReviewVersion: 1,
+  candidateId: CANDIDATE_ID,
+  action: 'approve',
+  reason: 'Verified',
+})).reviewVersion, 2);
+const approvedDecision = reviewDecision();
+const approvedDetail = reviewDetail({
+  run: reviewSummary({ latestReviewVersion: 2 }),
+  selectedReviewVersion: 2,
+  availableReviewVersions: [1, 2],
+  selectedDecision: approvedDecision,
+  candidates: [{
+    ...reviewDetail().candidates[0],
+    review: { status: 'approve', replacementText: null, lastDecision: approvedDecision },
+  }],
+});
+assert.equal(validateReviewDetail(approvedDetail).selectedReviewVersion, 2);
+assert.equal(reviewCalls[0].options.headers['Idempotency-Key'], 'review-request-001');
+assert.equal(Object.keys(reviewCalls[0].options.headers).some((name) => name.toLowerCase() === 'authorization'), false);
+const mismatchedCreateClient = createProjectApiClient({
+  FormDataImpl: CapturingFormData,
+  async fetchImpl() {
+    return response(201, {
+      runId: RUN_ID,
+      reviewVersion: 1,
+      candidateCount: 1,
+      proposalVersionId: PROPOSAL_VERSION_ID,
+      proposalSha256: 'c'.repeat(64),
+      replayed: false,
+      createdAt: '2026-08-12T08:00:00Z',
+    });
+  },
+});
+await assert.rejects(
+  () => mismatchedCreateClient.createReviewRun(PROJECT_ID, {
+    expectedProposalVersionId: PROPOSAL_VERSION_ID,
+    expectedProposalSha256: PROPOSAL_SHA256,
+  }, { idempotencyKey: 'review-request-002' }),
+  (error) => error.code === 'MALFORMED_RESPONSE' && error.uncertain === true,
+);
+const mismatchedGetClient = createProjectApiClient({
+  FormDataImpl: CapturingFormData,
+  async fetchImpl() {
+    return response(200, reviewDetail({ run: reviewSummary({ runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }) }));
+  },
+});
+await assert.rejects(
+  () => mismatchedGetClient.getReview(PROJECT_ID, RUN_ID),
+  (error) => error.code === 'MALFORMED_RESPONSE' && error.uncertain === true,
+);
+const mismatchedDecisionClient = createProjectApiClient({
+  FormDataImpl: CapturingFormData,
+  async fetchImpl() {
+    return response(201, { runId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa', reviewVersion: 2, decision: reviewDecision({ candidateId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }) });
+  },
+});
+await assert.rejects(
+  () => mismatchedDecisionClient.decideReview(PROJECT_ID, RUN_ID, {
+    expectedReviewVersion: 1,
+    candidateId: CANDIDATE_ID,
+    action: 'approve',
+    reason: 'Verified',
+  }),
+  (error) => error.code === 'MALFORMED_RESPONSE' && error.uncertain === true,
+);
+for (const invalidDecision of [
+  { expectedReviewVersion: 1, candidateId: CANDIDATE_ID, action: 'modify', reason: 'Needs detail' },
+  { expectedReviewVersion: 1, candidateId: CANDIDATE_ID, action: 'approve', reason: 'Verified', replacementText: 'forbidden' },
+  { expectedReviewVersion: 1, candidateId: CANDIDATE_ID, action: 'approve', reason: 'Verified', unknown: true },
+]) {
+  await assert.rejects(
+    () => reviewClient.decideReview(PROJECT_ID, RUN_ID, invalidDecision),
+    (error) => error.code === 'INVALID_INPUT',
+  );
+}
+const malformedReviewClient = createProjectApiClient({
+  FormDataImpl: CapturingFormData,
+  async fetchImpl() {
+    return response(200, reviewDetail({
+      candidates: [{
+        ...reviewDetail().candidates[0],
+        sourceCitation: {
+          ...reviewDetail().candidates[0].sourceCitation,
+          location: { kind: 'line_range', startLine: 2, endLine: 2, unknown: 3 },
+        },
+      }],
+    }));
+  },
+});
+await assert.rejects(
+  () => malformedReviewClient.getReview(PROJECT_ID, RUN_ID),
+  (error) => error.code === 'MALFORMED_RESPONSE',
+);
+for (const payload of [
+  reviewDetail({ availableReviewVersions: [1, 1] }),
+  reviewDetail({ run: reviewSummary({ candidateCount: 2 }) }),
+  reviewDetail({
+    candidates: [{
+      ...reviewDetail().candidates[0],
+      sourceCitation: { ...reviewDetail().candidates[0].sourceCitation, sourceSha256: 'c'.repeat(64) },
+    }],
+  }),
+  reviewDetail({
+    candidates: [{
+      ...reviewDetail().candidates[0],
+      review: { status: 'approve', replacementText: null, lastDecision: null },
+    }],
+  }),
+]) {
+  assert.throws(
+    () => validateReviewDetail(payload),
+    (error) => error.code === 'MALFORMED_RESPONSE',
+  );
+}
+assert.throws(
+  () => validateReviewDecisionResult({ runId: RUN_ID, reviewVersion: 3, decision: reviewDecision() }),
+  (error) => error.code === 'MALFORMED_RESPONSE' && error.uncertain === true,
+);
 for (const payload of [
   { ...serverProjectDetail(), storageKey: 'forbidden' },
   { projects: [], credentials: 'forbidden' },

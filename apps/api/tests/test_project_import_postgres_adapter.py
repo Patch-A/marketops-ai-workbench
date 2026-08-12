@@ -226,7 +226,6 @@ def read_rows(item):
     project["created_at"] = created_at
     for version in versions:
         version.pop("storage_key", None)
-        version.pop("sha256", None)
     return project, versions
 
 
@@ -328,6 +327,7 @@ class AsyncpgImportRepositoryTests(unittest.IsolatedAsyncioTestCase):
             detail.approved_proposal.proposal_version,
             self.record.approved_proposal_version,
         )
+        self.assertEqual(detail.approved_proposal.sha256, self.record.proposal.sha256)
         scope_calls = [
             call for call in connection.calls
             if call[1].strip().startswith("SELECT set_config('app.project_id'")
@@ -342,6 +342,7 @@ class AsyncpgImportRepositoryTests(unittest.IsolatedAsyncioTestCase):
         ):
             self.assertIn(predicate, detail_sql)
         self.assertNotIn("storage_key", detail_sql)
+        self.assertIn("version.sha256", detail_sql)
 
     async def test_absent_or_foreign_project_has_no_artifact_read(self):
         connection = FakeConnection(project=None)

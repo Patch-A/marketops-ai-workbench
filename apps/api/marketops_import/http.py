@@ -375,6 +375,7 @@ def create_app(
                         "filename": project.approved_proposal.filename,
                         "mediaType": project.approved_proposal.media_type,
                         "sizeBytes": project.approved_proposal.size_bytes,
+                        "sha256": project.approved_proposal.sha256,
                         "proposalVersion": project.approved_proposal.proposal_version,
                         "approvalStatus": project.approved_proposal.approval_status,
                         "approvedAt": project.approved_proposal.approved_at.isoformat(),

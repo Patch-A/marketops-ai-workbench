@@ -439,13 +439,14 @@
       "ApprovedProposal": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["artifactId", "versionId", "filename", "mediaType", "sizeBytes", "proposalVersion", "approvalStatus", "approvedAt"],
+        "required": ["artifactId", "versionId", "filename", "mediaType", "sizeBytes", "sha256", "proposalVersion", "approvalStatus", "approvedAt"],
         "properties": {
           "artifactId": { "type": "string", "format": "uuid" },
           "versionId": { "type": "string", "format": "uuid" },
           "filename": { "type": "string" },
           "mediaType": { "type": "string" },
           "sizeBytes": { "type": "integer", "minimum": 0 },
+          "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
           "proposalVersion": { "type": "integer", "minimum": 1 },
           "approvalStatus": { "type": "string", "const": "approved" },
           "approvedAt": { "type": "string", "format": "date-time" }

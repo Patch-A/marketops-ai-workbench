@@ -1,6 +1,6 @@
 # M1-02 交付物提取与人工审核切片
 
-状态：`WP1/WP2A/WP2B-0 passed; WP2B-1 HTTP/idempotency and UI pending`
+状态：`WP1/WP2A/WP2B-0/WP2B-1 API passed; browser review UI pending`
 
 日期：`2026-08-12`
 
@@ -319,3 +319,10 @@ WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verif
 - Runtime：import 与 review adapter 共享一个生命周期内的 asyncpg pool；source reader、review repository、preparation service 和 review service 由服务器装配。启动失败与取消必须关闭已创建资源，关闭只执行一次。OpenAPI 是逐字节受审静态契约。
 - Acceptance：focused migration/idempotency/service/HTTP/OpenAPI/runtime tests；PostgreSQL 18.4 的同 key 重放、不同 source 冲突、并发单 run、失败原子性、RLS/actor 隔离、四端点与备份恢复；恢复门禁必须覆盖 v1/v2 bundle 升级到当前 schema、非空 v3 request 行集，并在 v3 隔离恢复库通过新 `ReviewService` 重放原 run 的 version 1。完整 API suite、`compileall`、文档/progress、`git diff --check`、同 SHA CI 和非实现者复审全部通过后，只关闭 WP2B-1 API，不关闭 UI 或 `M1-02`。
 - Non-goals：浏览器 UI、批量/撤销审核、多人角色矩阵、WBS handoff、模型提取、生产容量和市场价值验证。最小实验固定相同 project/source/key 的两个并发创建；成功信号是一个事实、一个 run、两个等价响应且无孤立行。
+
+### WP2B-1 验收证据
+
+- 最终受审实现提交为 `4466246a2b410c575fef7e621f710a504962e8ab`；GitHub Actions run [31606515703](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31606515703) 的 `headSha` 一致，`static-checks` 与 `m1-01-runtime` 均通过，包括锁定 FastAPI 运行时、PostgreSQL 18.4、浏览器回归和 v1/v2/v3 备份恢复。
+- 本地完整 `apps/api` 套件通过 353 项、跳过 55 项；跳过项来自本机缺少 FastAPI、PostgreSQL、Linux `flock` 或 Windows 符号链接权限，不能单独作为通过证据。同一提交 CI 补齐了 FastAPI/PostgreSQL/Linux 运行路径。
+- 两份专项独立复审和最终 SHA 非实现者收口复审均返回 `CLEAN APPROVE`，未发现 P0/P1/P2。该结论只关闭 WP2B-1 API，不关闭浏览器审核 UI 或 `M1-02`。
+- 审计随后发现 UI 首次创建 run 需要 approved proposal SHA，而项目详情尚未暴露该服务器事实；后续兼容性修复只补齐项目详情 SHA 读取链和 review API client，不改变 WP2B-1 数据库/HTTP 写入语义。
