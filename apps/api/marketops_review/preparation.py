@@ -4,11 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import AsyncContextManager, Protocol
 from uuid import UUID
 
-from apps.api.marketops_extract.contract import Candidate, ExtractionContractError, ParserBlock
+from apps.api.marketops_extract.contract import (
+    Candidate,
+    ExtractionContractError,
+    ParserBlock,
+    SourceLocation,
+    TableCell,
+)
 from apps.api.marketops_extract.deterministic import DeterministicExtractor
 from apps.api.marketops_extract.parser import (
     MAX_BLOCK_TEXT_CHARS,
@@ -335,34 +342,35 @@ class ApprovedProposalPreparationService:
             raise PreparationFailure(
                 "PARSER_FAILED", "approved proposal parser returned invalid output"
             )
+        if not isinstance(result.blocks, tuple) or not isinstance(
+            result.warnings, tuple
+        ):
+            raise PreparationFailure(
+                "PARSER_FAILED", "approved proposal parser returned invalid output"
+            )
         if (
-            not isinstance(result.blocks, tuple)
-            or not isinstance(result.warnings, tuple)
-            or len(result.blocks) > MAX_PARSER_BLOCKS
+            len(result.blocks) > MAX_PARSER_BLOCKS
             or len(result.warnings) > MAX_PARSER_WARNINGS
-            or sum(
-                len(block.cells)
-                for block in result.blocks
-                if isinstance(block, ParserBlock)
-            )
-            > MAX_PARSER_TABLE_CELLS
-            or any(
-                (
-                    block.text is not None
-                    and len(block.text) > MAX_BLOCK_TEXT_CHARS
-                )
-                or any(
-                    len(cell.value) > MAX_BLOCK_TEXT_CHARS
-                    for cell in block.cells
-                )
-                for block in result.blocks
-                if isinstance(block, ParserBlock)
-            )
         ):
             raise PreparationFailure(
                 "PARSER_LIMIT_EXCEEDED",
                 "approved proposal parser output exceeds review limits",
             )
+        try:
+            normalized_blocks = self._normalize_parser_blocks(result.blocks)
+        except PreparationFailure:
+            raise
+        except (ExtractionContractError, TypeError, ValueError, AttributeError):
+            raise PreparationFailure(
+                "PARSER_FAILED", "approved proposal parser returned invalid output"
+            ) from None
+        result = RuntimeParserResult(
+            result.document_format,
+            result.size_bytes,
+            result.source_sha256,
+            normalized_blocks,
+            result.warnings,
+        )
         if (
             result.size_bytes != source.size_bytes
             or result.source_sha256 != source.sha256
@@ -377,6 +385,107 @@ class ApprovedProposalPreparationService:
                 "approved proposal contains unsupported or ambiguous content",
             )
         return result
+
+    @classmethod
+    def _normalize_parser_blocks(
+        cls, raw_blocks: tuple[object, ...]
+    ) -> tuple[ParserBlock, ...]:
+        normalized: list[ParserBlock] = []
+        table_cells = 0
+        for raw in raw_blocks:
+            if isinstance(raw, ParserBlock):
+                block = raw
+            elif isinstance(raw, Mapping):
+                block = ParserBlock.from_mapping(raw)
+            else:
+                raise ExtractionContractError(
+                    "INVALID_BLOCK", "parser block must be an object"
+                )
+            table_cells += cls._validate_parser_block(block)
+            if table_cells > MAX_PARSER_TABLE_CELLS:
+                raise PreparationFailure(
+                    "PARSER_LIMIT_EXCEEDED",
+                    "approved proposal parser output exceeds review limits",
+                )
+            normalized.append(block)
+        return tuple(normalized)
+
+    @staticmethod
+    def _validate_parser_block(block: ParserBlock) -> int:
+        if block.kind not in {"heading", "paragraph", "table"}:
+            raise ExtractionContractError(
+                "INVALID_BLOCK", "parser block kind is invalid"
+            )
+        if not isinstance(block.section_path, tuple) or any(
+            not isinstance(item, str) or not item.strip()
+            for item in block.section_path
+        ):
+            raise ExtractionContractError(
+                "INVALID_SECTION", "parser block section path is invalid"
+            )
+        if any(len(item) > MAX_BLOCK_TEXT_CHARS for item in block.section_path):
+            raise PreparationFailure(
+                "PARSER_LIMIT_EXCEEDED",
+                "approved proposal parser output exceeds review limits",
+            )
+        if not isinstance(block.location, SourceLocation):
+            raise ExtractionContractError(
+                "INVALID_LOCATION", "parser block location is invalid"
+            )
+        SourceLocation.from_mapping(block.location.as_dict())
+        if not isinstance(block.cells, tuple):
+            raise ExtractionContractError(
+                "INVALID_TABLE", "parser block cells are invalid"
+            )
+
+        if block.kind != "table":
+            if (
+                not isinstance(block.text, str)
+                or not block.text.strip()
+                or block.column_name is not None
+                or block.cells
+            ):
+                raise ExtractionContractError(
+                    "INVALID_BLOCK", "parser text block is invalid"
+                )
+        elif block.cells:
+            if block.text is not None or block.column_name is not None:
+                raise ExtractionContractError(
+                    "INVALID_TABLE", "parser table block is invalid"
+                )
+            for cell in block.cells:
+                if not isinstance(cell, TableCell):
+                    raise ExtractionContractError(
+                        "INVALID_TABLE", "parser table cell is invalid"
+                    )
+                TableCell.from_mapping(
+                    {
+                        "column": cell.column,
+                        "value": cell.value,
+                        "location": cell.location.as_dict(),
+                    }
+                )
+            ParserBlock._validate_table_cells(block.location, block.cells)
+        elif (
+            not isinstance(block.text, str)
+            or not block.text.strip()
+            or not isinstance(block.column_name, str)
+            or not block.column_name.strip()
+        ):
+            raise ExtractionContractError(
+                "INVALID_TABLE", "parser table block is invalid"
+            )
+
+        bounded_text = (block.text, block.column_name, *(cell.column for cell in block.cells))
+        if any(
+            value is not None and len(value) > MAX_BLOCK_TEXT_CHARS
+            for value in bounded_text
+        ) or any(len(cell.value) > MAX_BLOCK_TEXT_CHARS for cell in block.cells):
+            raise PreparationFailure(
+                "PARSER_LIMIT_EXCEEDED",
+                "approved proposal parser output exceeds review limits",
+            )
+        return len(block.cells)
 
     def _extract(
         self, source: ApprovedProposalSource, result: RuntimeParserResult

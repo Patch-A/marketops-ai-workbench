@@ -270,6 +270,22 @@ class RuntimeProposalParserTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(raised.exception.code, "DOCUMENT_LIMIT_EXCEEDED")
 
+    async def test_docx_section_properties_do_not_consume_business_block_limit(self):
+        extra_paragraphs = "".join(
+            f"<w:p><w:r><w:t>Item {index}</w:t></w:r></w:p>"
+            for index in range(MAX_PARSER_BLOCKS - 4)
+        )
+        payload = docx_payload(extra_body=extra_paragraphs)
+
+        result = await self.parser.parse(
+            payload=payload,
+            filename="proposal.docx",
+            media_type=DOCX_MEDIA_TYPE,
+        )
+
+        self.assertEqual(len(result.blocks), MAX_PARSER_BLOCKS)
+        self.assertEqual(result.warnings, ())
+
     def test_docx_xml_parts_are_rejected_before_archive_read(self):
         for name in ("word/document.xml", "word/styles.xml"):
             archive = OversizedXmlArchive()

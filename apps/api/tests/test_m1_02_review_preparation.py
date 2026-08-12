@@ -258,7 +258,7 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
                     (object(),),
                     (),
                 ),
-                "EXTRACTION_FAILED",
+                "PARSER_FAILED",
             ),
             (
                 RuntimeParserResult(
@@ -391,6 +391,63 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
                     )
                 self.assertEqual(raised.exception.code, "PARSER_LIMIT_EXCEEDED")
                 self.assertEqual(review.requests, [])
+
+    async def test_injected_mapping_cannot_bypass_block_text_limit(self):
+        good_service, _ = self.service()
+        parsed = await good_service.parser.parse(
+            payload=PAYLOAD, filename="approved.md", media_type="text/markdown"
+        )
+        oversized_mapping = {
+            "kind": "paragraph",
+            "text": "x" * (MAX_BLOCK_TEXT_CHARS + 1),
+            "sectionPath": ["Deliverables"],
+            "location": {
+                "kind": "line_range",
+                "startLine": 2,
+                "endLine": 2,
+            },
+        }
+        parser_result = RuntimeParserResult(
+            parsed.document_format,
+            parsed.size_bytes,
+            parsed.source_sha256,
+            (oversized_mapping,),
+            (),
+        )
+        review = FakeReviewService()
+        service, _ = self.service(
+            parser=FakeParser(result=parser_result), review=review
+        )
+
+        with self.assertRaises(PreparationFailure) as raised:
+            await service.prepare_and_create_run(
+                PreparationRequest(PROJECT_ID), self.scope
+            )
+
+        self.assertEqual(raised.exception.code, "PARSER_LIMIT_EXCEEDED")
+        self.assertFalse(raised.exception.retryable)
+        self.assertEqual(review.requests, [])
+
+    async def test_malformed_parser_block_is_not_reported_as_retryable_source_failure(self):
+        good_service, _ = self.service()
+        parsed = await good_service.parser.parse(
+            payload=PAYLOAD, filename="approved.md", media_type="text/markdown"
+        )
+        malformed = dataclasses.replace(parsed.blocks[1], text=object())
+        parser_result = dataclasses.replace(parsed, blocks=(malformed,))
+        review = FakeReviewService()
+        service, _ = self.service(
+            parser=FakeParser(result=parser_result), review=review
+        )
+
+        with self.assertRaises(PreparationFailure) as raised:
+            await service.prepare_and_create_run(
+                PreparationRequest(PROJECT_ID), self.scope
+            )
+
+        self.assertEqual(raised.exception.code, "PARSER_FAILED")
+        self.assertFalse(raised.exception.retryable)
+        self.assertEqual(review.requests, [])
 
     async def test_repository_object_parser_and_service_failures_are_sanitized(self):
         failures = (

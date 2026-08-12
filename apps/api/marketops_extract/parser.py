@@ -428,7 +428,10 @@ class RuntimeProposalParser:
         body = root.find("w:body", NS)
         if body is None:
             raise RuntimeParseFailure("INVALID_DOCUMENT", "proposal DOCX has no body")
-        if len(body) > MAX_PARSER_BLOCKS:
+        business_block_count = sum(
+            child.tag in {W("p"), W("tbl")} for child in body
+        )
+        if business_block_count > MAX_PARSER_BLOCKS:
             raise RuntimeParseFailure(
                 "DOCUMENT_LIMIT_EXCEEDED", "proposal has too many document blocks"
             )
