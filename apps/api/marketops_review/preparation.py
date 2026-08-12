@@ -559,16 +559,19 @@ class ApprovedProposalPreparationService:
             raise ExtractionContractError(
                 "INVALID_LOCATION", "parser block location is invalid"
             )
+        keys: set[str] = set()
         for pair in raw.values:
             if (
                 type(pair) is not tuple
                 or len(pair) != 2
                 or type(pair[0]) is not str
                 or type(pair[1]) not in {int, str}
+                or pair[0] in keys
             ):
                 raise ExtractionContractError(
                     "INVALID_LOCATION", "parser block location is invalid"
                 )
+            keys.add(pair[0])
         normalized = SourceLocation.from_mapping(dict(raw.values))
         if normalized.kind != raw.kind:
             raise ExtractionContractError(

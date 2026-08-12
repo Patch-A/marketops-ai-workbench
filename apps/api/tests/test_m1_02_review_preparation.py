@@ -558,6 +558,87 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(raised.exception.retryable)
         self.assertEqual(review.requests, [])
 
+    async def test_duplicate_location_keys_fail_before_review_write(self):
+        good_service, _ = self.service()
+        parsed = await good_service.parser.parse(
+            payload=PAYLOAD, filename="approved.md", media_type="text/markdown"
+        )
+        table = ParserBlock.from_mapping(
+            {
+                "kind": "table",
+                "columns": ["Deliverable"],
+                "rows": [
+                    {
+                        "rowNumber": 2,
+                        "cells": [
+                            {
+                                "column": "Deliverable",
+                                "value": "Registration page",
+                                "location": {
+                                    "kind": "markdown_table_cell",
+                                    "line": 2,
+                                    "columnIndex": 1,
+                                },
+                            }
+                        ],
+                    }
+                ],
+                "headerRowExplicit": True,
+                "sectionPath": ["Deliverables"],
+                "location": {
+                    "kind": "line_range",
+                    "startLine": 1,
+                    "endLine": 2,
+                },
+            }
+        )
+        duplicate_outer = dataclasses.replace(
+            table,
+            location=SourceLocation(
+                "line_range",
+                (
+                    ("kind", "line_range"),
+                    ("startLine", 999),
+                    ("startLine", 1),
+                    ("endLine", 2),
+                ),
+            ),
+        )
+        duplicate_cell = dataclasses.replace(
+            table,
+            cells=(
+                dataclasses.replace(
+                    table.cells[0],
+                    location=SourceLocation(
+                        "markdown_table_cell",
+                        (
+                            ("kind", "markdown_table_cell"),
+                            ("line", 999),
+                            ("line", 2),
+                            ("columnIndex", 1),
+                        ),
+                    ),
+                ),
+            ),
+        )
+
+        for block in (duplicate_outer, duplicate_cell):
+            with self.subTest(location=block.location.kind):
+                review = FakeReviewService()
+                service, _ = self.service(
+                    parser=FakeParser(
+                        result=dataclasses.replace(parsed, blocks=(block,))
+                    ),
+                    review=review,
+                )
+                with self.assertRaises(PreparationFailure) as raised:
+                    await service.prepare_and_create_run(
+                        PreparationRequest(PROJECT_ID), self.scope
+                    )
+                self.assertEqual(raised.exception.code, "PARSER_FAILED")
+                self.assertFalse(raised.exception.retryable)
+                self.assertEqual(review.requests, [])
+
     async def test_repository_object_parser_and_service_failures_are_sanitized(self):
         failures = (
             (
