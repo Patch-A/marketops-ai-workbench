@@ -143,6 +143,20 @@ class ExplodingMapping(Mapping):
         return 1
 
 
+class SpoofingFailureMapping(ExplodingMapping):
+    def __getitem__(self, key):
+        raise PreparationFailure(
+            "SOURCE_READ_FAILED", "spoofed parser failure", retryable=True
+        )
+
+
+class SpoofingTuple(tuple):
+    def __len__(self):
+        raise PreparationFailure(
+            "SOURCE_READ_FAILED", "spoofed tuple failure", retryable=True
+        )
+
+
 class FakeReviewService:
     def __init__(self, failure=None):
         self.failure = failure
@@ -508,7 +522,11 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
             location=inconsistent_location,
         )
 
-        for block in (ExplodingMapping(), inconsistent_block):
+        for block in (
+            ExplodingMapping(),
+            SpoofingFailureMapping(),
+            inconsistent_block,
+        ):
             with self.subTest(block_type=type(block).__name__):
                 parser_result = dataclasses.replace(parsed, blocks=(block,))
                 review = FakeReviewService()
@@ -524,6 +542,21 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(raised.exception.code, "PARSER_FAILED")
                 self.assertFalse(raised.exception.retryable)
                 self.assertEqual(review.requests, [])
+
+        tuple_result = dataclasses.replace(
+            parsed, blocks=SpoofingTuple((parsed.blocks[0],))
+        )
+        review = FakeReviewService()
+        service, _ = self.service(
+            parser=FakeParser(result=tuple_result), review=review
+        )
+        with self.assertRaises(PreparationFailure) as raised:
+            await service.prepare_and_create_run(
+                PreparationRequest(PROJECT_ID), self.scope
+            )
+        self.assertEqual(raised.exception.code, "PARSER_FAILED")
+        self.assertFalse(raised.exception.retryable)
+        self.assertEqual(review.requests, [])
 
     async def test_repository_object_parser_and_service_failures_are_sanitized(self):
         failures = (
