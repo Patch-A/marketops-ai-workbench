@@ -1,8 +1,8 @@
 # M1-02 交付物提取与人工审核切片
 
-状态：`WP1/WP2A passed; WP2B-0 corrections under review; HTTP/UI pending`
+状态：`WP1/WP2A/WP2B-0 passed; WP2B-1 HTTP/idempotency and UI pending`
 
-日期：`2026-08-11`
+日期：`2026-08-12`
 
 ## 1. Job statement
 
@@ -293,6 +293,14 @@ WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verif
 - Frozen read output：run 摘要、最新 version、可用连续 versions，以及选定完整 snapshot 的 candidates/citations/status/replacement/decision。GET 读取不得加 `FOR UPDATE`，不得产生 audit 或其他写入。
 - Acceptance commands：focused parser/preparation/read service/adapter tests；PostgreSQL 18.4 下真实 source/read、跨 scope/actor、latest/history/完整性测试；现有 WP1/WP2A 与备份恢复回归；完整 `apps/api` suite；`compileall`、文档/progress 与 `git diff --check`。同一提交 CI 与非实现者复审通过后只关闭 WP2B-0，不能关闭 WP2B 或 M1-02。
 - Reviewer role：非实现者检查对象路径和 hash 不可伪造、parser 失败关闭、候选只由服务器生成、RLS/actor 读取、历史 as-of decision、完整性、取消传播、敏感错误净化和既有导入/恢复无回归。实现者测试不能替代最终审查。
+
+### WP2B-0 验收证据
+
+- 最终受审实现提交为 `dd2bc4f74558cdbb41bdecd2bd9e90be4223b57b`；GitHub Actions run [31593977192](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31593977192) 的 `headSha` 一致，`static-checks` 与 PostgreSQL 18.4 runtime 均通过。CI 静态环境通过 316 项、跳过 37 项，PostgreSQL runtime 通过 11/11 项。
+- 本地完整 `apps/api` 套件通过 316 项、跳过 38 项；focused preparation/parser 通过 26/26 项。M1-02 PostgreSQL 静态契约确认 5 张 forced-RLS append-only 表，并拒绝 7 种弱化变异；`compileall`、文档、progress 和 `git diff --check` 均通过。
+- 服务器只从当前 approved proposal 行取得对象 identity，在共享锁内复核对象大小和 SHA-256，再执行受限 Markdown/plain-text/DOCX parser 与确定性提取；客户端不能提交 candidates、citations、parser blocks、对象路径或 scope。读取模型支持 latest/history 完整快照和截至所选版本的 decision。
+- 多轮修复关闭 parser 资源上限、DOCX `sectPr` 计数、异常净化、公开/私有异常伪装、异常子类绕过和重复来源坐标覆盖风险。最终独立 reviewer 对重复 outer/table-cell 坐标失败路径、合法引用回归及此前问题逐项复查后返回 `CLEAN APPROVE`，未发现 P0/P1/P2。
+- 本证据只关闭 WP2B-0。当前仍没有 HTTP/OpenAPI、持久 Idempotency-Key、runtime pool 装配或浏览器审核 UI；WP2B 和 `M1-02` 均未完成。合成 fixture 只能证明受限工程行为，不能证明真实需求、ROI、节省时间、重复使用、生产容量或付费意愿。
 
 ### 风险、未知与最小实验
 
