@@ -4,6 +4,7 @@ import asyncio
 import dataclasses
 import hashlib
 import unittest
+from collections.abc import Mapping
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 
@@ -129,6 +130,17 @@ class FakeParser:
         if self.failure is not None:
             raise self.failure
         return self.result
+
+
+class ExplodingMapping(Mapping):
+    def __getitem__(self, key):
+        raise RuntimeError("untrusted parser mapping")
+
+    def __iter__(self):
+        return iter(("kind",))
+
+    def __len__(self):
+        return 1
 
 
 class FakeReviewService:
@@ -448,6 +460,70 @@ class PreparationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "PARSER_FAILED")
         self.assertFalse(raised.exception.retryable)
         self.assertEqual(review.requests, [])
+
+    async def test_parser_validation_exceptions_are_not_retryable_source_failures(self):
+        good_service, _ = self.service()
+        parsed = await good_service.parser.parse(
+            payload=PAYLOAD, filename="approved.md", media_type="text/markdown"
+        )
+        inconsistent_location = SourceLocation(
+            "line_range",
+            (
+                ("kind", "docx_table"),
+                ("part", "word/document.xml"),
+                ("bodyIndex", 1),
+                ("table", 1),
+            ),
+        )
+        inconsistent_block = dataclasses.replace(
+            ParserBlock.from_mapping(
+                {
+                    "kind": "table",
+                    "columns": ["Deliverable"],
+                    "rows": [
+                        {
+                            "rowNumber": 2,
+                            "cells": [
+                                {
+                                    "column": "Deliverable",
+                                    "value": "Registration page",
+                                    "location": {
+                                        "kind": "markdown_table_cell",
+                                        "line": 2,
+                                        "columnIndex": 1,
+                                    },
+                                }
+                            ],
+                        }
+                    ],
+                    "headerRowExplicit": True,
+                    "sectionPath": ["Deliverables"],
+                    "location": {
+                        "kind": "line_range",
+                        "startLine": 1,
+                        "endLine": 2,
+                    },
+                }
+            ),
+            location=inconsistent_location,
+        )
+
+        for block in (ExplodingMapping(), inconsistent_block):
+            with self.subTest(block_type=type(block).__name__):
+                parser_result = dataclasses.replace(parsed, blocks=(block,))
+                review = FakeReviewService()
+                service, _ = self.service(
+                    parser=FakeParser(result=parser_result), review=review
+                )
+
+                with self.assertRaises(PreparationFailure) as raised:
+                    await service.prepare_and_create_run(
+                        PreparationRequest(PROJECT_ID), self.scope
+                    )
+
+                self.assertEqual(raised.exception.code, "PARSER_FAILED")
+                self.assertFalse(raised.exception.retryable)
+                self.assertEqual(review.requests, [])
 
     async def test_repository_object_parser_and_service_failures_are_sanitized(self):
         failures = (

@@ -360,7 +360,7 @@ class ApprovedProposalPreparationService:
             normalized_blocks = self._normalize_parser_blocks(result.blocks)
         except PreparationFailure:
             raise
-        except (ExtractionContractError, TypeError, ValueError, AttributeError):
+        except Exception:
             raise PreparationFailure(
                 "PARSER_FAILED", "approved proposal parser returned invalid output"
             ) from None
