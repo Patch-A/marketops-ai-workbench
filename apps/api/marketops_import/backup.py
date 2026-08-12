@@ -13,19 +13,34 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 TASK_ID = "M1-02"
 LEGACY_SCHEMA_VERSION = 1
 LEGACY_TASK_ID = "M1-01"
+REVIEW_SCHEMA_VERSION = 2
 MIGRATION_NAME = "0001_project_import.sql"
 MIGRATION_PATH = Path(__file__).resolve().parents[1] / "migrations" / MIGRATION_NAME
 MIGRATION_SHA256 = hashlib.sha256(MIGRATION_PATH.read_bytes()).hexdigest()
 REVIEW_MIGRATION_NAME = "0002_extraction_review.sql"
 REVIEW_MIGRATION_PATH = Path(__file__).resolve().parents[1] / "migrations" / REVIEW_MIGRATION_NAME
 REVIEW_MIGRATION_SHA256 = hashlib.sha256(REVIEW_MIGRATION_PATH.read_bytes()).hexdigest()
-MIGRATION_SET = (
+IDEMPOTENCY_MIGRATION_NAME = "0003_review_idempotency.sql"
+IDEMPOTENCY_MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1] / "migrations" / IDEMPOTENCY_MIGRATION_NAME
+)
+IDEMPOTENCY_MIGRATION_SHA256 = hashlib.sha256(
+    IDEMPOTENCY_MIGRATION_PATH.read_bytes()
+).hexdigest()
+REVIEW_MIGRATION_SET = (
     {"name": MIGRATION_NAME, "sha256": MIGRATION_SHA256},
     {"name": REVIEW_MIGRATION_NAME, "sha256": REVIEW_MIGRATION_SHA256},
+)
+MIGRATION_SET = (
+    *REVIEW_MIGRATION_SET,
+    {
+        "name": IDEMPOTENCY_MIGRATION_NAME,
+        "sha256": IDEMPOTENCY_MIGRATION_SHA256,
+    },
 )
 DATABASE_ARCHIVE_PATH = "database.dump"
 MANIFEST_PATH = "manifest.json"
@@ -38,7 +53,7 @@ LEGACY_BUSINESS_TABLES = (
     "artifact_versions",
     "audit_events",
 )
-BUSINESS_TABLES = (
+REVIEW_BUSINESS_TABLES = (
     *LEGACY_BUSINESS_TABLES,
     "extraction_runs",
     "extraction_candidates",
@@ -46,6 +61,7 @@ BUSINESS_TABLES = (
     "review_snapshot_items",
     "review_decisions",
 )
+BUSINESS_TABLES = (*REVIEW_BUSINESS_TABLES, "extraction_run_requests")
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _ARCHIVE_PATH = re.compile(r"objects/[0-9a-f]{2}/[0-9a-f]{62}")
 _STORAGE_KEY = re.compile(
@@ -137,6 +153,10 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         root = _exact_keys(value, _LEGACY_ROOT_KEYS, "manifest")
         expected_task = LEGACY_TASK_ID
         tables = LEGACY_BUSINESS_TABLES
+    elif version == REVIEW_SCHEMA_VERSION:
+        root = _exact_keys(value, _ROOT_KEYS, "manifest")
+        expected_task = TASK_ID
+        tables = REVIEW_BUSINESS_TABLES
     elif version == SCHEMA_VERSION:
         root = _exact_keys(value, _ROOT_KEYS, "manifest")
         expected_task = TASK_ID
@@ -158,15 +178,20 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         if _lower_sha256(migration["sha256"], "migration.sha256") != MIGRATION_SHA256:
             raise BackupBundleError("backup migration checksum differs from the reviewed migration")
     else:
+        expected_migrations = (
+            REVIEW_MIGRATION_SET
+            if version == REVIEW_SCHEMA_VERSION
+            else MIGRATION_SET
+        )
         migrations = root["migrations"]
-        if not isinstance(migrations, list) or len(migrations) != len(MIGRATION_SET):
+        if not isinstance(migrations, list) or len(migrations) != len(expected_migrations):
             raise BackupBundleError("backup migration set is incomplete")
         normalized_migrations = []
         for index, item in enumerate(migrations):
             record = dict(_exact_keys(item, _MIGRATION_KEYS, f"migrations[{index}]"))
             record["sha256"] = _lower_sha256(record["sha256"], f"migrations[{index}].sha256")
             normalized_migrations.append(record)
-        if normalized_migrations != list(MIGRATION_SET):
+        if normalized_migrations != list(expected_migrations):
             raise BackupBundleError("backup migration set differs from reviewed migrations")
 
     database = _exact_keys(root["database"], _DATABASE_KEYS, "database")

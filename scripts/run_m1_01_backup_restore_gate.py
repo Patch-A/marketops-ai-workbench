@@ -30,6 +30,9 @@ from apps.api.marketops_import.backup import (  # noqa: E402
     MIGRATION_NAME,
     MIGRATION_SET,
     MIGRATION_SHA256,
+    REVIEW_BUSINESS_TABLES,
+    REVIEW_MIGRATION_SET,
+    REVIEW_SCHEMA_VERSION,
     canonical_archive_path,
     create_backup_bundle,
     load_backup_bundle,
@@ -68,6 +71,7 @@ from scripts.run_m1_01_restart_recovery_gate import (  # noqa: E402
 
 
 DATABASE_NAME_PATTERN = re.compile(r"marketops_restore_[0-9a-f]{16}")
+NEGATIVE_BUNDLE_LABELS = ("tamperedDumpRejected", "tamperedObjectRejected")
 TOC_TABLE_DATA = re.compile(
     r"^\d+;\s+\d+\s+\d+\s+TABLE DATA\s+marketops\s+([a-z_]+)\s+\S+\s*$"
 )
@@ -135,7 +139,7 @@ def create_database_dump(
     if not isinstance(snapshot_id, str) or re.fullmatch(r"[0-9A-Fa-f:-]+", snapshot_id) is None:
         raise RuntimeError("exported PostgreSQL snapshot identifier is invalid")
     output.parent.mkdir(parents=True, exist_ok=True)
-    if tables not in {BUSINESS_TABLES, LEGACY_BUSINESS_TABLES}:
+    if tables not in {BUSINESS_TABLES, REVIEW_BUSINESS_TABLES, LEGACY_BUSINESS_TABLES}:
         raise RuntimeError("database dump table allowlist is unsupported")
     command = [
         "docker",
@@ -194,7 +198,11 @@ def read_dump_toc(
 def validate_dump_toc(
     value: str, expected_tables: tuple[str, ...] = BUSINESS_TABLES
 ) -> tuple[str, ...]:
-    if expected_tables not in {BUSINESS_TABLES, LEGACY_BUSINESS_TABLES}:
+    if expected_tables not in {
+        BUSINESS_TABLES,
+        REVIEW_BUSINESS_TABLES,
+        LEGACY_BUSINESS_TABLES,
+    }:
         raise RuntimeError("database dump table allowlist is unsupported")
     tables: list[str] = []
     for raw_line in value.splitlines():
@@ -286,7 +294,7 @@ def migration_manifest_rows(rows: Any) -> list[dict[str, str]]:
 async def database_snapshot(
     connection: Any, tables: tuple[str, ...] = BUSINESS_TABLES
 ) -> dict[str, dict[str, Any]]:
-    if tables not in {BUSINESS_TABLES, LEGACY_BUSINESS_TABLES}:
+    if tables not in {BUSINESS_TABLES, REVIEW_BUSINESS_TABLES, LEGACY_BUSINESS_TABLES}:
         raise RuntimeError("database snapshot table allowlist is unsupported")
     snapshot: dict[str, dict[str, Any]] = {}
     for table in tables:
@@ -378,6 +386,56 @@ def publish_legacy_bundle(
         raise
 
 
+def publish_review_v2_bundle(
+    destination: Path,
+    *,
+    database_dump: Path,
+    object_root: Path,
+    objects: list[dict[str, Any]],
+    snapshot: dict[str, dict[str, Any]],
+    dump_version: int,
+    restore_version: int,
+) -> Any:
+    if destination.exists():
+        raise RuntimeError("review v2 backup destination already exists")
+    destination.mkdir(parents=True)
+    try:
+        shutil.copyfile(database_dump, destination / "database.dump")
+        manifest_objects = []
+        for item in sorted(objects, key=lambda record: record["storageKey"]):
+            archive_path = canonical_archive_path(item["storageKey"])
+            source = object_root / Path(archive_path).relative_to("objects")
+            target = destination / archive_path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, target)
+            manifest_objects.append({**item, "archivePath": archive_path})
+        manifest = {
+            "schemaVersion": REVIEW_SCHEMA_VERSION,
+            "taskId": "M1-02",
+            "postgres": {
+                "serverVersionNum": POSTGRES_VERSION_NUM,
+                "dumpVersionNum": dump_version,
+                "restoreVersionNum": restore_version,
+            },
+            "migrations": list(REVIEW_MIGRATION_SET),
+            "database": {
+                "archivePath": "database.dump",
+                "sha256": sha256_file(database_dump)[1],
+                "tableData": list(REVIEW_BUSINESS_TABLES),
+            },
+            "snapshot": snapshot,
+            "objects": manifest_objects,
+        }
+        (destination / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        return load_backup_bundle(destination)
+    except Exception:
+        shutil.rmtree(destination, ignore_errors=True)
+        raise
+
+
 async def export_legacy_bundle(
     asyncpg: Any,
     *,
@@ -426,6 +484,57 @@ async def export_legacy_bundle(
         dump_path,
         publish,
         expected_tables=LEGACY_BUSINESS_TABLES,
+    )
+
+
+async def export_review_v2_bundle(
+    asyncpg: Any,
+    *,
+    admin_dsn: str,
+    container_id: str,
+    work_root: Path,
+    bundle_root: Path,
+    dump_version: int,
+    restore_version: int,
+) -> tuple[Any, tuple[str, ...]]:
+    dump_path = work_root / "review-v2-database.dump"
+    connection = await asyncpg.connect(admin_dsn)
+    try:
+        async with connection.transaction(isolation="repeatable_read", readonly=True):
+            snapshot_id = await connection.fetchval(
+                "SELECT pg_catalog.pg_export_snapshot()"
+            )
+            snapshot = await database_snapshot(connection, REVIEW_BUSINESS_TABLES)
+            objects = await referenced_objects(connection)
+            await asyncio.to_thread(
+                create_database_dump,
+                container_id,
+                snapshot_id,
+                dump_path,
+                tables=REVIEW_BUSINESS_TABLES,
+            )
+    finally:
+        await connection.close()
+    if not objects:
+        raise RuntimeError("review v2 database snapshot references no immutable objects")
+
+    def publish() -> Any:
+        return publish_review_v2_bundle(
+            bundle_root,
+            database_dump=dump_path,
+            object_root=work_root / "objects",
+            objects=objects,
+            snapshot=snapshot,
+            dump_version=dump_version,
+            restore_version=restore_version,
+        )
+
+    return await asyncio.to_thread(
+        publish_after_toc_validation,
+        container_id,
+        dump_path,
+        publish,
+        expected_tables=REVIEW_BUSINESS_TABLES,
     )
 
 
@@ -643,6 +752,49 @@ async def fresh_replay(app_dsn: str, restore_work_root: Path, state: Mapping[str
     return True
 
 
+async def fresh_review_replay(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    review_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=1)
+    try:
+        result = await ReviewService(
+            repository=AsyncpgReviewRepository(pool),
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        ).replay_run_request(
+            committed["projectId"],
+            review_history["idempotencyKey"],
+            committed["proposalVersionId"],
+            review_history["proposalSha256"],
+            ReviewScopeContext(
+                scope.organization_id,
+                scope.workspace_id,
+                scope.client_id,
+                scope.actor_id,
+            ),
+        )
+    finally:
+        await pool.close()
+    if (
+        result is None
+        or result.replayed is not True
+        or result.run.run_id != review_history["runId"]
+        or result.snapshot.run_id != review_history["runId"]
+        or result.snapshot.version != 1
+    ):
+        raise RuntimeError("restored review request did not replay its original version-1 run")
+    return {
+        "accepted": True,
+        "runId": result.run.run_id,
+        "reviewVersion": result.snapshot.version,
+        "replayed": result.replayed,
+    }
+
+
 async def install_rejecting_restore_trigger(asyncpg: Any, admin_dsn: str) -> None:
     connection = await asyncpg.connect(admin_dsn)
     try:
@@ -663,11 +815,17 @@ async def install_rejecting_restore_trigger(asyncpg: Any, admin_dsn: str) -> Non
         await connection.close()
 
 
-async def negative_bundle_checks(bundle_root: Path, work_root: Path) -> dict[str, bool]:
+async def negative_bundle_checks(
+    bundle_root: Path,
+    work_root: Path,
+    *,
+    tree_remover: Callable[..., Any] = shutil.rmtree,
+) -> dict[str, bool]:
     results: dict[str, bool] = {}
-    for label, relative in (
-        ("tamperedDumpRejected", Path("database.dump")),
-        ("tamperedObjectRejected", None),
+    for label, relative in zip(
+        NEGATIVE_BUNDLE_LABELS,
+        (Path("database.dump"), None),
+        strict=True,
     ):
         target = work_root / label
         shutil.copytree(bundle_root, target)
@@ -682,7 +840,16 @@ async def negative_bundle_checks(bundle_root: Path, work_root: Path) -> dict[str
         else:
             raise RuntimeError("tampered backup bundle was accepted")
         finally:
-            shutil.rmtree(target, ignore_errors=True)
+            active_error = sys.exc_info()[1]
+            try:
+                tree_remover(target, ignore_errors=False)
+            except FileNotFoundError:
+                pass
+            except OSError:
+                if active_error is not None:
+                    active_error.add_note("tampered backup cleanup also failed")
+                else:
+                    raise RuntimeError("tampered backup cleanup failed") from None
     return results
 
 
@@ -744,6 +911,7 @@ async def seed_review_history(asyncpg: Any, admin_dsn: str, app_dsn: str, scope:
                 proposal_version=int(source["proposal_version"]),
                 proposal_sha256=str(source["sha256"]),
                 candidates=(candidate,),
+                idempotency_key="backup-review-request",
             ),
             review_scope,
         )
@@ -757,6 +925,8 @@ async def seed_review_history(asyncpg: Any, admin_dsn: str, app_dsn: str, scope:
             "runId": created.run.run_id,
             "candidateId": candidate_id,
             "latestReviewVersion": reviewed.snapshot.version,
+            "idempotencyKey": "backup-review-request",
+            "proposalSha256": str(source["sha256"]),
         }
     finally:
         await pool.close()
@@ -838,6 +1008,7 @@ async def verify_legacy_upgrade_restore(
                   (SELECT count(*) FROM marketops.review_snapshots) AS review_snapshots,
                   (SELECT count(*) FROM marketops.review_snapshot_items) AS review_snapshot_items,
                   (SELECT count(*) FROM marketops.review_decisions) AS review_decisions
+                  ,(SELECT count(*) FROM marketops.extraction_run_requests) AS extraction_run_requests
                 """
             )
         )
@@ -849,6 +1020,7 @@ async def verify_legacy_upgrade_restore(
         "review_snapshots": 2,
         "review_snapshot_items": 2,
         "review_decisions": 1,
+        "extraction_run_requests": 1,
     }
     if review_counts != expected_review_counts:
         raise RuntimeError("legacy restore produced incomplete current review rows")
@@ -866,6 +1038,65 @@ async def verify_legacy_upgrade_restore(
         "postUpgradeReviewRows": review_counts,
         "security": security,
         "visibility": visibility,
+    }
+
+
+async def verify_review_v2_upgrade_restore(
+    asyncpg: Any,
+    *,
+    bundle: Any,
+    toc_tables: tuple[str, ...],
+    container_id: str,
+    database_name: str,
+    admin_dsn: str,
+    migrator_dsn: str,
+    app_dsn: str,
+    restore_work_root: Path,
+    scope: Any,
+    committed: Mapping[str, Any],
+) -> dict[str, Any]:
+    target_admin = replace_database_in_dsn(admin_dsn, database_name)
+    target_migrator = replace_database_in_dsn(migrator_dsn, database_name)
+    target_app = replace_database_in_dsn(app_dsn, database_name)
+    await migrate_and_grant(asyncpg, target_migrator)
+    await assert_empty_business_tables(asyncpg, target_admin)
+    restore_object_bundle(bundle, restore_work_root / "objects")
+    await asyncio.to_thread(
+        restore_database_dump, container_id, database_name, bundle.database_dump
+    )
+    connection = await asyncpg.connect(target_admin)
+    try:
+        restored_snapshot = await database_snapshot(connection)
+    finally:
+        await connection.close()
+    for table in REVIEW_BUSINESS_TABLES:
+        if restored_snapshot[table] != bundle.manifest["snapshot"][table]:
+            raise RuntimeError("review v2 restore row-set hashes differ from its snapshot")
+    empty_request = {"count": 0, "rowSetSha256": _row_set_hash([])}
+    if restored_snapshot["extraction_run_requests"] != empty_request:
+        raise RuntimeError("review v2 restore unexpectedly populated idempotency requests")
+    post_upgrade_review = await seed_review_history(
+        asyncpg, target_admin, target_app, scope, committed
+    )
+    if post_upgrade_review["latestReviewVersion"] != 2:
+        raise RuntimeError("review v2 restore could not create a current review request")
+    request_count = await asyncpg.connect(target_admin)
+    try:
+        restored_requests = await request_count.fetchval(
+            "SELECT count(*) FROM marketops.extraction_run_requests"
+        )
+    finally:
+        await request_count.close()
+    if restored_requests != 1:
+        raise RuntimeError("review v2 upgrade did not admit persistent idempotency")
+    return {
+        "accepted": True,
+        "bundleSchemaVersion": REVIEW_SCHEMA_VERSION,
+        "databaseTableData": list(toc_tables),
+        "restoredIntoMigrationSet": list(MIGRATION_SET),
+        "legacyReviewRowsPreserved": True,
+        "idempotencyRequestsInitiallyEmpty": True,
+        "postUpgradeIdempotencyRequests": restored_requests,
     }
 
 
@@ -888,8 +1119,11 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
     restore_work_root = work_root / "isolated-restore"
     legacy_bundle_root = work_root / "legacy-v1-bundle"
     legacy_restore_work_root = work_root / "legacy-v1-restore"
+    review_v2_bundle_root = work_root / "review-v2-bundle"
+    review_v2_restore_work_root = work_root / "review-v2-restore"
     restore_database = "marketops_restore_" + uuid4().hex[:16]
     legacy_restore_database = "marketops_restore_" + uuid4().hex[:16]
+    review_v2_restore_database = "marketops_restore_" + uuid4().hex[:16]
     negative_database = "marketops_restore_" + uuid4().hex[:16]
     created_databases: list[str] = []
 
@@ -904,6 +1138,15 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             restore_version=restore_version,
         )
         review_history = await seed_review_history(asyncpg, admin_dsn, app_dsn, scope, committed)
+        review_v2_bundle, review_v2_toc_tables = await export_review_v2_bundle(
+            asyncpg,
+            admin_dsn=admin_dsn,
+            container_id=container_id,
+            work_root=work_root,
+            bundle_root=review_v2_bundle_root,
+            dump_version=dump_version,
+            restore_version=restore_version,
+        )
         manifest, toc_tables = await export_bundle(
             asyncpg,
             admin_dsn=admin_dsn,
@@ -929,6 +1172,22 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             app_dsn=app_dsn,
             restore_work_root=legacy_restore_work_root,
             state=state,
+            scope=scope,
+            committed=committed,
+        )
+
+        await create_restore_database(asyncpg, admin_dsn, review_v2_restore_database)
+        created_databases.append(review_v2_restore_database)
+        review_v2_upgrade = await verify_review_v2_upgrade_restore(
+            asyncpg,
+            bundle=review_v2_bundle,
+            toc_tables=review_v2_toc_tables,
+            container_id=container_id,
+            database_name=review_v2_restore_database,
+            admin_dsn=admin_dsn,
+            migrator_dsn=migrator_dsn,
+            app_dsn=app_dsn,
+            restore_work_root=review_v2_restore_work_root,
             scope=scope,
             committed=committed,
         )
@@ -973,6 +1232,9 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         security = await restored_security(asyncpg, target_admin, target_app)
         visibility = await rls_visibility(asyncpg, target_app, scope, committed["projectId"])
         replayed = await fresh_replay(target_app, restore_work_root, state)
+        review_replayed = await fresh_review_replay(
+            asyncpg, target_app, scope, committed, review_history
+        )
 
         source_project_after, _ = await project_snapshot(
             asyncpg,
@@ -1004,7 +1266,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         evidence = {
             "schemaVersion": 2,
             "taskId": "M1-02",
-            "workPackage": "WP2A-2-backup-restore",
+            "workPackage": "WP2B-1-review-backup-restore",
             "postgresVersionNum": POSTGRES_VERSION_NUM,
             "migrations": list(MIGRATION_SET),
             "databaseTableData": list(toc_tables),
@@ -1012,6 +1274,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             "objectCount": len(manifest["objects"]),
             "databaseDumpSha256": manifest["database"]["sha256"],
             "legacyV1UpgradeRestore": legacy_upgrade,
+            "legacyV2UpgradeRestore": review_v2_upgrade,
             "isolatedRestore": {
                 "accepted": True,
                 "projectAggregate": TABLE_COUNTS,
@@ -1024,12 +1287,20 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
                 "security": security,
                 "visibility": visibility,
                 "reviewHistory": review_history,
+                "freshReviewReplay": review_replayed,
+                "persistentIdempotencyRequestRestored": (
+                    manifest["snapshot"]["extraction_run_requests"]["count"] == 1
+                    and restored_snapshot["extraction_run_requests"]
+                    == manifest["snapshot"]["extraction_run_requests"]
+                ),
             },
             "negativeChecks": negative,
             "claimBoundary": (
                 "This synthetic CI experiment establishes application-level logical backup and "
                 "isolated restore for the reviewed PostgreSQL 18.4 migrations, non-empty review history, "
-                "a seven-table v1 bundle restored into the current two-migration schema, and the current immutable "
+                "a seven-table v1 bundle and a twelve-table v2 review bundle each upgraded into the current "
+                "three-migration schema, a non-empty v3 persistent review idempotency request replayed through "
+                "a fresh ReviewService, and the current immutable "
                 "local-object adapter. It does not establish physical crash consistency, WAL/PITR, "
                 "authenticity, encryption, off-site retention, production cutover, RPO/RTO, "
                 "cross-host or PostgreSQL-version recovery, demand, ROI, repeat use, payment, or M1-02 completion."
@@ -1051,6 +1322,9 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             restore_work_root,
             legacy_bundle_root,
             legacy_restore_work_root,
+            review_v2_bundle_root,
+            review_v2_restore_work_root,
+            *(work_root / label for label in NEGATIVE_BUNDLE_LABELS),
         ):
             try:
                 shutil.rmtree(path, ignore_errors=False)
@@ -1061,13 +1335,14 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         try:
             (work_root / "database.dump").unlink(missing_ok=True)
             (work_root / "legacy-database.dump").unlink(missing_ok=True)
+            (work_root / "review-v2-database.dump").unlink(missing_ok=True)
         except OSError:
             cleanup_failed = True
         if cleanup_failed:
             if active_error is not None:
-                active_error.add_note("WP5B isolated cleanup also failed")
+                active_error.add_note("WP2B-1 backup/restore cleanup also failed")
             else:
-                raise RuntimeError("WP5B isolated cleanup failed")
+                raise RuntimeError("WP2B-1 backup/restore cleanup failed")
 
 
 def main() -> int:

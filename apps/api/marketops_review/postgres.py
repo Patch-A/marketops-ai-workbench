@@ -20,6 +20,7 @@ from .service import (
     ReviewCandidateView,
     ReviewReadModel,
     ReviewRun,
+    ReviewRunRequestRecord,
     ReviewRunSummary,
     ReviewScopeContext,
     ReviewSnapshot,
@@ -79,6 +80,33 @@ INSERT INTO marketops.extraction_runs (
 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 """
 
+_CLAIM_RUN_REQUEST_SQL = """
+INSERT INTO marketops.extraction_run_requests (
+    id, organization_id, workspace_id, client_id, project_id,
+    idempotency_key, expected_proposal_version_id,
+    expected_proposal_sha256, run_id, created_by, created_at
+)
+VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+ON CONFLICT (
+    workspace_id, client_id, project_id, created_by, idempotency_key
+) DO NOTHING
+RETURNING id
+"""
+
+_SELECT_RUN_REQUEST_SQL = """
+SELECT
+    id, organization_id, workspace_id, client_id, project_id,
+    idempotency_key, expected_proposal_version_id,
+    expected_proposal_sha256, run_id, created_by, created_at
+FROM marketops.extraction_run_requests
+WHERE organization_id = $1
+  AND workspace_id = $2
+  AND client_id = $3
+  AND project_id = $4
+  AND created_by = $5
+  AND idempotency_key = $6
+"""
+
 _INSERT_CANDIDATE_SQL = """
 INSERT INTO marketops.extraction_candidates (
     id, organization_id, workspace_id, client_id, project_id, run_id,
@@ -121,6 +149,12 @@ SELECT candidate_id, status, replacement_text
 FROM marketops.review_snapshot_items
 WHERE snapshot_id = $1
 ORDER BY ordinal
+"""
+
+_SNAPSHOT_BY_VERSION_SQL = """
+SELECT id, run_id, review_version, created_by, created_at
+FROM marketops.review_snapshots
+WHERE run_id = $1 AND review_version = $2
 """
 
 _INSERT_SNAPSHOT_SQL = """
@@ -275,6 +309,32 @@ class AsyncpgReviewRepository:
                     limit,
                 )
             return tuple(_map_run_summary(row) for row in rows)
+        except asyncio.CancelledError:
+            raise
+        except ReviewPostgresError:
+            raise
+        except Exception:
+            raise ReviewPostgresError("review database read failed") from None
+
+    async def get_run_request(
+        self,
+        scope: ReviewScopeContext,
+        project_id: str,
+        idempotency_key: str,
+    ) -> ReviewRunRequestRecord | None:
+        try:
+            async with self._read_connection(scope, project_id) as connection:
+                row = await self._fetchrow(
+                    connection,
+                    _SELECT_RUN_REQUEST_SQL,
+                    scope.organization_id,
+                    scope.workspace_id,
+                    scope.client_id,
+                    project_id,
+                    scope.actor_id,
+                    idempotency_key,
+                )
+            return None if row is None else _map_run_request(row)
         except asyncio.CancelledError:
             raise
         except ReviewPostgresError:
@@ -458,6 +518,37 @@ class AsyncpgReviewTransaction:
         )
         self._runs[run.run_id] = run
 
+    async def claim_run_request(
+        self, request: ReviewRunRequestRecord
+    ) -> ReviewRunRequestRecord:
+        self._require_request_scope(request)
+        await self._fetchrow(
+            _CLAIM_RUN_REQUEST_SQL,
+            request.request_id,
+            request.organization_id,
+            request.workspace_id,
+            request.client_id,
+            request.project_id,
+            request.idempotency_key,
+            request.expected_proposal_version_id,
+            bytes.fromhex(request.expected_proposal_sha256),
+            request.run_id,
+            request.created_by,
+            request.created_at,
+        )
+        row = await self._fetchrow(
+            _SELECT_RUN_REQUEST_SQL,
+            request.organization_id,
+            request.workspace_id,
+            request.client_id,
+            request.project_id,
+            request.created_by,
+            request.idempotency_key,
+        )
+        if row is None:
+            raise ReviewPostgresError("review run request claim is unavailable")
+        return _map_run_request(row)
+
     async def insert_candidates(
         self, run_id: str, candidates: tuple[Candidate, ...]
     ) -> None:
@@ -505,6 +596,35 @@ class AsyncpgReviewTransaction:
         if await self._fetchrow(_VISIBLE_RUN_SQL, run_id) is None:
             return None
         row = await self._fetchrow(_LATEST_SNAPSHOT_SQL, run_id)
+        if row is None:
+            return None
+        items = await self._fetch(_SNAPSHOT_ITEMS_SQL, str(row["id"]))
+        try:
+            return ReviewSnapshot(
+                snapshot_id=str(row["id"]),
+                run_id=str(row["run_id"]),
+                version=int(row["review_version"]),
+                items=tuple(
+                    ReviewSnapshotItem(
+                        candidate_id=str(item["candidate_id"]),
+                        status=item["status"],
+                        replacement_text=item["replacement_text"],
+                    )
+                    for item in items
+                ),
+                created_by=str(row["created_by"]),
+                created_at=_datetime(row["created_at"]),
+            )
+        except (KeyError, TypeError, ValueError):
+            raise ReviewPostgresError("review snapshot rows are invalid") from None
+
+    async def get_snapshot(
+        self, run_id: str, review_version: int
+    ) -> ReviewSnapshot | None:
+        run = self._known_run(run_id)
+        row = await self._fetchrow(
+            _SNAPSHOT_BY_VERSION_SQL, run.run_id, review_version
+        )
         if row is None:
             return None
         items = await self._fetch(_SNAPSHOT_ITEMS_SQL, str(row["id"]))
@@ -632,6 +752,18 @@ class AsyncpgReviewTransaction:
         ):
             raise ReviewPostgresError("review run does not match transaction scope")
 
+    def _require_request_scope(self, request: ReviewRunRequestRecord) -> None:
+        if (
+            request.organization_id != self._scope.organization_id
+            or request.workspace_id != self._scope.workspace_id
+            or request.client_id != self._scope.client_id
+            or request.project_id != self._project_id
+            or request.created_by != self._scope.actor_id
+        ):
+            raise ReviewPostgresError(
+                "review run request does not match transaction scope"
+            )
+
     async def _execute(self, query: str, *args: Any) -> Any:
         try:
             return await self._connection.execute(query, *args)
@@ -677,6 +809,29 @@ def _map_run(row: Any) -> ReviewRun:
         )
     except (KeyError, TypeError, ValueError):
         raise ReviewPostgresError("review run row is invalid") from None
+
+
+def _map_run_request(row: Any) -> ReviewRunRequestRecord:
+    try:
+        return ReviewRunRequestRecord(
+            request_id=_uuid(row["id"]),
+            organization_id=_uuid(row["organization_id"]),
+            workspace_id=_uuid(row["workspace_id"]),
+            client_id=_uuid(row["client_id"]),
+            project_id=_uuid(row["project_id"]),
+            idempotency_key=_nonempty_text(row["idempotency_key"]),
+            expected_proposal_version_id=_uuid(
+                row["expected_proposal_version_id"]
+            ),
+            expected_proposal_sha256=_hex(
+                row["expected_proposal_sha256"]
+            ),
+            run_id=_uuid(row["run_id"]),
+            created_by=_uuid(row["created_by"]),
+            created_at=_datetime(row["created_at"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        raise ReviewPostgresError("review run request row is invalid") from None
 
 
 def _map_run_summary(row: Any) -> ReviewRunSummary:

@@ -308,3 +308,14 @@ WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verif
 - 合理推测：四个操作足以支撑首个审核 UI；尚无真实使用证据证明用户需要完整版本时间线而不是只看最新版本，也没有证据证明同步解析能覆盖真实文件规模。
 - 共同未知：parser blocks 的真实规模、审核冲突频率、单次候选数、用户是否理解 fact/hypothesis 与引用坐标。工程测试只固定一个变量：两个请求使用同一 `expectedReviewVersion`；成功信号是一个 201、一个 409，GET 只显示一个新完整版本且无部分写入。真实可用性实验再固定“是否显示引用”并记录审核耗时、保留/修改/拒绝率和漏项报告。
 - 失败条件：任何客户端可注入候选/引用、对象 hash 未复核、parser warning 被静默忽略、跨 scope/actor 可见、历史 as-of 状态不完整、错误泄露用户内容、取消被吞，或后续 HTTP blind retry 产生重复 run，都阻止相应工作包通过。
+
+### WP2B-1 工作包与验收
+
+- Task ID：`M1-02`；基线提交：`34795ffe6f71f698a56bc4d508338310efd24da5`。主集成者 owned paths 为新增 `0003` migration、review preparation/service/PostgreSQL/HTTP/runtime、冻结 OpenAPI、备份恢复适配、对应测试和本节文档。`project-status.json`、手工编辑 `docs/PROJECT_STATUS.md`、现有 `0001/0002` migration、前端、连接器、跨项目检索、真实客户资料、凭据和未审查依赖仍禁止修改。
+- Job：认证项目操作者以当前 approved proposal identity 和持久 Idempotency-Key 创建或安全重放审核 run，读取 latest/history，并以 `expectedReviewVersion` 逐条决定；人工决定仍由操作者控制，API 不自动批准候选。
+- Persistent idempotency：新增 append-only、forced-RLS 的 extraction-run request 事实，唯一键至少包含 workspace/client/project 与规范化 key，并保存 expected proposal version/hash、run ID、actor 和创建时间。认领请求、创建 run/candidates/snapshot/audit 必须同事务提交；失败不得留下占位事实。相同 key 与相同 source 重放原 run；相同 key 与不同 source 返回不可重试 `IDEMPOTENCY_CONFLICT`；并发相同请求只能有一个 run。`0003` 同时前向收紧既有 `audit_events` policy，使审核 run、候选、决定与审计事件均只对创建 actor 可见；这不构成多人角色矩阵。
+- HTTP input：创建 body 只允许 `expectedProposalVersionId` 与 `expectedProposalSha256`，并要求单个 `Idempotency-Key`；决定 body 只允许 `expectedReviewVersion`、`candidateId`、`action`、`reason`、可选 `comment`/`replacementText`。所有 JSON 必须是单个 UTF-8 object、无重复 key、无未知字段并受字节/字段长度限制。path/query UUID 与正整数必须 canonical。
+- HTTP output：创建返回 run、版本 1 与 `replayed`；list 返回稳定倒序摘要；detail 返回 selected/latest 可用版本、完整 candidate/citation/status 与截至该版本的 decision；决定返回新版本与 decision。成功和失败均 `Cache-Control: no-store`，创建/决定带 `Location`。认证 scope 只来自服务器状态，错误不得回显正文、reason/comment、路径、SQL、DSN 或 token。
+- Runtime：import 与 review adapter 共享一个生命周期内的 asyncpg pool；source reader、review repository、preparation service 和 review service 由服务器装配。启动失败与取消必须关闭已创建资源，关闭只执行一次。OpenAPI 是逐字节受审静态契约。
+- Acceptance：focused migration/idempotency/service/HTTP/OpenAPI/runtime tests；PostgreSQL 18.4 的同 key 重放、不同 source 冲突、并发单 run、失败原子性、RLS/actor 隔离、四端点与备份恢复；恢复门禁必须覆盖 v1/v2 bundle 升级到当前 schema、非空 v3 request 行集，并在 v3 隔离恢复库通过新 `ReviewService` 重放原 run 的 version 1。完整 API suite、`compileall`、文档/progress、`git diff --check`、同 SHA CI 和非实现者复审全部通过后，只关闭 WP2B-1 API，不关闭 UI 或 `M1-02`。
+- Non-goals：浏览器 UI、批量/撤销审核、多人角色矩阵、WBS handoff、模型提取、生产容量和市场价值验证。最小实验固定相同 project/source/key 的两个并发创建；成功信号是一个事实、一个 run、两个等价响应且无孤立行。

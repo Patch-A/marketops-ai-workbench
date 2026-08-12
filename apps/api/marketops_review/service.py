@@ -16,6 +16,10 @@ SHA256_PATTERN = re.compile(r"^[0-9a-fA-F]{64}$")
 REVIEW_ACTIONS = frozenset({"approve", "modify", "reject"})
 REVIEW_STATUSES = frozenset({"pending", "approve", "modify", "reject"})
 MAX_REVIEW_CANDIDATES = 1000
+MAX_IDEMPOTENCY_KEY_LENGTH = 200
+MAX_REASON_LENGTH = 2000
+MAX_COMMENT_LENGTH = 4000
+MAX_REPLACEMENT_TEXT_LENGTH = 10000
 
 
 class ReviewFailure(RuntimeError):
@@ -54,6 +58,7 @@ class CreateReviewRunRequest:
     proposal_version: int
     proposal_sha256: str
     candidates: tuple[Candidate, ...]
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -120,6 +125,22 @@ class ReviewAuditEvent:
 class CreateReviewRunResult:
     run: ReviewRun
     snapshot: ReviewSnapshot
+    replayed: bool = False
+
+
+@dataclass(frozen=True)
+class ReviewRunRequestRecord:
+    request_id: str
+    organization_id: str
+    workspace_id: str
+    client_id: str
+    project_id: str
+    idempotency_key: str
+    expected_proposal_version_id: str
+    expected_proposal_sha256: str
+    run_id: str
+    created_by: str
+    created_at: datetime
 
 
 @dataclass(frozen=True)
@@ -170,6 +191,10 @@ class ReviewTransaction(Protocol):
 
     async def insert_run(self, run: ReviewRun) -> None: ...
 
+    async def claim_run_request(
+        self, request: ReviewRunRequestRecord
+    ) -> ReviewRunRequestRecord: ...
+
     async def insert_candidates(
         self, run_id: str, candidates: tuple[Candidate, ...]
     ) -> None: ...
@@ -178,6 +203,10 @@ class ReviewTransaction(Protocol):
 
     async def get_latest_snapshot_for_update(
         self, run_id: str
+    ) -> ReviewSnapshot | None: ...
+
+    async def get_snapshot(
+        self, run_id: str, review_version: int
     ) -> ReviewSnapshot | None: ...
 
     async def insert_snapshot(self, snapshot: ReviewSnapshot) -> None: ...
@@ -203,6 +232,13 @@ class ReviewRepository(Protocol):
         run_id: str,
         review_version: int | None,
     ) -> ReviewReadModel | None: ...
+
+    async def get_run_request(
+        self,
+        scope: ReviewScopeContext,
+        project_id: str,
+        idempotency_key: str,
+    ) -> ReviewRunRequestRecord | None: ...
 
 
 class ReviewService:
@@ -243,6 +279,81 @@ class ReviewService:
                 "REPOSITORY_FAILURE", "review repository state is incomplete"
             )
         return summaries
+
+    async def replay_run_request(
+        self,
+        project_id: str,
+        idempotency_key: str,
+        expected_proposal_version_id: str,
+        expected_proposal_sha256: str,
+        scope: ReviewScopeContext,
+    ) -> CreateReviewRunResult | None:
+        self._validate_scope(scope)
+        self._uuid(project_id, "project id")
+        self._uuid(expected_proposal_version_id, "expected proposal version id")
+        expected_hash = self._sha256(
+            expected_proposal_sha256, "expected proposal hash"
+        )
+        if not isinstance(idempotency_key, str):
+            raise ReviewFailure("INVALID_INPUT", "idempotency key is invalid")
+        key = idempotency_key.strip()
+        if not 8 <= len(key) <= MAX_IDEMPOTENCY_KEY_LENGTH:
+            raise ReviewFailure("INVALID_INPUT", "idempotency key is invalid")
+        try:
+            record = await self.repository.get_run_request(
+                scope, project_id, key
+            )
+        except ReviewFailure:
+            raise
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise ReviewFailure(
+                "REPOSITORY_FAILURE", "review repository operation failed"
+            ) from None
+        if record is None:
+            return None
+        if not self._valid_run_request_record(record) or not self._same_run_request_identity(
+            record,
+            scope,
+            project_id,
+            key,
+        ):
+            raise ReviewFailure(
+                "REPOSITORY_FAILURE", "review repository state is incomplete"
+            )
+        expected = ReviewRunRequestRecord(
+            record.request_id,
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            project_id,
+            key,
+            expected_proposal_version_id,
+            expected_hash,
+            record.run_id,
+            scope.actor_id,
+            record.created_at,
+        )
+        if not self._same_run_request_source(record, expected):
+            raise ReviewFailure(
+                "IDEMPOTENCY_CONFLICT",
+                "idempotency key belongs to a different review source",
+            )
+        review = await self.read_review(
+            project_id, record.run_id, scope, review_version=1
+        )
+        if (
+            review.run.proposal_version_id != record.expected_proposal_version_id
+            or review.run.proposal_sha256.lower()
+            != record.expected_proposal_sha256.lower()
+        ):
+            raise ReviewFailure(
+                "REPOSITORY_FAILURE", "review repository state is incomplete"
+            )
+        return CreateReviewRunResult(
+            run=review.run, snapshot=review.snapshot, replayed=True
+        )
 
     async def read_review(
         self,
@@ -293,8 +404,10 @@ class ReviewService:
         self, request: CreateReviewRunRequest, scope: ReviewScopeContext
     ) -> CreateReviewRunResult:
         self._validate_scope(scope)
-        self._validate_create_request(request)
-        run_id, snapshot_id, audit_id = self._new_ids(3)
+        request = self._normalize_create_request(request)
+        allocated = self._new_ids(4 if request.idempotency_key is not None else 3)
+        run_id, snapshot_id, audit_id = allocated[:3]
+        request_id = allocated[3] if request.idempotency_key is not None else None
         created_at = self._now()
         run = ReviewRun(
             run_id=run_id,
@@ -332,6 +445,23 @@ class ReviewService:
             decision_id=None,
             created_at=created_at,
         )
+        request_record = (
+            ReviewRunRequestRecord(
+                request_id=request_id,
+                organization_id=scope.organization_id,
+                workspace_id=scope.workspace_id,
+                client_id=scope.client_id,
+                project_id=request.project_id,
+                idempotency_key=request.idempotency_key,
+                expected_proposal_version_id=request.proposal_version_id,
+                expected_proposal_sha256=request.proposal_sha256,
+                run_id=run_id,
+                created_by=scope.actor_id,
+                created_at=created_at,
+            )
+            if request_id is not None and request.idempotency_key is not None
+            else None
+        )
         try:
             async with self.repository.transaction(
                 scope, request.project_id
@@ -344,6 +474,49 @@ class ReviewService:
                         "INVALID_PROPOSAL_STATE",
                         "approved proposal does not match the requested review source",
                     )
+                if request_record is not None:
+                    claimed = await transaction.claim_run_request(request_record)
+                    if not self._valid_run_request_record(
+                        claimed
+                    ) or not self._same_run_request_identity(
+                        claimed,
+                        scope,
+                        request.project_id,
+                        request.idempotency_key,
+                    ):
+                        raise ReviewFailure(
+                            "REPOSITORY_FAILURE",
+                            "review repository state is incomplete",
+                        )
+                    if not self._same_run_request_source(claimed, request_record):
+                        raise ReviewFailure(
+                            "IDEMPOTENCY_CONFLICT",
+                            "idempotency key belongs to a different review source",
+                        )
+                    if claimed.run_id != run_id:
+                        existing_run = await transaction.get_run(claimed.run_id)
+                        existing_snapshot = await transaction.get_snapshot(
+                            claimed.run_id, 1
+                        )
+                        if (
+                            not self._run_in_scope(
+                                existing_run, request.project_id, scope
+                            )
+                            or existing_snapshot is None
+                            or not self._complete_snapshot(
+                                existing_run, existing_snapshot
+                            )
+                            or existing_snapshot.version != 1
+                        ):
+                            raise ReviewFailure(
+                                "REPOSITORY_FAILURE",
+                                "review repository state is incomplete",
+                            )
+                        return CreateReviewRunResult(
+                            run=existing_run,
+                            snapshot=existing_snapshot,
+                            replayed=True,
+                        )
                 await transaction.insert_run(run)
                 await transaction.insert_candidates(run_id, request.candidates)
                 await transaction.insert_snapshot(snapshot)
@@ -356,7 +529,7 @@ class ReviewService:
             raise ReviewFailure(
                 "REPOSITORY_FAILURE", "review repository operation failed"
             ) from None
-        return CreateReviewRunResult(run=run, snapshot=snapshot)
+        return CreateReviewRunResult(run=run, snapshot=snapshot, replayed=False)
 
     async def review_candidate(
         self,
@@ -456,7 +629,9 @@ class ReviewService:
             ) from None
         return ReviewResult(run_id=run_id, snapshot=snapshot, decision=decision)
 
-    def _validate_create_request(self, request: CreateReviewRunRequest) -> None:
+    def _normalize_create_request(
+        self, request: CreateReviewRunRequest
+    ) -> CreateReviewRunRequest:
         if not isinstance(request, CreateReviewRunRequest):
             raise ReviewFailure("INVALID_INPUT", "invalid create review request")
         self._uuid(request.project_id, "project id")
@@ -491,6 +666,22 @@ class ReviewService:
                     "SOURCE_CITATION_INVALID",
                     "candidate citation does not match the approved proposal source",
                 )
+        idempotency_key = request.idempotency_key
+        if idempotency_key is not None:
+            if not isinstance(idempotency_key, str):
+                raise ReviewFailure("INVALID_INPUT", "idempotency key is invalid")
+            idempotency_key = idempotency_key.strip()
+            if not 8 <= len(idempotency_key) <= MAX_IDEMPOTENCY_KEY_LENGTH:
+                raise ReviewFailure("INVALID_INPUT", "idempotency key is invalid")
+        return CreateReviewRunRequest(
+            project_id=request.project_id,
+            proposal_artifact_id=request.proposal_artifact_id,
+            proposal_version_id=request.proposal_version_id,
+            proposal_version=request.proposal_version,
+            proposal_sha256=request.proposal_sha256.lower(),
+            candidates=request.candidates,
+            idempotency_key=idempotency_key,
+        )
 
     def _normalize_review_request(self, request: ReviewRequest) -> ReviewRequest:
         if not isinstance(request, ReviewRequest):
@@ -506,9 +697,13 @@ class ReviewService:
         self._uuid(request.candidate_id, "candidate id")
         if request.action not in REVIEW_ACTIONS:
             raise ReviewFailure("INVALID_INPUT", "unsupported review action")
-        reason = self._required_text(request.reason, "reason")
-        comment = self._optional_text(request.comment, "comment")
-        replacement = self._optional_text(request.replacement_text, "replacement text")
+        reason = self._required_text(request.reason, "reason", MAX_REASON_LENGTH)
+        comment = self._optional_text(request.comment, "comment", MAX_COMMENT_LENGTH)
+        replacement = self._optional_text(
+            request.replacement_text,
+            "replacement text",
+            MAX_REPLACEMENT_TEXT_LENGTH,
+        )
         if request.action == "modify" and replacement is None:
             raise ReviewFailure(
                 "INVALID_INPUT", "modify requires non-empty replacement text"
@@ -553,6 +748,68 @@ class ReviewService:
         )
 
     @staticmethod
+    def _same_run_request_identity(
+        claimed: ReviewRunRequestRecord,
+        scope: ReviewScopeContext,
+        project_id: str,
+        idempotency_key: str,
+    ) -> bool:
+        return (
+            claimed.organization_id,
+            claimed.workspace_id,
+            claimed.client_id,
+            claimed.project_id,
+            claimed.idempotency_key,
+            claimed.created_by,
+        ) == (
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            project_id,
+            idempotency_key,
+            scope.actor_id,
+        )
+
+    @staticmethod
+    def _same_run_request_source(
+        claimed: ReviewRunRequestRecord,
+        requested: ReviewRunRequestRecord,
+    ) -> bool:
+        return (
+            claimed.expected_proposal_version_id,
+            claimed.expected_proposal_sha256.lower(),
+        ) == (
+            requested.expected_proposal_version_id,
+            requested.expected_proposal_sha256.lower(),
+        )
+
+    @classmethod
+    def _valid_run_request_record(cls, record: object) -> bool:
+        return bool(
+            isinstance(record, ReviewRunRequestRecord)
+            and all(
+                cls._canonical_uuid(value)
+                for value in (
+                    record.request_id,
+                    record.organization_id,
+                    record.workspace_id,
+                    record.client_id,
+                    record.project_id,
+                    record.expected_proposal_version_id,
+                    record.run_id,
+                    record.created_by,
+                )
+            )
+            and isinstance(record.idempotency_key, str)
+            and record.idempotency_key == record.idempotency_key.strip()
+            and 8 <= len(record.idempotency_key) <= MAX_IDEMPOTENCY_KEY_LENGTH
+            and isinstance(record.expected_proposal_sha256, str)
+            and SHA256_PATTERN.fullmatch(record.expected_proposal_sha256) is not None
+            and record.expected_proposal_sha256 == record.expected_proposal_sha256.lower()
+            and cls._aware(record.created_at)
+        )
+
+    @staticmethod
     def _run_in_scope(
         run: ReviewRun | None,
         project_id: str,
@@ -563,11 +820,13 @@ class ReviewService:
             run.workspace_id,
             run.client_id,
             run.project_id,
+            run.created_by,
         ) == (
             scope.organization_id,
             scope.workspace_id,
             scope.client_id,
             project_id,
+            scope.actor_id,
         )
 
     @staticmethod
@@ -881,16 +1140,24 @@ class ReviewService:
         return value.lower()
 
     @staticmethod
-    def _required_text(value: object, label: str) -> str:
-        if not isinstance(value, str) or not value.strip():
+    def _required_text(value: object, label: str, maximum: int) -> str:
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value.strip()) > maximum
+        ):
             raise ReviewFailure("INVALID_INPUT", f"{label} must be non-empty")
         return value.strip()
 
     @staticmethod
-    def _optional_text(value: object, label: str) -> str | None:
+    def _optional_text(value: object, label: str, maximum: int) -> str | None:
         if value is None:
             return None
-        if not isinstance(value, str) or not value.strip():
+        if (
+            not isinstance(value, str)
+            or not value.strip()
+            or len(value.strip()) > maximum
+        ):
             raise ReviewFailure(
                 "INVALID_INPUT", f"{label} must be non-empty when supplied"
             )

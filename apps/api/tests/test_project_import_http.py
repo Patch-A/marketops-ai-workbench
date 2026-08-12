@@ -10,7 +10,8 @@ import unittest
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 from urllib.parse import urlsplit
 from uuid import uuid4
 
@@ -558,6 +559,71 @@ class RuntimeSettingsTests(unittest.TestCase):
             ScopeContext(*identifiers),
         )
         self.assertEqual(settings.basic_username, "operator")
+
+
+@unittest.skipUnless(
+    HTTP_DEPENDENCIES_AVAILABLE,
+    "FastAPI and python-multipart are required for runtime lifespan tests",
+)
+class RuntimeLifespanTests(unittest.IsolatedAsyncioTestCase):
+    def settings(self):
+        from apps.api.main import RuntimeSettings
+
+        return RuntimeSettings(
+            database_url="postgresql://example.invalid/test",
+            object_root=Path("objects"),
+            bearer_token="token",
+            basic_username="operator",
+            scope=ScopeContext(*(identifier() for _ in range(4))),
+        )
+
+    async def test_one_shared_pool_is_closed_once(self):
+        from apps.api import main
+
+        pool = SimpleNamespace()
+        owner = SimpleNamespace(pool=pool, close=AsyncMock())
+        application = SimpleNamespace(state=SimpleNamespace())
+        with (
+            patch.object(main.RuntimeSettings, "from_environment", return_value=self.settings()),
+            patch.object(main.AsyncpgImportRepository, "create", AsyncMock(return_value=owner)),
+            patch.object(main, "AsyncpgReviewRepository") as review_repository,
+            patch.object(main, "AsyncpgApprovedProposalSourceReader") as source_reader,
+        ):
+            async with main._lifespan(application):
+                self.assertIs(application.state.project_reader, owner)
+                review_repository.assert_called_once_with(pool)
+                source_reader.assert_called_once_with(pool)
+        owner.close.assert_awaited_once_with()
+
+    async def test_pool_creation_failure_or_cancellation_does_not_close_unknown_resource(self):
+        from apps.api import main
+
+        for failure in (RuntimeError("secret dsn"), asyncio.CancelledError()):
+            with self.subTest(type=type(failure).__name__):
+                create = AsyncMock(side_effect=failure)
+                with (
+                    patch.object(main.RuntimeSettings, "from_environment", return_value=self.settings()),
+                    patch.object(main.AsyncpgImportRepository, "create", create),
+                ):
+                    with self.assertRaises(type(failure)):
+                        async with main._lifespan(SimpleNamespace(state=SimpleNamespace())):
+                            pass
+
+    async def test_setup_failure_and_cancellation_close_created_pool_once(self):
+        from apps.api import main
+
+        for failure in (RuntimeError("setup failed"), asyncio.CancelledError()):
+            with self.subTest(type=type(failure).__name__):
+                owner = SimpleNamespace(pool=SimpleNamespace(), close=AsyncMock())
+                with (
+                    patch.object(main.RuntimeSettings, "from_environment", return_value=self.settings()),
+                    patch.object(main.AsyncpgImportRepository, "create", AsyncMock(return_value=owner)),
+                    patch.object(main, "AsyncpgReviewRepository", side_effect=failure),
+                ):
+                    with self.assertRaises(type(failure)):
+                        async with main._lifespan(SimpleNamespace(state=SimpleNamespace())):
+                            pass
+                owner.close.assert_awaited_once_with()
 
 
 if HTTP_DEPENDENCIES_AVAILABLE:

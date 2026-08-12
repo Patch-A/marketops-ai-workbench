@@ -17,6 +17,7 @@ from apps.api.marketops_import.migrations import (  # noqa: E402
 )
 
 MIGRATION = ROOT / "apps/api/migrations/0002_extraction_review.sql"
+IDEMPOTENCY_MIGRATION = ROOT / "apps/api/migrations/0003_review_idempotency.sql"
 ADAPTER = ROOT / "apps/api/marketops_review/postgres.py"
 TABLES = (
     "extraction_runs",
@@ -24,6 +25,7 @@ TABLES = (
     "review_snapshots",
     "review_snapshot_items",
     "review_decisions",
+    "extraction_run_requests",
 )
 CREATOR_COLUMNS = {
     "extraction_runs": "created_by",
@@ -31,6 +33,8 @@ CREATOR_COLUMNS = {
     "review_snapshots": "created_by",
     "review_snapshot_items": "created_by",
     "review_decisions": "actor_id",
+    "extraction_run_requests": "created_by",
+    "audit_events": "actor_id",
 }
 SCOPE_PREDICATES = {
     "actor": r"marketops\.current_actor_id\(\)\s+is\s+not\s+null",
@@ -50,14 +54,15 @@ def _normalized(value: str) -> str:
 
 
 def _policy_halves(sql: str, table: str) -> tuple[str, str] | None:
-    match = re.search(
-        rf"create\s+policy\s+{table}_scope\s+on\s+marketops\.{table}\s+"
+    matches = list(re.finditer(
+        rf"create\s+policy\s+[a-z_]+\s+on\s+marketops\.{table}\s+"
         rf"using\s*\((?P<using>.*?)\)\s+with\s+check\s*\((?P<check>.*?)\)\s*;",
         sql,
         re.IGNORECASE | re.DOTALL,
-    )
-    if match is None:
+    ))
+    if not matches:
         return None
+    match = matches[-1]
     return match.group("using"), match.group("check")
 
 
@@ -66,11 +71,13 @@ def _validate_policy(sql: str, table: str, failures: list[str]) -> None:
     if halves is None:
         failures.append(f"missing exact scope policy {table}")
         return
+    actor_owner = f" AND {CREATOR_COLUMNS[table]} = marketops.current_actor_id()"
     expected_using = _normalized(
         "marketops.current_actor_id() IS NOT NULL "
         "AND workspace_id = marketops.current_workspace_id() "
         "AND client_id = marketops.current_client_id() "
         "AND project_id = marketops.current_project_id()"
+        + actor_owner
     )
     creator = CREATOR_COLUMNS[table]
     expected_check = _normalized(
@@ -173,6 +180,21 @@ def validate_contract(sql: str, adapter: str) -> list[str]:
             failures,
         )
         _validate_policy(sql, table, failures)
+        if table != "extraction_run_requests":
+            require(
+                rf"drop\s+policy\s+{table}_scope\s+on\s+marketops\.{table}\s*;",
+                sql,
+                f"missing forward actor-policy replacement {table}",
+                failures,
+            )
+
+    _validate_policy(sql, "audit_events", failures)
+    require(
+        r"drop\s+policy\s+audit_events_scope\s+on\s+marketops\.audit_events\s*;",
+        sql,
+        "missing forward actor-policy replacement audit_events",
+        failures,
+    )
 
     for token in (
         "check_extraction_run_integrity",
@@ -181,6 +203,8 @@ def validate_contract(sql: str, adapter: str) -> list[str]:
         "review snapshot is incomplete",
         "review snapshot versions must be contiguous",
         "review snapshot must match exactly one candidate decision",
+        "check_extraction_run_request_integrity",
+        "extraction run request differs from its review run",
     ):
         if token not in sql:
             failures.append(f"missing database invariant: {token}")
@@ -238,8 +262,8 @@ def validate_self_mutations(sql: str, adapter: str) -> list[str]:
             "workspace predicate removal",
             _mutate_once(
                 sql,
-                r"\s+and\s+workspace_id\s*=\s*marketops\.current_workspace_id\(\)",
-                "",
+                r"(create\s+policy\s+extraction_runs_actor_scope.*?current_actor_id\(\)\s+is\s+not\s+null)\s+and\s+workspace_id\s*=\s*marketops\.current_workspace_id\(\)",
+                r"\1",
                 "workspace predicate removal",
             ),
             adapter,
@@ -249,8 +273,8 @@ def validate_self_mutations(sql: str, adapter: str) -> list[str]:
             "actor predicate removal",
             _mutate_once(
                 sql,
-                r"marketops\.current_actor_id\(\)\s+is\s+not\s+null\s+and\s+",
-                "",
+                r"(create\s+policy\s+extraction_runs_actor_scope.*?using\s*\(\s*)marketops\.current_actor_id\(\)\s+is\s+not\s+null\s+and\s+",
+                r"\1",
                 "actor predicate removal",
             ),
             adapter,
@@ -293,8 +317,8 @@ def validate_self_mutations(sql: str, adapter: str) -> list[str]:
             "workspace conjunction weakened",
             _mutate_once(
                 sql,
-                r"and\s+workspace_id\s*=\s*marketops\.current_workspace_id\(\)",
-                "OR workspace_id = marketops.current_workspace_id()",
+                r"(create\s+policy\s+extraction_runs_actor_scope.*?current_actor_id\(\)\s+is\s+not\s+null\s+)and\s+workspace_id\s*=\s*marketops\.current_workspace_id\(\)",
+                r"\1OR workspace_id = marketops.current_workspace_id()",
                 "workspace conjunction weakened",
             ),
             adapter,
@@ -304,12 +328,23 @@ def validate_self_mutations(sql: str, adapter: str) -> list[str]:
             "actor ownership conjunction weakened",
             _mutate_once(
                 sql,
-                r"and\s+created_by\s*=\s*marketops\.current_actor_id\(\)",
-                "OR created_by = marketops.current_actor_id()",
+                r"(create\s+policy\s+extraction_runs_actor_scope.*?with\s+check\s*\(.*?project_id\s*=\s*marketops\.current_project_id\(\)\s+)and\s+created_by\s*=\s*marketops\.current_actor_id\(\)",
+                r"\1OR created_by = marketops.current_actor_id()",
                 "actor ownership conjunction weakened",
             ),
             adapter,
             "WITH CHECK scope expression drifted extraction_runs",
+        ),
+        (
+            "audit actor visibility removal",
+            _mutate_once(
+                sql,
+                r"(create\s+policy\s+audit_events_actor_scope.*?using\s*\(.*?project_id\s*=\s*marketops\.current_project_id\(\))\s+and\s+actor_id\s*=\s*marketops\.current_actor_id\(\)",
+                r"\1",
+                "audit actor visibility removal",
+            ),
+            adapter,
+            "USING scope expression drifted audit_events",
         ),
     )
     failures: list[str] = []
@@ -324,7 +359,7 @@ def validate_self_mutations(sql: str, adapter: str) -> list[str]:
 
 def main() -> int:
     try:
-        sql = MIGRATION.read_text(encoding="utf-8")
+        sql = MIGRATION.read_text(encoding="utf-8") + "\n" + IDEMPOTENCY_MIGRATION.read_text(encoding="utf-8")
         adapter = ADAPTER.read_text(encoding="utf-8")
     except OSError as error:
         print(f"FAIL: {error}", file=sys.stderr)
@@ -342,7 +377,7 @@ def main() -> int:
         return 1
     print(
         f"PASS: M1-02 PostgreSQL static contract "
-        f"({len(TABLES)} forced-RLS append-only tables; 7 self-mutations rejected)"
+        f"({len(TABLES)} forced-RLS append-only tables; 8 self-mutations rejected)"
     )
     print("LIMITATION: static checks do not replace PostgreSQL 18.4 runtime and recovery evidence")
     return 0

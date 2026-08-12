@@ -104,6 +104,7 @@ class PreparationRequest:
     project_id: str
     expected_proposal_version_id: str | None = None
     expected_proposal_sha256: str | None = None
+    idempotency_key: str | None = None
 
 
 @dataclass(frozen=True)
@@ -227,7 +228,6 @@ class ReviewRunCreator(Protocol):
         self, request: CreateReviewRunRequest, scope: ReviewScopeContext
     ) -> CreateReviewRunResult: ...
 
-
 class ApprovedProposalPreparationService:
     def __init__(
         self,
@@ -254,7 +254,9 @@ class ApprovedProposalPreparationService:
                 payload = await self._read_object(source)
                 parsed = await self._parse(source, payload)
                 candidates = self._extract(source, parsed)
-                review_result = await self._create_review(source, candidates, scope)
+                review_result = await self._create_review(
+                    source, candidates, scope, request.idempotency_key
+                )
         except asyncio.CancelledError:
             raise
         except PreparationFailure:
@@ -616,6 +618,7 @@ class ApprovedProposalPreparationService:
         source: ApprovedProposalSource,
         candidates: tuple[Candidate, ...],
         scope: ReviewScopeContext,
+        idempotency_key: str | None,
     ) -> CreateReviewRunResult:
         request = CreateReviewRunRequest(
             project_id=source.project_id,
@@ -624,6 +627,11 @@ class ApprovedProposalPreparationService:
             proposal_version=source.version,
             proposal_sha256=source.sha256,
             candidates=candidates,
+            idempotency_key=(
+                idempotency_key.strip()
+                if isinstance(idempotency_key, str)
+                else None
+            ),
         )
         try:
             result = await self.review_service.create_run(request, scope)
@@ -634,6 +642,11 @@ class ApprovedProposalPreparationService:
                 raise PreparationFailure(
                     "PROPOSAL_CHANGED",
                     "approved proposal changed during preparation",
+                ) from None
+            if error.code == "IDEMPOTENCY_CONFLICT":
+                raise PreparationFailure(
+                    "IDEMPOTENCY_CONFLICT",
+                    "idempotency key belongs to a different review source",
                 ) from None
             raise PreparationFailure(
                 "REVIEW_CREATE_FAILED",
@@ -685,6 +698,13 @@ class ApprovedProposalPreparationService:
         ):
             raise PreparationFailure(
                 "INVALID_INPUT", "expected proposal hash is invalid"
+            )
+        if request.idempotency_key is not None and (
+            not isinstance(request.idempotency_key, str)
+            or not 8 <= len(request.idempotency_key.strip()) <= 200
+        ):
+            raise PreparationFailure(
+                "INVALID_INPUT", "idempotency key is invalid"
             )
 
     @classmethod

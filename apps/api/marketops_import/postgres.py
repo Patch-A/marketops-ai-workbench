@@ -204,6 +204,11 @@ class AsyncpgImportRepository:
     def __init__(self, pool: Any):
         self._pool = pool
 
+    @property
+    def pool(self) -> Any:
+        """The application-lifetime pool shared by scoped PostgreSQL adapters."""
+        return self._pool
+
     @classmethod
     async def create(cls, dsn: str, **pool_options: Any) -> "AsyncpgImportRepository":
         try:

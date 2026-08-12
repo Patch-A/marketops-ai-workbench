@@ -14,6 +14,10 @@ from apps.api.marketops_import.backup import (
     LEGACY_BUSINESS_TABLES,
     MIGRATION_SET,
     MIGRATION_SHA256,
+    REVIEW_BUSINESS_TABLES,
+    REVIEW_MIGRATION_SET,
+    REVIEW_SCHEMA_VERSION,
+    SCHEMA_VERSION,
     canonical_archive_path,
     create_backup_bundle,
     load_backup_bundle,
@@ -243,8 +247,8 @@ class BackupBundleTests(unittest.TestCase):
                 text = manifest_path.read_text(encoding="utf-8")
                 if target == "root":
                     text = text.replace(
-                        '"schemaVersion": 2',
-                        '"schemaVersion": 0,\n  "schemaVersion": 2',
+                        f'"schemaVersion": {SCHEMA_VERSION}',
+                        f'"schemaVersion": 0,\n  "schemaVersion": {SCHEMA_VERSION}',
                         1,
                     )
                 else:
@@ -262,6 +266,32 @@ class BackupBundleTests(unittest.TestCase):
                     elif path.is_dir():
                         path.rmdir()
                 bundle.root.rmdir()
+
+    def test_review_v2_manifest_remains_readable_after_v3_upgrade(self):
+        bundle = self.create()
+        manifest = dict(bundle.manifest)
+        manifest["schemaVersion"] = REVIEW_SCHEMA_VERSION
+        manifest["migrations"] = list(REVIEW_MIGRATION_SET)
+        manifest["database"] = {
+            **manifest["database"],
+            "tableData": list(REVIEW_BUSINESS_TABLES),
+        }
+        manifest["snapshot"] = {
+            table: manifest["snapshot"][table]
+            for table in REVIEW_BUSINESS_TABLES
+        }
+        (bundle.root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_backup_bundle(bundle.root)
+
+        self.assertEqual(loaded.manifest["schemaVersion"], REVIEW_SCHEMA_VERSION)
+        self.assertEqual(
+            loaded.manifest["database"]["tableData"],
+            list(REVIEW_BUSINESS_TABLES),
+        )
 
 
 if __name__ == "__main__":

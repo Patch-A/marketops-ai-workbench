@@ -44,6 +44,27 @@ class FailingDecisionTransaction:
         raise RuntimeError("synthetic decision failure")
 
 
+class FailingCreateRepository:
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    @asynccontextmanager
+    async def transaction(self, scope, project_id):
+        async with self.delegate.transaction(scope, project_id) as transaction:
+            yield FailingCreateTransaction(transaction)
+
+
+class FailingCreateTransaction:
+    def __init__(self, delegate):
+        self.delegate = delegate
+
+    def __getattr__(self, name):
+        return getattr(self.delegate, name)
+
+    async def append_audit_event(self, event):
+        raise RuntimeError("synthetic create failure")
+
+
 @unittest.skipUnless(
     ADMIN_DSN and APP_DSN,
     "PostgreSQL admin/application test URLs are required",
@@ -84,6 +105,7 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 for table, column, value in (
                     ("audit_events", "project_id", self.project_id),
                     ("review_decisions", "project_id", self.project_id),
+                    ("extraction_run_requests", "project_id", self.project_id),
                     ("review_snapshot_items", "project_id", self.project_id),
                     ("review_snapshots", "project_id", self.project_id),
                     ("extraction_candidates", "project_id", self.project_id),
@@ -201,14 +223,14 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
             clock=lambda: datetime.now(timezone.utc),
         )
 
-    async def create_run(self):
+    async def create_run(self, *, idempotency_key=None, repository=None):
         candidates = (
             self.candidate(),
             self.candidate(
                 kind="milestone", text="Approve the runtime launch checkpoint."
             ),
         )
-        created = await self.service().create_run(
+        created = await self.service(repository).create_run(
             CreateReviewRunRequest(
                 self.project_id,
                 self.artifact_id,
@@ -216,6 +238,7 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 1,
                 self.source_hash,
                 candidates,
+                idempotency_key,
             ),
             self.scope,
         )
@@ -246,6 +269,8 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                       (SELECT count(*) FROM marketops.review_snapshots WHERE project_id = $1) AS review_snapshots,
                       (SELECT count(*) FROM marketops.review_snapshot_items WHERE project_id = $1) AS review_snapshot_items,
                       (SELECT count(*) FROM marketops.review_decisions WHERE project_id = $1) AS review_decisions
+                      ,(SELECT count(*) FROM marketops.extraction_run_requests WHERE project_id = $1) AS extraction_run_requests
+                      ,(SELECT count(*) FROM marketops.audit_events WHERE project_id = $1) AS audit_events
                     """,
                     self.project_id,
                 )
@@ -267,6 +292,8 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
             "review_snapshots": 2,
             "review_snapshot_items": 4,
             "review_decisions": 1,
+            "extraction_run_requests": 0,
+            "audit_events": 2,
         }
         self.assertEqual(
             await self._visible_counts(
@@ -413,6 +440,139 @@ class ReviewPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
             created.run.run_id,
         )
         self.assertEqual(dict(counts), {"snapshots": 1, "items": 2, "decisions": 0, "audits": 1})
+
+    async def test_persistent_idempotency_replays_one_run_and_conflicts_on_source(self):
+        candidates, created = await self.create_run(idempotency_key="review-runtime-replay")
+        replay = await self.service().create_run(
+            CreateReviewRunRequest(
+                self.project_id,
+                self.artifact_id,
+                self.version_id,
+                1,
+                self.source_hash,
+                candidates,
+                "review-runtime-replay",
+            ),
+            self.scope,
+        )
+        self.assertTrue(replay.replayed)
+        self.assertEqual(replay.run.run_id, created.run.run_id)
+
+        request_count, run_count = await self.admin.fetchrow(
+            """
+            SELECT
+              (SELECT count(*) FROM marketops.extraction_run_requests WHERE project_id = $1),
+              (SELECT count(*) FROM marketops.extraction_runs WHERE project_id = $1)
+            """,
+            self.project_id,
+        )
+        self.assertEqual((request_count, run_count), (1, 1))
+
+        with self.assertRaises(ReviewFailure) as raised:
+            await self.service().replay_run_request(
+                self.project_id,
+                "review-runtime-replay",
+                self.version_id,
+                "b" * 64,
+                self.scope,
+            )
+        self.assertEqual(raised.exception.code, "IDEMPOTENCY_CONFLICT")
+
+    async def test_concurrent_same_key_has_one_request_and_one_run(self):
+        candidates = (self.candidate(),)
+
+        async def create():
+            return await self.service().create_run(
+                CreateReviewRunRequest(
+                    self.project_id,
+                    self.artifact_id,
+                    self.version_id,
+                    1,
+                    self.source_hash,
+                    candidates,
+                    "review-runtime-concurrent",
+                ),
+                self.scope,
+            )
+
+        results = await asyncio.gather(create(), create())
+        self.assertEqual(sum(result.replayed for result in results), 1)
+        self.assertEqual(len({result.run.run_id for result in results}), 1)
+        counts = await self.admin.fetchrow(
+            """
+            SELECT
+              (SELECT count(*) FROM marketops.extraction_run_requests WHERE project_id = $1) AS requests,
+              (SELECT count(*) FROM marketops.extraction_runs WHERE project_id = $1) AS runs
+            """,
+            self.project_id,
+        )
+        self.assertEqual(dict(counts), {"requests": 1, "runs": 1})
+
+    async def test_failed_create_leaves_no_request_placeholder(self):
+        failing = FailingCreateRepository(AsyncpgReviewRepository(self.pool))
+        with self.assertRaises(ReviewFailure):
+            await self.create_run(
+                idempotency_key="review-runtime-rollback",
+                repository=failing,
+            )
+        counts = await self.admin.fetchrow(
+            """
+            SELECT
+              (SELECT count(*) FROM marketops.extraction_run_requests WHERE project_id = $1) AS requests,
+              (SELECT count(*) FROM marketops.extraction_runs WHERE project_id = $1) AS runs
+            """,
+            self.project_id,
+        )
+        self.assertEqual(dict(counts), {"requests": 0, "runs": 0})
+
+    async def test_other_actor_cannot_read_request_run_or_append_decision(self):
+        candidates, created = await self.create_run(idempotency_key="review-runtime-actor")
+        other_actor = str(uuid4())
+        hidden = await self._visible_counts(
+            workspace_id=self.workspace_id,
+            client_id=self.client_id,
+            project_id=self.project_id,
+            actor_id=other_actor,
+        )
+        self.assertEqual(hidden, {table: 0 for table in hidden})
+        other_scope = ReviewScopeContext(
+            self.organization_id, self.workspace_id, self.client_id, other_actor
+        )
+        with self.assertRaises(ReviewFailure) as raised:
+            await self.service().review_candidate(
+                self.project_id,
+                created.run.run_id,
+                ReviewRequest(1, candidates[0].candidate_id, "approve", "wrong actor"),
+                other_scope,
+            )
+        self.assertEqual(raised.exception.code, "REVIEW_NOT_FOUND")
+
+    async def test_integrity_trigger_rejects_request_source_mismatch(self):
+        candidates, created = await self.create_run()
+        with self.assertRaisesRegex(
+            self.asyncpg.CheckViolationError,
+            "extraction run request differs from its review run",
+        ):
+            async with self.admin.transaction():
+                await self.admin.execute(
+                    """
+                    INSERT INTO marketops.extraction_run_requests (
+                        id, organization_id, workspace_id, client_id, project_id,
+                        idempotency_key, expected_proposal_version_id,
+                        expected_proposal_sha256, run_id, created_by, created_at
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, now())
+                    """,
+                    str(uuid4()),
+                    self.organization_id,
+                    self.workspace_id,
+                    self.client_id,
+                    self.project_id,
+                    "review-runtime-mismatch",
+                    self.version_id,
+                    bytes.fromhex("b" * 64),
+                    created.run.run_id,
+                    self.actor_id,
+                )
 
 
 if __name__ == "__main__":

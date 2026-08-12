@@ -9,6 +9,7 @@ import copy
 import hmac
 import inspect
 import json
+import re
 import tempfile
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
@@ -28,6 +29,13 @@ from .service import (
     ProjectImportService,
     ScopeContext,
 )
+from ..marketops_review import (
+    PreparationFailure,
+    PreparationRequest,
+    ReviewFailure,
+    ReviewRequest,
+    ReviewScopeContext,
+)
 
 
 Authenticator = Callable[
@@ -40,6 +48,14 @@ _EXPECTED_FIELDS = frozenset(
 _FILE_FIELDS = frozenset({"sourceFile", "proposalFile"})
 _MAX_TEXT_FIELD_SIZE_BYTES = 4096
 _MAX_MULTIPART_REQUEST_SIZE_BYTES = 2 * MAX_FILE_SIZE_BYTES + 64 * 1024
+_MAX_REVIEW_JSON_BYTES = 16 * 1024
+_CREATE_REVIEW_FIELDS = frozenset(
+    {"expectedProposalVersionId", "expectedProposalSha256"}
+)
+_DECISION_REQUIRED_FIELDS = frozenset(
+    {"expectedReviewVersion", "candidateId", "action", "reason"}
+)
+_DECISION_OPTIONAL_FIELDS = frozenset({"comment", "replacementText"})
 _OPENAPI_CONTRACT = (
     Path(__file__).resolve().parents[1] / "openapi" / "project-import.openapi.yaml"
 )
@@ -57,6 +73,21 @@ _STATUS_BY_CODE = {
     "INVALID_SERVER_ID": 500,
     "INVALID_SERVER_CLOCK": 500,
     "DATABASE_WRITE_FAILED": 500,
+    "PROPOSAL_NOT_AVAILABLE": 422,
+    "PROPOSAL_CHANGED": 409,
+    "SOURCE_READ_FAILED": 503,
+    "SOURCE_INTEGRITY_FAILED": 422,
+    "PARSER_FAILED": 422,
+    "PARSER_LIMIT_EXCEEDED": 422,
+    "PARSER_WARNING": 422,
+    "EXTRACTION_FAILED": 422,
+    "NO_CANDIDATES": 422,
+    "CANDIDATE_LIMIT_EXCEEDED": 422,
+    "REVIEW_CREATE_FAILED": 500,
+    "REPOSITORY_FAILURE": 503,
+    "REVIEW_NOT_FOUND": 404,
+    "CANDIDATE_NOT_FOUND": 404,
+    "REVIEW_CONFLICT": 409,
 }
 _PUBLIC_MESSAGES = {
     "INVALID_INPUT": "The import request is malformed or incomplete.",
@@ -73,6 +104,21 @@ _PUBLIC_MESSAGES = {
     "INVALID_SERVER_CLOCK": "The server clock is invalid.",
     "DATABASE_WRITE_FAILED": "The project transaction failed.",
     "PROJECT_NOT_FOUND": "The requested project was not found.",
+    "PROPOSAL_NOT_AVAILABLE": "The approved proposal is not available.",
+    "PROPOSAL_CHANGED": "The approved proposal differs from the expected source.",
+    "SOURCE_READ_FAILED": "The approved proposal is temporarily unavailable.",
+    "SOURCE_INTEGRITY_FAILED": "The approved proposal failed integrity verification.",
+    "PARSER_FAILED": "The approved proposal could not be parsed.",
+    "PARSER_LIMIT_EXCEEDED": "The approved proposal exceeds parser limits.",
+    "PARSER_WARNING": "The approved proposal contains unsupported content.",
+    "EXTRACTION_FAILED": "Review candidates could not be extracted.",
+    "NO_CANDIDATES": "The approved proposal produced no review candidates.",
+    "CANDIDATE_LIMIT_EXCEEDED": "The approved proposal produced too many candidates.",
+    "REVIEW_CREATE_FAILED": "The review run could not be created.",
+    "REPOSITORY_FAILURE": "The review repository is temporarily unavailable.",
+    "REVIEW_NOT_FOUND": "The requested review run was not found.",
+    "CANDIDATE_NOT_FOUND": "The requested candidate was not found.",
+    "REVIEW_CONFLICT": "The review version is stale and must be refreshed.",
 }
 
 _STATIC_FILES = {
@@ -136,6 +182,8 @@ def create_app(
     import_service: ProjectImportService | None = None,
     authenticator: Authenticator | None = None,
     project_reader: Any | None = None,
+    review_preparation: Any | None = None,
+    review_service: Any | None = None,
     static_root: Path | None = None,
     request_id_factory: Callable[[], Any] = uuid4,
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[Any]] | None = None,
@@ -154,6 +202,10 @@ def create_app(
         app.state.authenticator = authenticator
     if project_reader is not None:
         app.state.project_reader = project_reader
+    if review_preparation is not None:
+        app.state.review_preparation = review_preparation
+    if review_service is not None:
+        app.state.review_service = review_service
 
     @app.post("/v1/project-imports", status_code=201)
     async def import_project(request: Request) -> JSONResponse:
@@ -279,6 +331,8 @@ def create_app(
             )
         except asyncio.CancelledError:
             raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
         except _MalformedRequest:
             return _failure("INVALID_INPUT", request_id, status=400)
         except Exception:
@@ -333,6 +387,223 @@ def create_app(
             return _failure(
                 "DATABASE_WRITE_FAILED", request_id, status=500, retryable=True
             )
+
+    @app.post("/v1/projects/{project_id}/extraction-runs", status_code=201)
+    async def create_extraction_run(
+        project_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_id = _canonical_review_uuid(project_id)
+        if canonical_id is None:
+            return _failure("REVIEW_NOT_FOUND", request_id, status=404)
+        try:
+            idempotency_key = _single_header(request, "idempotency-key").strip()
+            if not 8 <= len(idempotency_key) <= 200:
+                raise _MalformedRequest
+            body = await _read_strict_json(request)
+            _require_exact_fields(body, _CREATE_REVIEW_FIELDS)
+            version_id = _canonical_review_uuid(
+                body.get("expectedProposalVersionId")
+            )
+            proposal_hash = body.get("expectedProposalSha256")
+            if (
+                version_id is None
+                or not isinstance(proposal_hash, str)
+                or re.fullmatch(r"[0-9a-f]{64}", proposal_hash) is None
+            ):
+                raise _MalformedRequest
+            review_service = getattr(request.app.state, "review_service", None)
+            if review_service is None:
+                return _failure(
+                    "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+                )
+            review_scope = _review_scope(scope_or_error)
+            replay = await review_service.replay_run_request(
+                canonical_id,
+                idempotency_key,
+                version_id,
+                proposal_hash,
+                review_scope,
+            )
+            if replay is not None:
+                response = _json_no_store(
+                    _create_review_result_json(replay), status_code=201
+                )
+                response.headers["Location"] = (
+                    f"/v1/projects/{canonical_id}/extraction-runs/"
+                    f"{replay.run.run_id}"
+                )
+                return response
+            service = getattr(request.app.state, "review_preparation", None)
+            if service is None:
+                return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
+            result = await service.prepare_and_create_run(
+                PreparationRequest(
+                    project_id=canonical_id,
+                    expected_proposal_version_id=version_id,
+                    expected_proposal_sha256=proposal_hash,
+                    idempotency_key=idempotency_key,
+                ),
+                _review_scope(scope_or_error),
+            )
+            response = _json_no_store(
+                {
+                    **_create_review_result_json(result.review_result),
+                },
+                status_code=201,
+            )
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_id}/extraction-runs/"
+                f"{result.review_result.run.run_id}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except PreparationFailure as error:
+            return _failure(
+                error.code,
+                request_id,
+                status=_STATUS_BY_CODE.get(error.code, 500),
+                retryable=error.retryable,
+            )
+        except ReviewFailure as error:
+            return _review_failure(error, request_id)
+        except Exception:
+            return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
+
+    @app.get("/v1/projects/{project_id}/extraction-runs")
+    async def list_extraction_runs(
+        project_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_id = _canonical_review_uuid(project_id)
+        if canonical_id is None:
+            return _failure("REVIEW_NOT_FOUND", request_id, status=404)
+        try:
+            limit = _project_list_limit(request)
+            service = getattr(request.app.state, "review_service", None)
+            if service is None:
+                return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
+            summaries = await service.list_runs(
+                canonical_id, _review_scope(scope_or_error), limit=limit
+            )
+            return _json_no_store(
+                {"runs": [_review_summary_json(item) for item in summaries]}
+            )
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ReviewFailure as error:
+            return _review_failure(error, request_id)
+        except Exception:
+            return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
+
+    @app.get("/v1/projects/{project_id}/extraction-runs/{run_id}")
+    async def get_extraction_run(
+        project_id: str, run_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_run = _canonical_review_uuid(run_id)
+        if canonical_project is None or canonical_run is None:
+            return _failure("REVIEW_NOT_FOUND", request_id, status=404)
+        try:
+            review_version = _review_version_query(request)
+            service = getattr(request.app.state, "review_service", None)
+            if service is None:
+                return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
+            result = await service.read_review(
+                canonical_project,
+                canonical_run,
+                _review_scope(scope_or_error),
+                review_version=review_version,
+            )
+            return _json_no_store(_review_model_json(result))
+        except asyncio.CancelledError:
+            raise
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ReviewFailure as error:
+            return _review_failure(error, request_id)
+        except Exception:
+            return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
+
+    @app.post(
+        "/v1/projects/{project_id}/extraction-runs/{run_id}/decisions",
+        status_code=201,
+    )
+    async def decide_review_candidate(
+        project_id: str, run_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_run = _canonical_review_uuid(run_id)
+        if canonical_project is None or canonical_run is None:
+            return _failure("REVIEW_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(request)
+            _require_decision_fields(body)
+            candidate_id = _canonical_review_uuid(body.get("candidateId"))
+            if candidate_id is None:
+                raise _MalformedRequest
+            service = getattr(request.app.state, "review_service", None)
+            if service is None:
+                return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
+            result = await service.review_candidate(
+                canonical_project,
+                canonical_run,
+                ReviewRequest(
+                    expected_review_version=body["expectedReviewVersion"],
+                    candidate_id=candidate_id,
+                    action=body["action"],
+                    reason=body["reason"],
+                    comment=body.get("comment"),
+                    replacement_text=body.get("replacementText"),
+                ),
+                _review_scope(scope_or_error),
+            )
+            response = _json_no_store(
+                {
+                    "runId": result.run_id,
+                    "reviewVersion": result.snapshot.version,
+                    "decision": _decision_json(result.decision),
+                },
+                status_code=201,
+            )
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_project}/extraction-runs/"
+                f"{canonical_run}?reviewVersion={result.snapshot.version}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ReviewFailure as error:
+            return _review_failure(error, request_id)
+        except Exception:
+            return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
 
     if static_root is not None:
         root = static_root.resolve(strict=True)
@@ -500,7 +771,12 @@ def _single_header(request: Request, name: str) -> str:
 
 
 def _positive_integer(value: str) -> int:
-    if not value or not value.isascii() or not value.isdecimal():
+    if (
+        not value
+        or not value.isascii()
+        or not value.isdecimal()
+        or (len(value) > 1 and value.startswith("0"))
+    ):
         raise _MalformedRequest
     number = int(value)
     if number < 1:
@@ -534,7 +810,12 @@ def _project_list_limit(request: Request) -> int:
     if set(values) != {"limit"} or len(values["limit"]) != 1:
         raise _MalformedRequest
     value = values["limit"][0]
-    if not value or not value.isascii() or not value.isdecimal():
+    if (
+        not value
+        or not value.isascii()
+        or not value.isdecimal()
+        or (len(value) > 1 and value.startswith("0"))
+    ):
         raise _MalformedRequest
     limit = int(value)
     if not 1 <= limit <= 100:
@@ -547,6 +828,180 @@ def _canonical_project_id(value: str) -> str | None:
         return str(UUID(value))
     except (TypeError, ValueError):
         return None
+
+
+def _canonical_review_uuid(value: Any) -> str | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = str(UUID(value))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed == value else None
+
+
+def _review_scope(scope: ScopeContext) -> ReviewScopeContext:
+    return ReviewScopeContext(
+        scope.organization_id,
+        scope.workspace_id,
+        scope.client_id,
+        scope.actor_id,
+    )
+
+
+async def _read_strict_json(request: Request) -> dict[str, Any]:
+    content_types = request.headers.getlist("content-type")
+    if len(content_types) != 1 or content_types[0].split(";", 1)[0].strip().lower() != "application/json":
+        raise _MalformedRequest
+    observed = 0
+    chunks: list[bytes] = []
+    async for chunk in request.stream():
+        observed += len(chunk)
+        if observed > _MAX_REVIEW_JSON_BYTES:
+            raise _PayloadTooLarge
+        chunks.append(chunk)
+    try:
+        raw = b"".join(chunks).decode("utf-8")
+        value = json.loads(raw, object_pairs_hook=_reject_duplicate_json_members)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        raise _MalformedRequest from None
+    if not isinstance(value, dict):
+        raise _MalformedRequest
+    return value
+
+
+def _reject_duplicate_json_members(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate JSON member")
+        result[key] = value
+    return result
+
+
+def _require_exact_fields(value: dict[str, Any], expected: frozenset[str]) -> None:
+    if frozenset(value) != expected:
+        raise _MalformedRequest
+
+
+def _require_decision_fields(value: dict[str, Any]) -> None:
+    keys = frozenset(value)
+    if not _DECISION_REQUIRED_FIELDS.issubset(keys) or not keys.issubset(
+        _DECISION_REQUIRED_FIELDS | _DECISION_OPTIONAL_FIELDS
+    ):
+        raise _MalformedRequest
+    expected_version = value.get("expectedReviewVersion")
+    if (
+        isinstance(expected_version, bool)
+        or not isinstance(expected_version, int)
+        or expected_version < 1
+        or not isinstance(value.get("action"), str)
+        or not isinstance(value.get("reason"), str)
+        or ("comment" in value and value["comment"] is not None and not isinstance(value["comment"], str))
+        or ("replacementText" in value and value["replacementText"] is not None and not isinstance(value["replacementText"], str))
+    ):
+        raise _MalformedRequest
+
+
+def _review_version_query(request: Request) -> int | None:
+    values: dict[str, list[str]] = {}
+    for name, value in request.query_params.multi_items():
+        values.setdefault(name, []).append(value)
+    if not values:
+        return None
+    if set(values) != {"reviewVersion"} or len(values["reviewVersion"]) != 1:
+        raise _MalformedRequest
+    raw = values["reviewVersion"][0]
+    if (
+        not raw
+        or not raw.isascii()
+        or not raw.isdecimal()
+        or (len(raw) > 1 and raw.startswith("0"))
+        or int(raw) < 1
+    ):
+        raise _MalformedRequest
+    return int(raw)
+
+
+def _review_summary_json(summary: Any) -> dict[str, Any]:
+    return _review_run_json(summary.run, summary.latest_review_version)
+
+
+def _create_review_result_json(result: Any) -> dict[str, Any]:
+    return {
+        "runId": result.run.run_id,
+        "reviewVersion": result.snapshot.version,
+        "candidateCount": result.run.candidate_count,
+        "proposalVersionId": result.run.proposal_version_id,
+        "proposalSha256": result.run.proposal_sha256,
+        "replayed": bool(result.replayed),
+        "createdAt": result.run.created_at.isoformat(),
+    }
+
+
+def _review_run_json(run: Any, latest_review_version: int) -> dict[str, Any]:
+    return {
+        "runId": run.run_id,
+        "proposalVersionId": run.proposal_version_id,
+        "proposalSha256": run.proposal_sha256,
+        "candidateCount": run.candidate_count,
+        "latestReviewVersion": latest_review_version,
+        "createdAt": run.created_at.isoformat(),
+    }
+
+
+def _decision_json(decision: Any) -> dict[str, Any]:
+    return {
+        "decisionId": decision.decision_id,
+        "reviewVersion": decision.review_version,
+        "candidateId": decision.candidate_id,
+        "action": decision.action,
+        "reason": decision.reason,
+        "comment": decision.comment,
+        "replacementText": decision.replacement_text,
+        "actorId": decision.actor_id,
+        "createdAt": decision.created_at.isoformat(),
+    }
+
+
+def _review_model_json(model: Any) -> dict[str, Any]:
+    return {
+        "run": _review_run_json(
+            model.run, model.available_review_versions[-1]
+        ),
+        "selectedReviewVersion": model.snapshot.version,
+        "availableReviewVersions": list(model.available_review_versions),
+        "selectedDecision": (
+            _decision_json(model.selected_decision)
+            if model.selected_decision is not None
+            else None
+        ),
+        "candidates": [
+            {
+                "ordinal": view.ordinal,
+                **view.candidate.as_dict(),
+                "review": {
+                    "status": view.status,
+                    "replacementText": view.replacement_text,
+                    "lastDecision": (
+                        _decision_json(view.last_decision)
+                        if view.last_decision is not None
+                        else None
+                    ),
+                },
+            }
+            for view in model.candidates
+        ],
+    }
+
+
+def _review_failure(error: ReviewFailure, request_id: str) -> JSONResponse:
+    return _failure(
+        error.code,
+        request_id,
+        status=_STATUS_BY_CODE.get(error.code, 500),
+        retryable=error.code == "REPOSITORY_FAILURE",
+    )
 
 
 def _request_id(factory: Callable[[], Any]) -> str:

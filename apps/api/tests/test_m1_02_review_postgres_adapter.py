@@ -8,6 +8,7 @@ from apps.api.marketops_review import (
     CreateReviewRunRequest,
     ReviewFailure,
     ReviewPostgresError,
+    ReviewRunRequestRecord,
     ReviewRequest,
     ReviewScopeContext,
     ReviewService,
@@ -27,6 +28,7 @@ SNAPSHOT_ONE_ID = "00000000-0000-4000-8000-000000000010"
 SNAPSHOT_TWO_ID = "00000000-0000-4000-8000-000000000011"
 DECISION_ID = "00000000-0000-4000-8000-000000000012"
 AUDIT_ID = "00000000-0000-4000-8000-000000000013"
+REQUEST_ID = "00000000-0000-4000-8000-000000000014"
 NOW = datetime(2026, 8, 11, 12, 0, tzinfo=timezone.utc)
 SOURCE_HASH = "a" * 64
 
@@ -74,6 +76,7 @@ class FakeConnection:
         self.rollbacks = 0
         self.fail_write = False
         self.snapshot_version = 1
+        self.run_request = None
 
     def transaction(self):
         return FakeTransaction(self)
@@ -82,6 +85,25 @@ class FakeConnection:
         self.calls.append(("fetchrow", query, args))
         if "set_config('app.workspace_id'" in query:
             return {"scope": True}
+        if "INSERT INTO marketops.extraction_run_requests" in query:
+            if self.run_request is None:
+                self.run_request = {
+                    "id": args[0],
+                    "organization_id": args[1],
+                    "workspace_id": args[2],
+                    "client_id": args[3],
+                    "project_id": args[4],
+                    "idempotency_key": args[5],
+                    "expected_proposal_version_id": args[6],
+                    "expected_proposal_sha256": args[7],
+                    "run_id": args[8],
+                    "created_by": args[9],
+                    "created_at": args[10],
+                }
+                return {"id": args[0]}
+            return None
+        if "FROM marketops.extraction_run_requests" in query:
+            return self.run_request
         if "FROM marketops.projects AS project" in query:
             return {
                 "organization_id": ORGANIZATION_ID,
@@ -193,6 +215,43 @@ class ReviewPostgresAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum("INSERT INTO marketops.extraction_candidates" in query for query in statements), 1)
         self.assertEqual(sum("INSERT INTO marketops.review_snapshot_items" in query for query in statements), 1)
         self.assertEqual(sum("INSERT INTO marketops.audit_events" in query for query in statements), 1)
+
+    async def test_idempotency_claim_uses_actor_scoped_unique_fact(self):
+        connection = FakeConnection()
+        repository = AsyncpgReviewRepository(FakePool(connection))
+        request = ReviewRunRequestRecord(
+            REQUEST_ID,
+            ORGANIZATION_ID,
+            WORKSPACE_ID,
+            CLIENT_ID,
+            PROJECT_ID,
+            "review-request-001",
+            VERSION_ID,
+            SOURCE_HASH,
+            RUN_ID,
+            ACTOR_ID,
+            NOW,
+        )
+
+        async with repository.transaction(self.scope, PROJECT_ID) as transaction:
+            first = await transaction.claim_run_request(request)
+            replay = await transaction.claim_run_request(request)
+
+        self.assertEqual(first, request)
+        self.assertEqual(replay, request)
+        claim_sql = next(
+            query
+            for kind, query, _ in connection.calls
+            if kind == "fetchrow" and "INSERT INTO marketops.extraction_run_requests" in query
+        )
+        select_sql = next(
+            query
+            for kind, query, _ in connection.calls
+            if kind == "fetchrow" and "FROM marketops.extraction_run_requests" in query
+        )
+        self.assertIn("created_by, idempotency_key", claim_sql)
+        self.assertIn("created_by = $5", select_sql)
+        self.assertIn("project_id = $4", select_sql)
 
     async def test_review_locks_run_before_reading_latest_snapshot(self):
         connection = FakeConnection()

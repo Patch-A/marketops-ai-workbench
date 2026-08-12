@@ -16,6 +16,9 @@ CONTRACT = ROOT / "apps" / "api" / "openapi" / "project-import.openapi.yaml"
 ROUTE = "/v1/project-imports"
 LIST_ROUTE = "/v1/projects"
 DETAIL_ROUTE = "/v1/projects/{projectId}"
+REVIEW_COLLECTION_ROUTE = "/v1/projects/{projectId}/extraction-runs"
+REVIEW_DETAIL_ROUTE = "/v1/projects/{projectId}/extraction-runs/{runId}"
+REVIEW_DECISION_ROUTE = REVIEW_DETAIL_ROUTE + "/decisions"
 FORBIDDEN_SCOPE_FIELDS = {"organizationId", "workspaceId", "clientId", "actorId"}
 REQUIRED_RESPONSES = {
     "201",
@@ -58,6 +61,21 @@ REQUIRED_ERROR_CODES = frozenset(
         "INVALID_SERVER_CLOCK",
         "DATABASE_WRITE_FAILED",
         "PROJECT_NOT_FOUND",
+        "PROPOSAL_NOT_AVAILABLE",
+        "PROPOSAL_CHANGED",
+        "SOURCE_READ_FAILED",
+        "SOURCE_INTEGRITY_FAILED",
+        "PARSER_FAILED",
+        "PARSER_LIMIT_EXCEEDED",
+        "PARSER_WARNING",
+        "EXTRACTION_FAILED",
+        "NO_CANDIDATES",
+        "CANDIDATE_LIMIT_EXCEEDED",
+        "REVIEW_CREATE_FAILED",
+        "REPOSITORY_FAILURE",
+        "REVIEW_NOT_FOUND",
+        "CANDIDATE_NOT_FOUND",
+        "REVIEW_CONFLICT",
     }
 )
 ERROR_CODE_GUARD = "stable error code enum"
@@ -80,6 +98,31 @@ def list_operation(document):
 
 def detail_operation(document):
     return document.get("paths", {}).get(DETAIL_ROUTE, {}).get("get", {})
+
+
+def review_create_operation(document):
+    return document.get("paths", {}).get(REVIEW_COLLECTION_ROUTE, {}).get("post", {})
+
+
+def review_list_operation(document):
+    return document.get("paths", {}).get(REVIEW_COLLECTION_ROUTE, {}).get("get", {})
+
+
+def review_detail_operation(document):
+    return document.get("paths", {}).get(REVIEW_DETAIL_ROUTE, {}).get("get", {})
+
+
+def review_decision_operation(document):
+    return document.get("paths", {}).get(REVIEW_DECISION_ROUTE, {}).get("post", {})
+
+
+def json_request_schema(operation_value):
+    return (
+        operation_value.get("requestBody", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema", {})
+    )
 
 
 def component_schema(document, name):
@@ -106,6 +149,10 @@ def no_store_header(response):
         "required": True,
         "schema": {"type": "string", "const": "no-store"},
     }
+
+
+def component_response(document, name):
+    return document.get("components", {}).get("responses", {}).get(name, {})
 
 
 def multipart_schema(document):
@@ -401,6 +448,146 @@ GUARDS = (
         lambda d: component_schema(d, "ProjectDetail").update(additionalProperties=True),
     ),
     Guard(
+        "closed server-derived review create route",
+        lambda d: review_create_operation(d).get("security") == security_options(d)
+        and json_request_schema(review_create_operation(d)).get("additionalProperties") is False
+        and set(json_request_schema(review_create_operation(d)).get("required", []))
+        == {"expectedProposalVersionId", "expectedProposalSha256"}
+        and set(json_request_schema(review_create_operation(d)).get("properties", {}))
+        == {"expectedProposalVersionId", "expectedProposalSha256"}
+        and all(
+            field not in json.dumps(json_request_schema(review_create_operation(d)))
+            for field in (
+                "candidate",
+                "citation",
+                "parserBlock",
+                "storageKey",
+                "organizationId",
+                "workspaceId",
+                "clientId",
+                "actorId",
+            )
+        )
+        and set(review_create_operation(d).get("responses", {}))
+        == {"201", "400", "401", "403", "409", "413", "422", "500", "503"}
+        and no_store_header(review_create_operation(d).get("responses", {}).get("201", {})),
+        lambda d: json_request_schema(review_create_operation(d))
+        .setdefault("properties", {})
+        .update(candidates={"type": "array"}),
+    ),
+    Guard(
+        "scoped review list and history routes",
+        lambda d: review_list_operation(d).get("security") == security_options(d)
+        and review_detail_operation(d).get("security") == security_options(d)
+        and set(review_list_operation(d).get("responses", {}))
+        == {"200", "400", "401", "403", "404", "503"}
+        and set(review_detail_operation(d).get("responses", {}))
+        == {"200", "400", "401", "403", "404", "503"}
+        and no_store_header(review_list_operation(d).get("responses", {}).get("200", {}))
+        and no_store_header(review_detail_operation(d).get("responses", {}).get("200", {}))
+        and response_content_schema(
+            review_detail_operation(d).get("responses", {}).get("200", {})
+        ) == {"$ref": "#/components/schemas/ReviewDetail"},
+        lambda d: review_detail_operation(d).pop("security", None),
+    ),
+    Guard(
+        "closed conflict-safe review decision route",
+        lambda d: review_decision_operation(d).get("security") == security_options(d)
+        and json_request_schema(review_decision_operation(d)).get("additionalProperties") is False
+        and set(json_request_schema(review_decision_operation(d)).get("required", []))
+        == {"expectedReviewVersion", "candidateId", "action", "reason"}
+        and set(json_request_schema(review_decision_operation(d)).get("properties", {}))
+        == {
+            "expectedReviewVersion",
+            "candidateId",
+            "action",
+            "reason",
+            "comment",
+            "replacementText",
+        }
+        and json_request_schema(review_decision_operation(d))
+        .get("properties", {})
+        .get("action", {})
+        .get("enum")
+        == ["approve", "modify", "reject"]
+        and set(review_decision_operation(d).get("responses", {}))
+        == {"201", "400", "401", "403", "404", "409", "413", "500", "503"}
+        and no_store_header(review_decision_operation(d).get("responses", {}).get("201", {})),
+        lambda d: json_request_schema(review_decision_operation(d)).update(
+            additionalProperties=True
+        ),
+    ),
+    Guard(
+        "closed review response schemas",
+        lambda d: all(
+            component_schema(d, name).get("additionalProperties") is False
+            for name in (
+                "ReviewRunSummary",
+                "ReviewCreateResult",
+                "ReviewDecision",
+                "ReviewCandidate",
+                "ReviewDetail",
+                "ReviewDecisionResult",
+            )
+        )
+        and component_schema(d, "ReviewDetail")
+        .get("properties", {})
+        .get("candidates", {})
+        .get("items")
+        == {"$ref": "#/components/schemas/ReviewCandidate"},
+        lambda d: component_schema(d, "ReviewCandidate").update(
+            additionalProperties=True
+        ),
+    ),
+    Guard(
+        "closed review source citation schema",
+        lambda d: component_schema(d, "ReviewCandidate")
+        .get("properties", {})
+        .get("sourceCitation")
+        == {"$ref": "#/components/schemas/SourceCitation"}
+        and component_schema(d, "SourceCitation").get("type") == "object"
+        and component_schema(d, "SourceCitation").get("additionalProperties") is False
+        and set(component_schema(d, "SourceCitation").get("required", []))
+        == {"sourceVersionId", "sourceSha256", "location", "sectionPath", "quote"}
+        and set(component_schema(d, "SourceCitation").get("properties", {}))
+        == {"sourceVersionId", "sourceSha256", "location", "sectionPath", "quote"}
+        and component_schema(d, "SourceCitation")
+        .get("properties", {})
+        .get("location")
+        == {"$ref": "#/components/schemas/SourceLocation"},
+        lambda d: component_schema(d, "SourceCitation").update(
+            additionalProperties=True
+        ),
+    ),
+    Guard(
+        "closed review source location variants",
+        lambda d: isinstance(component_schema(d, "SourceLocation").get("oneOf"), list)
+        and len(component_schema(d, "SourceLocation")["oneOf"]) == 7
+        and {
+            variant.get("properties", {}).get("kind", {}).get("const")
+            for variant in component_schema(d, "SourceLocation")["oneOf"]
+        }
+        == {
+            "line_range",
+            "csv_range",
+            "docx_paragraph",
+            "docx_table",
+            "markdown_table_cell",
+            "csv_cell",
+            "docx_table_cell",
+        }
+        and all(
+            variant.get("type") == "object"
+            and variant.get("additionalProperties") is False
+            and set(variant.get("required", []))
+            == set(variant.get("properties", {}))
+            for variant in component_schema(d, "SourceLocation")["oneOf"]
+        ),
+        lambda d: component_schema(d, "SourceLocation")["oneOf"][0].update(
+            additionalProperties=True
+        ),
+    ),
+    Guard(
         "project responses exclude server secrets",
         lambda d: all(
             f'"{field}"' not in json.dumps(
@@ -448,6 +635,14 @@ GUARDS = (
         .get("responses", {})
         .get("AuthenticationFailure", {})
         .pop("headers", None),
+    ),
+    Guard(
+        "all failure responses are no-store",
+        lambda d: no_store_header(component_response(d, "AuthenticationFailure"))
+        and no_store_header(component_response(d, "ImportFailure")),
+        lambda d: component_response(d, "ImportFailure")
+        .get("headers", {})
+        .pop("Cache-Control", None),
     ),
     Guard(
         "traceable success response",

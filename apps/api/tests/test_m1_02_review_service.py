@@ -10,8 +10,11 @@ from apps.api.marketops_review import (
     ApprovedProposal,
     CreateReviewRunRequest,
     MAX_REVIEW_CANDIDATES,
+    ReviewCandidateView,
     ReviewFailure,
+    ReviewReadModel,
     ReviewRequest,
+    ReviewRunRequestRecord,
     ReviewScopeContext,
     ReviewService,
 )
@@ -75,6 +78,7 @@ class FakeTransaction:
         }
         self.decisions = list(repository.decisions)
         self.audit_events = list(repository.audit_events)
+        self.run_requests = dict(repository.run_requests)
 
     def trigger(self, stage):
         if self.repository.cancel_stage == stage:
@@ -109,6 +113,21 @@ class FakeTransaction:
         self.trigger("run")
         self.runs[run.run_id] = run
 
+    async def claim_run_request(self, request):
+        self.trigger("run_request")
+        key = (
+            request.workspace_id,
+            request.client_id,
+            request.project_id,
+            request.created_by,
+            request.idempotency_key,
+        )
+        existing = self.run_requests.get(key)
+        if existing is not None:
+            return existing
+        self.run_requests[key] = request
+        return request
+
     async def insert_candidates(self, run_id, candidates):
         self.trigger("candidates")
         self.candidates[run_id] = candidates
@@ -137,6 +156,16 @@ class FakeTransaction:
         values = self.snapshots.get(run_id, [])
         return values[-1] if values else None
 
+    async def get_snapshot(self, run_id, review_version):
+        return next(
+            (
+                snapshot
+                for snapshot in self.snapshots.get(run_id, ())
+                if snapshot.version == review_version
+            ),
+            None,
+        )
+
     async def insert_snapshot(self, snapshot):
         self.trigger("snapshot")
         self.snapshots.setdefault(snapshot.run_id, []).append(snapshot)
@@ -155,6 +184,7 @@ class FakeTransaction:
         self.repository.snapshots = self.snapshots
         self.repository.decisions = self.decisions
         self.repository.audit_events = self.audit_events
+        self.repository.run_requests = self.run_requests
 
 
 class FakeRepository:
@@ -174,6 +204,7 @@ class FakeRepository:
         self.snapshots = {}
         self.decisions = []
         self.audit_events = []
+        self.run_requests = {}
         self.approved_lock_calls = 0
         self.transactions = 0
         self.rollbacks = 0
@@ -189,6 +220,63 @@ class FakeRepository:
                 proposal.project_id,
             )
         ] = proposal
+
+    async def get_run_request(self, scope, project_id, idempotency_key):
+        if self.cancel_stage == "get_run_request":
+            raise asyncio.CancelledError
+        if self.fail_stage == "get_run_request":
+            raise RuntimeError("database password=top-secret")
+        return self.run_requests.get(
+            (
+                scope.workspace_id,
+                scope.client_id,
+                project_id,
+                scope.actor_id,
+                idempotency_key,
+            )
+        )
+
+    async def get_review(self, scope, project_id, run_id, review_version):
+        run = self.runs.get(run_id)
+        if run is None or (
+            run.organization_id,
+            run.workspace_id,
+            run.client_id,
+            run.project_id,
+            run.created_by,
+        ) != (
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            project_id,
+            scope.actor_id,
+        ):
+            return None
+        snapshots = self.snapshots.get(run_id, ())
+        selected_version = review_version if review_version is not None else snapshots[-1].version
+        selected = next(
+            (snapshot for snapshot in snapshots if snapshot.version == selected_version),
+            None,
+        )
+        if selected is None:
+            return None
+        items = {item.candidate_id: item for item in selected.items}
+        views = tuple(
+            ReviewCandidateView(
+                ordinal,
+                value,
+                items[value.candidate_id].status,
+                items[value.candidate_id].replacement_text,
+            )
+            for ordinal, value in enumerate(self.candidates.get(run_id, ()), start=1)
+        )
+        return ReviewReadModel(
+            run,
+            selected,
+            views,
+            tuple(snapshot.version for snapshot in snapshots),
+            None,
+        )
 
     @asynccontextmanager
     async def transaction(self, scope, project_id):
@@ -270,6 +358,7 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repository.snapshots, {})
         self.assertEqual(repository.decisions, [])
         self.assertEqual(repository.audit_events, [])
+        self.assertEqual(repository.run_requests, {})
 
     async def test_create_run_persists_complete_pending_version_and_audit(self):
         repository, result = await self.create_run()
@@ -286,6 +375,211 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(repository.audit_events[0].action, "review_run_created")
         self.assertEqual(repository.scopes, [(self.scope, PROJECT_ID)])
         self.assertEqual(repository.approved_lock_calls, 1)
+
+    async def test_same_idempotency_key_and_source_replays_existing_run(self):
+        repository = FakeRepository()
+        repository.approve(self.approved())
+        service = self.service(repository)
+        request = self.create_request(idempotency_key=" review-request-001 ")
+
+        first = await service.create_run(request, self.scope)
+        second = await service.create_run(request, self.scope)
+
+        self.assertFalse(first.replayed)
+        self.assertTrue(second.replayed)
+        self.assertEqual(second.run, first.run)
+        self.assertEqual(second.snapshot, first.snapshot)
+        self.assertEqual(len(repository.run_requests), 1)
+        self.assertEqual(len(repository.runs), 1)
+        self.assertEqual(len(repository.audit_events), 1)
+
+    async def test_same_idempotency_key_with_different_source_conflicts(self):
+        repository = FakeRepository()
+        repository.approve(self.approved())
+        service = self.service(repository)
+        first = await service.create_run(
+            self.create_request(idempotency_key="review-request-002"), self.scope
+        )
+        different = ReviewRunRequestRecord(
+            request_id=str(UUID(int=9001, version=4)),
+            organization_id=self.scope.organization_id,
+            workspace_id=self.scope.workspace_id,
+            client_id=self.scope.client_id,
+            project_id=PROJECT_ID,
+            idempotency_key="review-request-002",
+            expected_proposal_version_id=VERSION_ID,
+            expected_proposal_sha256="b" * 64,
+            run_id=str(UUID(int=9002, version=4)),
+            created_by=self.scope.actor_id,
+            created_at=NOW,
+        )
+        key = next(iter(repository.run_requests))
+        repository.run_requests[key] = different
+
+        with self.assertRaises(ReviewFailure) as raised:
+            await service.create_run(
+                self.create_request(idempotency_key="review-request-002"),
+                self.scope,
+            )
+
+        self.assertEqual(raised.exception.code, "IDEMPOTENCY_CONFLICT")
+        self.assertEqual(len(repository.runs), 1)
+        self.assertEqual(next(iter(repository.runs)), first.run.run_id)
+
+    async def test_idempotency_claim_failure_rolls_back_everything(self):
+        repository = FakeRepository(fail_stage="run_request")
+        repository.approve(self.approved())
+
+        with self.assertRaises(ReviewFailure) as raised:
+            await self.service(repository).create_run(
+                self.create_request(idempotency_key="review-request-003"),
+                self.scope,
+            )
+
+        self.assertEqual(raised.exception.code, "REPOSITORY_FAILURE")
+        self.assert_empty_state(repository)
+
+    async def test_persistent_replay_returns_original_version_one(self):
+        repository = FakeRepository()
+        repository.approve(self.approved())
+        service = self.service(repository)
+        created = await service.create_run(
+            self.create_request(idempotency_key="review-request-replay"), self.scope
+        )
+
+        replay = await service.replay_run_request(
+            PROJECT_ID,
+            " review-request-replay ",
+            VERSION_ID,
+            SOURCE_HASH,
+            self.scope,
+        )
+
+        self.assertIsNotNone(replay)
+        self.assertTrue(replay.replayed)
+        self.assertEqual(replay.run, created.run)
+        self.assertEqual(replay.snapshot, created.snapshot)
+
+    async def test_persistent_replay_detects_source_conflict(self):
+        repository = FakeRepository()
+        repository.approve(self.approved())
+        service = self.service(repository)
+        await service.create_run(
+            self.create_request(idempotency_key="review-request-conflict"), self.scope
+        )
+
+        with self.assertRaises(ReviewFailure) as raised:
+            await service.replay_run_request(
+                PROJECT_ID,
+                "review-request-conflict",
+                VERSION_ID,
+                "b" * 64,
+                self.scope,
+            )
+
+        self.assertEqual(raised.exception.code, "IDEMPOTENCY_CONFLICT")
+
+    async def test_persistent_replay_fails_closed_for_malformed_or_inconsistent_record(self):
+        repository = FakeRepository()
+        repository.approve(self.approved())
+        service = self.service(repository)
+        created = await service.create_run(
+            self.create_request(idempotency_key="review-request-corrupt"), self.scope
+        )
+        key = next(iter(repository.run_requests))
+        valid = repository.run_requests[key]
+
+        async def malformed(*_args):
+            return dataclasses.replace(valid, request_id="not-a-uuid")
+
+        repository.get_run_request = malformed
+        with self.assertRaises(ReviewFailure) as malformed_error:
+            await service.replay_run_request(
+                PROJECT_ID,
+                "review-request-corrupt",
+                VERSION_ID,
+                SOURCE_HASH,
+                self.scope,
+            )
+        self.assertEqual(malformed_error.exception.code, "REPOSITORY_FAILURE")
+
+        async def valid_record(*_args):
+            return valid
+
+        repository.get_run_request = valid_record
+        repository.runs[created.run.run_id] = dataclasses.replace(
+            created.run, proposal_sha256="b" * 64
+        )
+        repository.candidates[created.run.run_id] = tuple(
+            dataclasses.replace(
+                value,
+                source_citation=dataclasses.replace(
+                    value.source_citation, source_sha256="b" * 64
+                ),
+            )
+            for value in self.candidates
+        )
+        with self.assertRaises(ReviewFailure) as inconsistent_error:
+            await service.replay_run_request(
+                PROJECT_ID,
+                "review-request-corrupt",
+                VERSION_ID,
+                SOURCE_HASH,
+                self.scope,
+            )
+        self.assertEqual(inconsistent_error.exception.code, "REPOSITORY_FAILURE")
+
+    async def test_persistent_replay_propagates_cancellation_and_sanitizes_failure(self):
+        cancelled = FakeRepository(cancel_stage="get_run_request")
+        with self.assertRaises(asyncio.CancelledError):
+            await self.service(cancelled).replay_run_request(
+                PROJECT_ID,
+                "review-request-cancel",
+                VERSION_ID,
+                SOURCE_HASH,
+                self.scope,
+            )
+
+        failed = FakeRepository(fail_stage="get_run_request")
+        with self.assertRaises(ReviewFailure) as raised:
+            await self.service(failed).replay_run_request(
+                PROJECT_ID,
+                "review-request-failure",
+                VERSION_ID,
+                SOURCE_HASH,
+                self.scope,
+            )
+        self.assertEqual(raised.exception.code, "REPOSITORY_FAILURE")
+        self.assertNotIn("top-secret", str(raised.exception))
+        self.assertIsNone(raised.exception.__cause__)
+
+    async def test_persistent_replay_is_isolated_by_actor_and_scope(self):
+        repository = FakeRepository()
+        repository.approve(self.approved())
+        service = self.service(repository)
+        await service.create_run(
+            self.create_request(idempotency_key="review-request-isolation"), self.scope
+        )
+        other_actor = dataclasses.replace(self.scope, actor_id=OTHER_ACTOR_ID)
+
+        self.assertIsNone(
+            await service.replay_run_request(
+                PROJECT_ID,
+                "review-request-isolation",
+                VERSION_ID,
+                SOURCE_HASH,
+                other_actor,
+            )
+        )
+        self.assertIsNone(
+            await service.replay_run_request(
+                PROJECT_ID,
+                "review-request-isolation",
+                VERSION_ID,
+                SOURCE_HASH,
+                self.other_scope,
+            )
+        )
 
     async def test_all_domain_records_and_candidate_batch_are_immutable(self):
         repository, result = await self.create_run()
@@ -615,6 +909,22 @@ class ReviewServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "REVIEW_NOT_FOUND")
         self.assertEqual(self.state_counts(repository, created.run.run_id), baseline)
         self.assertEqual(repository.scopes[-1], (self.scope, OTHER_PROJECT_ID))
+
+    async def test_same_project_other_actor_cannot_review_run(self):
+        repository, created = await self.create_run()
+        baseline = self.state_counts(repository, created.run.run_id)
+        other_actor = dataclasses.replace(self.scope, actor_id=OTHER_ACTOR_ID)
+
+        with self.assertRaises(ReviewFailure) as raised:
+            await self.service(repository).review_candidate(
+                PROJECT_ID,
+                created.run.run_id,
+                ReviewRequest(1, CANDIDATE_ONE, "approve", "Wrong actor"),
+                other_actor,
+            )
+
+        self.assertEqual(raised.exception.code, "REVIEW_NOT_FOUND")
+        self.assertEqual(self.state_counts(repository, created.run.run_id), baseline)
 
     async def test_invalid_actor_and_mutable_candidate_batch_fail_before_repository(self):
         repository = FakeRepository()

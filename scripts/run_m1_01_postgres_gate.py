@@ -23,6 +23,9 @@ from apps.api.marketops_import.migrations import run_migrations  # noqa: E402
 
 MIGRATION = ROOT / "apps" / "api" / "migrations" / "0001_project_import.sql"
 REVIEW_MIGRATION = ROOT / "apps" / "api" / "migrations" / "0002_extraction_review.sql"
+IDEMPOTENCY_MIGRATION = (
+    ROOT / "apps" / "api" / "migrations" / "0003_review_idempotency.sql"
+)
 MIGRATOR_ROLE = "marketops_migrator"
 APPLICATION_ROLE = "marketops_app"
 DATABASE_NAME = "marketops_test"
@@ -67,6 +70,8 @@ EXPECTED_RELATION_PRIVILEGES = frozenset(
         ("review_snapshot_items", "INSERT"),
         ("review_decisions", "SELECT"),
         ("review_decisions", "INSERT"),
+        ("extraction_run_requests", "SELECT"),
+        ("extraction_run_requests", "INSERT"),
     }
 )
 EXPECTED_FUNCTION_EXECUTE = frozenset(
@@ -210,6 +215,18 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
             )
             if second != (REVIEW_MIGRATION.name,):
                 raise RuntimeError(f"review migration upgrade contract failed: {second!r}")
+            (migration_directory / IDEMPOTENCY_MIGRATION.name).write_bytes(
+                IDEMPOTENCY_MIGRATION.read_bytes()
+            )
+            third = await run_migrations(
+                connection,
+                migration_directory,
+                allowed_schema_usage_roles=(APPLICATION_ROLE,),
+            )
+            if third != (IDEMPOTENCY_MIGRATION.name,):
+                raise RuntimeError(
+                    f"review idempotency migration contract failed: {third!r}"
+                )
         await connection.execute(
             f"""
             GRANT SELECT, INSERT ON
@@ -217,7 +234,8 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
                 marketops.extraction_candidates,
                 marketops.review_snapshots,
                 marketops.review_snapshot_items,
-                marketops.review_decisions
+                marketops.review_decisions,
+                marketops.extraction_run_requests
             TO {APPLICATION_ROLE};
             GRANT UPDATE (created_by) ON marketops.projects TO {APPLICATION_ROLE};
             GRANT UPDATE (created_by) ON marketops.extraction_runs TO {APPLICATION_ROLE};
@@ -233,6 +251,9 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
         expected_migrations = {
             MIGRATION.name: hashlib.sha256(MIGRATION.read_bytes()).digest(),
             REVIEW_MIGRATION.name: hashlib.sha256(REVIEW_MIGRATION.read_bytes()).digest(),
+            IDEMPOTENCY_MIGRATION.name: hashlib.sha256(
+                IDEMPOTENCY_MIGRATION.read_bytes()
+            ).digest(),
         }
         recorded = await connection.fetch(
             """
@@ -246,7 +267,11 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
         }
         if observed_migrations != expected_migrations:
             raise RuntimeError("migration registry checksums do not match reviewed SQL")
-        return (MIGRATION.name, REVIEW_MIGRATION.name)
+        return (
+            MIGRATION.name,
+            REVIEW_MIGRATION.name,
+            IDEMPOTENCY_MIGRATION.name,
+        )
     finally:
         await connection.close()
 
@@ -578,7 +603,7 @@ async def run(output: Path | None) -> None:
                     "name": path.name,
                     "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
                 }
-                for path in (MIGRATION, REVIEW_MIGRATION)
+                for path in (MIGRATION, REVIEW_MIGRATION, IDEMPOTENCY_MIGRATION)
             ],
             "replayApplied": [],
             "postGrantReplayApplied": [],

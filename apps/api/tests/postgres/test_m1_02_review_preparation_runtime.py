@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import importlib.util
+import json
 import os
 import tempfile
 import unittest
@@ -24,24 +25,29 @@ from apps.api.marketops_review.preparation import (
     PreparationRequest,
 )
 from apps.api.marketops_review.service import ReviewScopeContext, ReviewService
-
-
 DATABASE_URL = os.environ.get("MARKETOPS_TEST_DATABASE_URL", "").strip()
 ADMIN_DATABASE_URL = os.environ.get(
     "MARKETOPS_TEST_ADMIN_DATABASE_URL", ""
 ).strip()
 ASYNCPG_AVAILABLE = importlib.util.find_spec("asyncpg") is not None
+HTTP_DEPENDENCIES_AVAILABLE = all(
+    importlib.util.find_spec(name) is not None for name in ("fastapi", "multipart")
+)
+RUNTIME_DEPENDENCIES_AVAILABLE = ASYNCPG_AVAILABLE and HTTP_DEPENDENCIES_AVAILABLE
 REQUIRE_PREREQUISITES = os.environ.get("MARKETOPS_REQUIRE_TEST_PREREQUISITES") == "1"
 if REQUIRE_PREREQUISITES and not (
-    DATABASE_URL and ADMIN_DATABASE_URL and ASYNCPG_AVAILABLE
+    DATABASE_URL and ADMIN_DATABASE_URL and RUNTIME_DEPENDENCIES_AVAILABLE
 ):
     raise RuntimeError(
         "PostgreSQL test prerequisites are required: provide both test database URLs "
-        "and install asyncpg"
+        "and install asyncpg, FastAPI, and python-multipart"
     )
 
-if ASYNCPG_AVAILABLE:
+if RUNTIME_DEPENDENCIES_AVAILABLE:
     import asyncpg
+
+    from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
+    from apps.api.tests.test_m1_02_review_http import asgi_request
 
 
 def identifier() -> str:
@@ -49,8 +55,8 @@ def identifier() -> str:
 
 
 @unittest.skipUnless(
-    DATABASE_URL and ADMIN_DATABASE_URL and ASYNCPG_AVAILABLE,
-    "PostgreSQL admin/application test URLs and asyncpg are required",
+    DATABASE_URL and ADMIN_DATABASE_URL and RUNTIME_DEPENDENCIES_AVAILABLE,
+    "PostgreSQL admin/application URLs and runtime dependencies are required",
 )
 class ReviewPreparationPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
@@ -97,6 +103,7 @@ class ReviewPreparationPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     "review_snapshot_items",
                     "review_snapshots",
                     "extraction_candidates",
+                    "extraction_run_requests",
                     "extraction_runs",
                     "artifact_versions",
                     "artifacts",
@@ -351,6 +358,102 @@ class ReviewPreparationPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(
             read_model.candidates[0].candidate.source_citation.section_path,
             (),
+        )
+
+    async def test_http_create_list_detail_and_decision_use_postgres_fact_source(self):
+        imported = await self._import_approved_proposal()
+        import_scope = ScopeContext(
+            self.organization_id,
+            self.workspace_id,
+            self.client_id,
+            self.actor_id,
+        )
+        review_scope = ReviewScopeContext(
+            self.organization_id,
+            self.workspace_id,
+            self.client_id,
+            self.actor_id,
+        )
+        review_service = ReviewService(
+            repository=AsyncpgReviewRepository(self.pool),
+            id_factory=identifier,
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        preparation = ApprovedProposalPreparationService(
+            source_reader=AsyncpgApprovedProposalSourceReader(self.pool),
+            object_store=self.object_store,
+            review_service=review_service,
+        )
+        app = create_app(
+            authenticator=StaticBearerAuthenticator("runtime-token", import_scope),
+            review_preparation=preparation,
+            review_service=review_service,
+            request_id_factory=lambda: "runtime-request",
+        )
+        headers = [
+            ("Authorization", "Bearer runtime-token"),
+            ("Content-Type", "application/json"),
+        ]
+        proposal_hash = hashlib.sha256(self.proposal_bytes).hexdigest()
+        created = await asgi_request(
+            app,
+            "POST",
+            f"/v1/projects/{imported.project_id}/extraction-runs",
+            [*headers, ("Idempotency-Key", "runtime-http-review")],
+            json.dumps(
+                {
+                    "expectedProposalVersionId": imported.proposal_version_id,
+                    "expectedProposalSha256": proposal_hash,
+                }
+            ).encode(),
+        )
+        self.assertEqual(created.status_code, 201)
+        run_id = created.json()["runId"]
+        self.assertFalse(created.json()["replayed"])
+
+        listed = await asgi_request(
+            app,
+            "GET",
+            f"/v1/projects/{imported.project_id}/extraction-runs",
+            [("Authorization", "Bearer runtime-token")],
+        )
+        self.assertEqual(listed.status_code, 200)
+        self.assertEqual(listed.json()["runs"][0]["runId"], run_id)
+
+        detail = await asgi_request(
+            app,
+            "GET",
+            f"/v1/projects/{imported.project_id}/extraction-runs/{run_id}",
+            [("Authorization", "Bearer runtime-token")],
+        )
+        self.assertEqual(detail.status_code, 200)
+        candidate_id = detail.json()["candidates"][0]["candidateId"]
+        self.assertEqual(
+            detail.json()["candidates"][0]["sourceCitation"]["sourceSha256"],
+            proposal_hash,
+        )
+
+        decided = await asgi_request(
+            app,
+            "POST",
+            f"/v1/projects/{imported.project_id}/extraction-runs/{run_id}/decisions",
+            headers,
+            json.dumps(
+                {
+                    "expectedReviewVersion": 1,
+                    "candidateId": candidate_id,
+                    "action": "approve",
+                    "reason": "PostgreSQL HTTP runtime evidence",
+                }
+            ).encode(),
+        )
+        self.assertEqual(decided.status_code, 201)
+        self.assertEqual(decided.json()["reviewVersion"], 2)
+        self.assertTrue(
+            all(
+                response.headers["cache-control"] == "no-store"
+                for response in (created, listed, detail, decided)
+            )
         )
 
 

@@ -1,4 +1,4 @@
-"""ASGI entry point for the server-backed M1-01 import slice."""
+"""ASGI entry point for the server-backed import and review slices."""
 
 from __future__ import annotations
 
@@ -15,6 +15,13 @@ from .marketops_import.http import StaticBearerAuthenticator, create_app
 from .marketops_import.postgres import AsyncpgImportRepository
 from .marketops_import.service import ProjectImportService, ScopeContext
 from .marketops_import.storage import LocalObjectStore
+from .marketops_review import (
+    ApprovedProposalPreparationService,
+    AsyncpgApprovedProposalSourceReader,
+    AsyncpgReviewRepository,
+    ReviewService,
+)
+from .marketops_extract import RuntimeProposalParser
 
 
 @dataclass(frozen=True)
@@ -61,28 +68,43 @@ class RuntimeSettings:
 @asynccontextmanager
 async def _lifespan(application: FastAPI):
     settings = RuntimeSettings.from_environment()
-    repository = await AsyncpgImportRepository.create(
+    import_repository = await AsyncpgImportRepository.create(
         settings.database_url,
         min_size=1,
         max_size=10,
         command_timeout=30,
     )
-    application.state.authenticator = StaticBearerAuthenticator(
-        settings.bearer_token,
-        settings.scope,
-        basic_username=settings.basic_username,
-    )
-    application.state.project_reader = repository
-    application.state.import_service = ProjectImportService(
-        object_store=LocalObjectStore(settings.object_root),
-        repository=repository,
-        id_factory=lambda: str(uuid4()),
-        clock=lambda: datetime.now(timezone.utc),
-    )
     try:
+        pool = import_repository.pool
+        review_repository = AsyncpgReviewRepository(pool)
+        object_store = LocalObjectStore(settings.object_root)
+        review_service = ReviewService(
+            repository=review_repository,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        application.state.authenticator = StaticBearerAuthenticator(
+            settings.bearer_token,
+            settings.scope,
+            basic_username=settings.basic_username,
+        )
+        application.state.project_reader = import_repository
+        application.state.import_service = ProjectImportService(
+            object_store=object_store,
+            repository=import_repository,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        application.state.review_service = review_service
+        application.state.review_preparation = ApprovedProposalPreparationService(
+            source_reader=AsyncpgApprovedProposalSourceReader(pool),
+            object_store=object_store,
+            review_service=review_service,
+            parser=RuntimeProposalParser(),
+        )
         yield
     finally:
-        await repository.close()
+        await import_repository.close()
 
 
 app = create_app(

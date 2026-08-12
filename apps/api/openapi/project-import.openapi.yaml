@@ -244,6 +244,157 @@
           "500": { "$ref": "#/components/responses/ImportFailure" }
         }
       }
+    },
+    "/v1/projects/{projectId}/extraction-runs": {
+      "post": {
+        "operationId": "createExtractionRun",
+        "summary": "Create or replay a server-derived review run",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "Idempotency-Key", "in": "header", "required": true, "schema": { "type": "string", "minLength": 8, "maxLength": 200 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["expectedProposalVersionId", "expectedProposalSha256"],
+                "properties": {
+                  "expectedProposalVersionId": { "type": "string", "format": "uuid" },
+                  "expectedProposalSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Review run created or an identical persistent request replayed.",
+            "headers": {
+              "Location": { "required": true, "schema": { "type": "string", "pattern": "^/v1/projects/[0-9a-f-]{36}/extraction-runs/[0-9a-f-]{36}$" } },
+              "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReviewCreateResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "422": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      },
+      "get": {
+        "operationId": "listExtractionRuns",
+        "summary": "List review runs for one authenticated project scope",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "limit", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1, "maximum": 100, "default": 20 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deterministic newest-first review run summaries.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["runs"], "properties": { "runs": { "type": "array", "items": { "$ref": "#/components/schemas/ReviewRunSummary" } } } } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/extraction-runs/{runId}": {
+      "get": {
+        "operationId": "getExtractionRunReview",
+        "summary": "Read the latest or selected immutable review version",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "reviewVersion", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "A complete immutable review version with cited candidates.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReviewDetail" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/extraction-runs/{runId}/decisions": {
+      "post": {
+        "operationId": "decideReviewCandidate",
+        "summary": "Create one human decision from the expected review version",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["expectedReviewVersion", "candidateId", "action", "reason"],
+                "properties": {
+                  "expectedReviewVersion": { "type": "integer", "minimum": 1 },
+                  "candidateId": { "type": "string", "format": "uuid" },
+                  "action": { "type": "string", "enum": ["approve", "modify", "reject"] },
+                  "reason": { "type": "string", "minLength": 1, "maxLength": 2000 },
+                  "comment": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 },
+                  "replacementText": { "type": ["string", "null"], "minLength": 1, "maxLength": 10000 }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "A new immutable review version and decision.",
+            "headers": {
+              "Location": { "required": true, "schema": { "type": "string", "pattern": "^/v1/projects/[0-9a-f-]{36}/extraction-runs/[0-9a-f-]{36}\\?reviewVersion=[1-9][0-9]*$" } },
+              "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ReviewDecisionResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
     }
   },
   "components": {
@@ -313,6 +464,118 @@
           "approvedProposal": { "$ref": "#/components/schemas/ApprovedProposal" }
         }
       },
+      "ReviewRunSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runId", "proposalVersionId", "proposalSha256", "candidateCount", "latestReviewVersion", "createdAt"],
+        "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "proposalVersionId": { "type": "string", "format": "uuid" },
+          "proposalSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "candidateCount": { "type": "integer", "minimum": 1, "maximum": 1000 },
+          "latestReviewVersion": { "type": "integer", "minimum": 1 },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ReviewCreateResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runId", "reviewVersion", "candidateCount", "proposalVersionId", "proposalSha256", "replayed", "createdAt"],
+        "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "reviewVersion": { "type": "integer", "const": 1 },
+          "candidateCount": { "type": "integer", "minimum": 1, "maximum": 1000 },
+          "proposalVersionId": { "type": "string", "format": "uuid" },
+          "proposalSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "replayed": { "type": "boolean" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ReviewDecision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["decisionId", "reviewVersion", "candidateId", "action", "reason", "comment", "replacementText", "actorId", "createdAt"],
+        "properties": {
+          "decisionId": { "type": "string", "format": "uuid" },
+          "reviewVersion": { "type": "integer", "minimum": 2 },
+          "candidateId": { "type": "string", "format": "uuid" },
+          "action": { "type": "string", "enum": ["approve", "modify", "reject"] },
+          "reason": { "type": "string" },
+          "comment": { "type": ["string", "null"] },
+          "replacementText": { "type": ["string", "null"] },
+          "actorId": { "type": "string", "format": "uuid" },
+          "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ReviewCandidate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["ordinal", "candidateId", "kind", "text", "classification", "confidence", "sourceCitation", "review"],
+        "properties": {
+          "ordinal": { "type": "integer", "minimum": 1 },
+          "candidateId": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "enum": ["deliverable", "milestone", "constraint", "assumption"] },
+          "text": { "type": "string" },
+          "classification": { "type": "string", "enum": ["fact", "hypothesis"] },
+          "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+          "sourceCitation": { "$ref": "#/components/schemas/SourceCitation" },
+          "review": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["status", "replacementText", "lastDecision"],
+            "properties": {
+              "status": { "type": "string", "enum": ["pending", "approve", "modify", "reject"] },
+              "replacementText": { "type": ["string", "null"] },
+              "lastDecision": { "oneOf": [{ "$ref": "#/components/schemas/ReviewDecision" }, { "type": "null" }] }
+            }
+          }
+        }
+      },
+      "SourceLocation": {
+        "oneOf": [
+          { "type": "object", "additionalProperties": false, "required": ["kind", "startLine", "endLine"], "properties": { "kind": { "const": "line_range" }, "startLine": { "type": "integer", "minimum": 1 }, "endLine": { "type": "integer", "minimum": 1 } } },
+          { "type": "object", "additionalProperties": false, "required": ["kind", "startRow", "endRow"], "properties": { "kind": { "const": "csv_range" }, "startRow": { "type": "integer", "minimum": 1 }, "endRow": { "type": "integer", "minimum": 1 } } },
+          { "type": "object", "additionalProperties": false, "required": ["kind", "part", "bodyIndex", "paragraph"], "properties": { "kind": { "const": "docx_paragraph" }, "part": { "type": "string", "minLength": 1 }, "bodyIndex": { "type": "integer", "minimum": 1 }, "paragraph": { "type": "integer", "minimum": 1 } } },
+          { "type": "object", "additionalProperties": false, "required": ["kind", "part", "bodyIndex", "table"], "properties": { "kind": { "const": "docx_table" }, "part": { "type": "string", "minLength": 1 }, "bodyIndex": { "type": "integer", "minimum": 1 }, "table": { "type": "integer", "minimum": 1 } } },
+          { "type": "object", "additionalProperties": false, "required": ["kind", "line", "columnIndex"], "properties": { "kind": { "const": "markdown_table_cell" }, "line": { "type": "integer", "minimum": 1 }, "columnIndex": { "type": "integer", "minimum": 1 } } },
+          { "type": "object", "additionalProperties": false, "required": ["kind", "row", "columnIndex", "columnName"], "properties": { "kind": { "const": "csv_cell" }, "row": { "type": "integer", "minimum": 1 }, "columnIndex": { "type": "integer", "minimum": 1 }, "columnName": { "type": "string", "minLength": 1 } } },
+          { "type": "object", "additionalProperties": false, "required": ["kind", "part", "table", "row", "column"], "properties": { "kind": { "const": "docx_table_cell" }, "part": { "type": "string", "minLength": 1 }, "table": { "type": "integer", "minimum": 1 }, "row": { "type": "integer", "minimum": 1 }, "column": { "type": "integer", "minimum": 1 } } }
+        ]
+      },
+      "SourceCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["sourceVersionId", "sourceSha256", "location", "sectionPath", "quote"],
+        "properties": {
+          "sourceVersionId": { "type": "string", "format": "uuid" },
+          "sourceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "location": { "$ref": "#/components/schemas/SourceLocation" },
+          "sectionPath": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+          "quote": { "type": "string", "minLength": 1 }
+        }
+      },
+      "ReviewDetail": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["run", "selectedReviewVersion", "availableReviewVersions", "selectedDecision", "candidates"],
+        "properties": {
+          "run": { "$ref": "#/components/schemas/ReviewRunSummary" },
+          "selectedReviewVersion": { "type": "integer", "minimum": 1 },
+          "availableReviewVersions": { "type": "array", "minItems": 1, "items": { "type": "integer", "minimum": 1 } },
+          "selectedDecision": { "oneOf": [{ "$ref": "#/components/schemas/ReviewDecision" }, { "type": "null" }] },
+          "candidates": { "type": "array", "minItems": 1, "maxItems": 1000, "items": { "$ref": "#/components/schemas/ReviewCandidate" } }
+        }
+      },
+      "ReviewDecisionResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["runId", "reviewVersion", "decision"],
+        "properties": {
+          "runId": { "type": "string", "format": "uuid" },
+          "reviewVersion": { "type": "integer", "minimum": 2 },
+          "decision": { "$ref": "#/components/schemas/ReviewDecision" }
+        }
+      },
       "ImportError": {
         "type": "object",
         "additionalProperties": false,
@@ -339,7 +602,22 @@
               "INVALID_SERVER_ID",
               "INVALID_SERVER_CLOCK",
               "DATABASE_WRITE_FAILED",
-              "PROJECT_NOT_FOUND"
+              "PROJECT_NOT_FOUND",
+              "PROPOSAL_NOT_AVAILABLE",
+              "PROPOSAL_CHANGED",
+              "SOURCE_READ_FAILED",
+              "SOURCE_INTEGRITY_FAILED",
+              "PARSER_FAILED",
+              "PARSER_LIMIT_EXCEEDED",
+              "PARSER_WARNING",
+              "EXTRACTION_FAILED",
+              "NO_CANDIDATES",
+              "CANDIDATE_LIMIT_EXCEEDED",
+              "REVIEW_CREATE_FAILED",
+              "REPOSITORY_FAILURE",
+              "REVIEW_NOT_FOUND",
+              "CANDIDATE_NOT_FOUND",
+              "REVIEW_CONFLICT"
             ]
           },
           "message": {
@@ -364,6 +642,10 @@
               "type": "string",
               "enum": ["Bearer", "Basic realm=\"MarketOps\", charset=\"UTF-8\""]
             }
+          },
+          "Cache-Control": {
+            "required": true,
+            "schema": { "type": "string", "const": "no-store" }
           }
         },
         "content": {
@@ -376,6 +658,12 @@
       },
       "ImportFailure": {
         "description": "Stable import failure. Response bodies and logs never include source bytes or storage credentials.",
+        "headers": {
+          "Cache-Control": {
+            "required": true,
+            "schema": { "type": "string", "const": "no-store" }
+          }
+        },
         "content": {
           "application/json": {
             "schema": {
