@@ -447,7 +447,13 @@ class ProjectReadHttpTests(unittest.TestCase):
     def test_static_whitelist_is_basic_protected_and_never_contains_credentials(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for filename in ("index.html", "app.js", "project-import.js", "styles.css"):
+            for filename in (
+                "index.html",
+                "app.js",
+                "project-import.js",
+                "review-workbench.js",
+                "styles.css",
+            ):
                 (root / filename).write_text(f"asset:{filename}", encoding="utf-8")
             app = create_app(
                 project_reader=self.reader,
@@ -477,6 +483,18 @@ class ProjectReadHttpTests(unittest.TestCase):
             )
             self.assertEqual(loaded.text, "asset:app.js")
             self.assertNotIn("test-token", loaded.text)
+
+            review_module = asyncio.run(
+                asgi_get(
+                    app,
+                    "/review-workbench.js",
+                    [("Authorization", f"Basic {encoded}")],
+                )
+            )
+            self.assertEqual(review_module.status_code, 200)
+            self.assertEqual(review_module.headers["cache-control"], "no-store")
+            self.assertIn("javascript", review_module.headers["content-type"])
+            self.assertEqual(review_module.text, "asset:review-workbench.js")
 
             unknown = asyncio.run(
                 asgi_get(app, "/.git/config", [("Authorization", f"Basic {encoded}")])

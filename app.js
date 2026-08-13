@@ -212,10 +212,9 @@ function applyTheme(theme) {
   document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#0b0a0f' : '#f5f3f8';
   themeToggle.setAttribute('aria-label', theme === 'dark' ? '切换浅色主题' : '切换深色主题');
   themeToggle.innerHTML = `<i data-lucide="${theme === 'dark' ? 'sun' : 'moon'}"></i>`;
-  localStorage.setItem('marketops.theme.v1', theme);
   refreshIcons();
 }
-applyTheme(localStorage.getItem('marketops.theme.v1') === 'light' ? 'light' : 'dark');
+applyTheme(matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
 themeToggle.addEventListener('click', () => {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
   if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(() => applyTheme(next));

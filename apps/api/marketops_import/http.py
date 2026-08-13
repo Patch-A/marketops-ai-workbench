@@ -126,6 +126,7 @@ _STATIC_FILES = {
     "/index.html": "index.html",
     "/app.js": "app.js",
     "/project-import.js": "project-import.js",
+    "/review-workbench.js": "review-workbench.js",
     "/styles.css": "styles.css",
 }
 

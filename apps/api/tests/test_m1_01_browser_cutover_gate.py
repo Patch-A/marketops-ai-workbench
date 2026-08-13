@@ -166,6 +166,7 @@ class BrowserCutoverGateContractTests(unittest.TestCase):
             "refresh repeated the import POST",
             "credentials appeared in the browser URL",
             "external executable or asset",
+            "review-workbench.js",
             "browser emitted console/runtime failures:",
             "safePath(params.entry?.url || '', origin)",
             "maxRetries: 10",
