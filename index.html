@@ -1,173 +1,135 @@
 <!doctype html>
-<html lang="zh-CN">
+<html lang="zh-CN" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#19232f" />
-    <title>MarketOps AI Workbench</title>
+    <meta name="theme-color" content="#0b0a0f" />
+    <title>MarketOps Review Console</title>
+    <style>/* finesse · compact workflow · evidence first · dual theme · restrained motion */</style>
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
+    <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <div class="app-shell">
       <aside class="sidebar" aria-label="主导航">
-        <div class="brand-lockup">
-          <div class="brand-mark" aria-hidden="true">M</div>
-          <div>
-            <strong>MarketOps</strong>
-            <span>AI workbench</span>
-          </div>
-        </div>
-        <button class="workspace-switcher" type="button" aria-label="切换工作空间" data-toast="工作空间切换暂未接入">
-          <span class="workspace-dot">L</span>
-          <span class="workspace-copy"><b>个人市场台</b><small>Personal workspace</small></span>
-          <i data-lucide="chevrons-up-down" aria-hidden="true"></i>
-        </button>
+        <div class="brand-lockup"><span class="brand-mark" aria-hidden="true">M</span><span><strong>MarketOps</strong><small>REVIEW CONSOLE</small></span></div>
         <nav class="primary-nav" aria-label="工作区导航">
-          <button class="nav-item is-active" type="button" data-view="today"><i data-lucide="sun-medium"></i><span>今日工作台</span><kbd>1</kbd></button>
-          <button class="nav-item" type="button" data-view="projects"><i data-lucide="folder-kanban"></i><span>营销项目</span><em>3</em></button>
-          <button class="nav-item" type="button" data-view="knowledge"><i data-lucide="library"></i><span>知识库</span></button>
-          <button class="nav-item" type="button" data-view="radar"><i data-lucide="radar"></i><span>AI Radar</span><em class="new-dot">3</em></button>
+          <button class="nav-item is-active" type="button"><i data-lucide="scan-text"></i><span>交付审核</span><kbd>M1-02</kbd></button>
+          <button class="nav-item" type="button" data-toast="排期工作台将在 M1-03 验收后开放"><i data-lucide="git-branch"></i><span>执行排期</span><kbd>LOCKED</kbd></button>
+          <button class="nav-item" type="button" data-toast="项目知识区尚未接入此切片"><i data-lucide="library"></i><span>项目知识</span></button>
         </nav>
-        <div class="sidebar-section-label">最近项目</div>
-        <div class="recent-projects">
-          <button type="button" class="recent-project is-selected" data-project="展会增长方案"><span class="project-glyph cyan">E</span><span><b>展会增长方案</b><small>更新于 2 小时前</small></span></button>
-          <button type="button" class="recent-project" data-project="GEO 内容诊断"><span class="project-glyph orange">G</span><span><b>GEO 内容诊断</b><small>更新于昨天</small></span></button>
-          <button type="button" class="recent-project" data-project="品牌活动复盘"><span class="project-glyph violet">B</span><span><b>品牌活动复盘</b><small>更新于 8 月 06 日</small></span></button>
+        <div class="sidebar-context">
+          <span class="eyebrow">CURRENT MILESTONE</span>
+          <strong>方案转执行计划</strong>
+          <div class="milestone-meter" aria-label="M1 任务进度，1 项完成，1 项进行中，4 项待开始"><span></span><span class="is-current"></span><span></span><span></span><span></span><span></span></div>
+          <p>M1-02 进行中。候选必须保留引用并经人工决定。</p>
         </div>
-        <div class="sidebar-bottom">
-          <button class="nav-item" type="button" data-view="experiments"><i data-lucide="flask-conical"></i><span>工作实验</span></button>
-          <button class="nav-item" type="button" data-view="settings"><i data-lucide="settings-2"></i><span>偏好设置</span></button>
-          <div class="privacy-note"><i data-lucide="shield-check"></i><span>工作与个人资料已隔离</span></div>
-        </div>
+        <div class="sidebar-bottom"><i data-lucide="shield-check"></i><span>项目资料由当前部署按工作区隔离</span></div>
       </aside>
 
-      <main class="main-content">
+      <main class="main-content" id="mainContent">
         <header class="topbar">
-          <div class="breadcrumb"><span>个人市场台</span><i data-lucide="chevron-right"></i><b id="breadcrumbProject">展会增长方案</b></div>
+          <div class="breadcrumb"><span>项目</span><i data-lucide="chevron-right"></i><b id="breadcrumbProject">正在恢复...</b></div>
           <div class="topbar-actions">
-            <button class="icon-button" type="button" aria-label="打开命令搜索" title="命令搜索"><i data-lucide="search"></i><kbd>⌘ K</kbd></button>
-            <button class="icon-button voice-button" type="button" aria-label="语音输入" title="语音输入"><i data-lucide="mic"></i></button>
-            <button class="language-button" type="button" data-toast="语言偏好已记录，实时翻译将在连接模型后启用">中 <i data-lucide="chevron-down"></i></button>
-            <button class="avatar" type="button" aria-label="打开个人菜单">L</button>
+            <span class="connection-state" id="connectionState"><i></i>SERVER</span>
+            <button class="icon-button" id="themeToggle" type="button" aria-label="切换浅色主题" title="切换主题"><i data-lucide="sun"></i></button>
+            <button class="button button-quiet" id="assistantToggle" type="button"><i data-lucide="sparkles"></i><span>助手</span></button>
           </div>
         </header>
 
-        <section class="page-content" id="viewRoot">
-          <div class="page-heading">
+        <div class="page-content">
+          <section class="page-heading">
             <div>
-              <p class="date-label">星期一 · 8 月 12 日 · 09:24</p>
-              <h1>早上好，林。</h1>
-              <p class="heading-subtitle">把今天最重要的营销判断，推进到下一步。</p>
+              <h1><span class="console-label">DELIVERABLE EXTRACTION / HUMAN REVIEW</span>交付物审核台</h1>
+              <p>核对来源、修订候选，并生成可追溯的人工决定。</p>
             </div>
-            <button class="button button-primary" type="button" id="newBrief"><i data-lucide="folder-plus"></i> 新建项目</button>
-          </div>
-
-          <div class="status-strip" role="status">
-            <div class="status-pulse"><span></span>AI 助手就绪</div>
-            <span class="status-separator"></span>
-            <span id="serverStatusText">正在连接 Server API…</span>
-            <span class="status-separator"></span>
-            <button class="text-button" type="button" data-toast="目前使用演示数据，未连接外部模型">查看运行状态 <i data-lucide="arrow-up-right"></i></button>
-          </div>
-
-          <section class="import-summary" id="importSummary" aria-live="polite" aria-busy="false" hidden>
-            <div class="import-summary-icon"><i data-lucide="file-check-2"></i></div>
-            <div class="import-summary-copy">
-              <span class="section-kicker" id="importSummaryKicker">APPROVED PROPOSAL</span>
-              <strong id="importProjectName"></strong>
-              <span id="importProjectFiles"></span>
-            </div>
-            <div class="import-summary-actions">
-              <span class="badge badge-approved" id="importSummaryBadge">服务器已保留</span>
-              <button class="text-button" type="button" id="retryProjectLoad" hidden>重试读取</button>
-            </div>
+            <button class="button button-primary" type="button" id="newBrief"><i data-lucide="plus"></i>新建项目</button>
           </section>
 
-          <div class="focus-grid">
-            <section class="focus-panel" aria-labelledby="focusTitle">
-              <div class="section-heading">
-                <div><h2 id="focusTitle">展会增长方案</h2></div>
-                <button class="icon-button quiet" type="button" aria-label="更多项目操作" title="更多操作"><i data-lucide="more-horizontal"></i></button>
-              </div>
-              <div class="focus-meta"><span class="badge badge-working">进行中</span><span>国际 B2B 展会 · Q4</span><span>负责人：林</span></div>
-              <p class="focus-summary">让首次参展的 SaaS 品牌，在三个月内把展台流量转成可跟进的高意向线索。</p>
-              <div class="progress-row"><div class="progress-track"><span class="progress-fill-58"></span></div><b>58%</b><span>距离交付还有 4 天</span></div>
-              <div class="workflow-steps" aria-label="项目进度">
-                <button class="workflow-step done" type="button" data-tab="brief"><span>01</span><b>Brief</b><small>已确认</small></button>
-                <button class="workflow-step done" type="button" data-tab="research"><span>02</span><b>证据研究</b><small>12 条来源</small></button>
-                <button class="workflow-step current" type="button" data-tab="strategy"><span>03</span><b>策略方案</b><small>待你评审</small></button>
-                <button class="workflow-step" type="button" data-tab="activation"><span>04</span><b>激活计划</b><small>未开始</small></button>
-                <button class="workflow-step" type="button" data-tab="review"><span>05</span><b>交付复盘</b><small>未开始</small></button>
-              </div>
-            </section>
+          <div class="status-strip" role="status"><span class="status-signal" aria-hidden="true"><i></i></span><span id="serverStatusText">正在连接 Server API...</span><span class="status-boundary">浏览器不保存项目事实</span></div>
 
-            <section class="radar-panel" aria-labelledby="radarTitle">
-              <div class="section-heading"><div><h2 id="radarTitle">今天值得试的 3 件事</h2></div><button class="icon-button quiet" type="button" aria-label="刷新 AI Radar" title="刷新"><i data-lucide="refresh-cw"></i></button></div>
-              <p class="radar-caption">不是资讯列表，是可以在今天开始的小实验。</p>
-              <div class="radar-items">
-                <button class="radar-item" type="button" data-experiment="把展台 FAQ 改成 GEO 问题集"><span class="radar-number">01</span><span><b>把展台 FAQ 改成 GEO 问题集</b><small>来自 Search · 8 分钟阅读</small></span><i data-lucide="arrow-up-right"></i></button>
-                <button class="radar-item" type="button" data-experiment="用语音复盘客户访谈"><span class="radar-number">02</span><span><b>用语音快速复盘客户访谈</b><small>来自 Product Hunt · 12 分钟阅读</small></span><i data-lucide="arrow-up-right"></i></button>
-                <button class="radar-item" type="button" data-experiment="给销售一页纸生成证据链"><span class="radar-number">03</span><span><b>给销售一页纸生成证据链</b><small>来自 OpenAI · 6 分钟阅读</small></span><i data-lucide="arrow-up-right"></i></button>
-              </div>
-              <button class="text-button radar-link" type="button" data-view="radar">打开完整 Radar <i data-lucide="arrow-right"></i></button>
-            </section>
-          </div>
+          <section class="import-summary" id="importSummary" aria-live="polite" aria-busy="false" hidden>
+            <div class="import-summary-icon"><i data-lucide="file-check"></i></div>
+            <div class="import-summary-copy"><span class="eyebrow" id="importSummaryKicker">APPROVED PROPOSAL</span><strong id="importProjectName"></strong><span id="importProjectFiles"></span></div>
+            <div class="import-summary-actions"><span class="status-badge" id="importSummaryBadge">读取中</span><button class="text-button" type="button" id="retryProjectLoad" hidden>重试读取</button></div>
+          </section>
 
-          <section class="workbench-section" aria-labelledby="workbenchTitle">
-            <div class="section-heading section-heading-wide"><div><span class="section-kicker">PROJECT WORKBENCH</span><h2 id="workbenchTitle">从证据，到能被批准的方案</h2></div><div class="heading-tools"><button class="button button-ghost" type="button" data-toast="演示版暂以 Markdown 导出"><i data-lucide="download"></i> 导出</button><button class="button button-primary" type="button" id="generateStrategy"><i data-lucide="sparkles"></i> 生成策略草稿</button></div></div>
-            <div class="tab-row" role="tablist" aria-label="项目阶段">
-              <button class="tab is-active" type="button" role="tab" data-tab="brief">Brief <span>4</span></button>
-              <button class="tab" type="button" role="tab" data-tab="research">证据研究 <span>12</span></button>
-              <button class="tab" type="button" role="tab" data-tab="strategy">策略草稿 <span class="tab-alert">待审</span></button>
-              <button class="tab" type="button" role="tab" data-tab="activation">激活计划</button>
-              <button class="tab" type="button" role="tab" data-tab="review">交付与复盘</button>
+          <section class="review-console" id="reviewConsole" aria-labelledby="reviewTitle" data-state="unavailable">
+            <header class="console-header">
+              <div><h2 id="reviewTitle"><span class="console-label">REVIEW WORKSPACE</span>服务器审阅记录</h2></div>
+              <div class="console-actions">
+                <button class="button button-quiet" type="button" id="refreshReviews" disabled><i data-lucide="refresh-cw"></i>刷新</button>
+                <button class="button button-primary" type="button" id="createReview" disabled><i data-lucide="scan-text"></i>提取候选</button>
+              </div>
+            </header>
+
+            <div class="review-status" id="reviewStatus" role="status" aria-live="polite">
+              <span class="review-status-dot"></span><span id="reviewStatusText">请先恢复或创建一个服务器项目。</span>
             </div>
-            <div class="workbench-body" id="workbenchBody">
-              <div class="brief-column">
-                <div class="content-label"><span>BRIEF SNAPSHOT</span><button class="text-button" type="button" data-toast="编辑器将在下一版本开放">编辑</button></div>
-                <div class="brief-block"><span class="field-label">业务目标</span><p>在 2024 年 Q4 的国际展会中，为 SaaS 品牌获取 80 个符合 ICP 的有效线索。</p></div>
-                <div class="brief-block"><span class="field-label">核心受众</span><p>亚太地区 50–500 人规模的 B2B 软件企业，正在建立本地销售团队的市场负责人。</p></div>
-                <div class="brief-block"><span class="field-label">不可妥协</span><div class="chip-list"><span class="chip">预算 ≤ ¥180,000</span><span class="chip">必须可归因</span><span class="chip">中英双语</span></div></div>
-                <div class="source-line"><i data-lucide="paperclip"></i><span>4 个原始文件</span><button class="text-button" type="button" data-toast="知识库上传将在下一版本开放">管理来源</button></div>
-              </div>
-              <div class="evidence-column">
-                <div class="content-label"><span>SELECTED EVIDENCE</span><span class="evidence-count"><i data-lucide="check-circle-2"></i> 3 条已采用</span></div>
-                <div class="evidence-card selected"><div class="evidence-top"><span class="source-type report">REPORT</span><span class="source-date">2024.07.18</span><button class="check-toggle" type="button" aria-label="取消采用此来源"><i data-lucide="check"></i></button></div><h3>亚太 B2B SaaS 采购周期正在变长</h3><p>采购委员会人数增加，线下活动需要承担“建立信任”的前置任务。</p><div class="evidence-footer"><span>来源：IDC · APAC SaaS Outlook</span><button class="text-button" type="button" data-toast="来源链接已复制">查看原文 <i data-lucide="arrow-up-right"></i></button></div></div>
-                <div class="evidence-card selected"><div class="evidence-top"><span class="source-type interview">INTERVIEW</span><span class="source-date">2024.07.22</span><button class="check-toggle" type="button" aria-label="取消采用此来源"><i data-lucide="check"></i></button></div><h3>客户不缺展会曝光，缺的是可带回团队的证据</h3><p>销售最常遇到的阻力是“这个活动带来了什么”，不是展台有没有人。</p><div class="evidence-footer"><span>来源：客户访谈 · 6/8</span><button class="text-button" type="button" data-toast="来源链接已复制">查看原文 <i data-lucide="arrow-up-right"></i></button></div></div>
-                <button class="add-evidence" type="button" data-toast="粘贴链接或上传文件的入口将在下一版本开放"><i data-lucide="plus"></i> 添加一条证据</button>
-              </div>
-              <aside class="assistant-column" aria-label="AI 助手活动">
-                <div class="assistant-heading"><span class="assistant-orb"><i data-lucide="sparkles"></i></span><div><b>策略助手</b><small>基于 12 条来源工作</small></div><span class="live-dot">LIVE</span></div>
-                <div class="activity-list">
-                  <div class="activity-item"><span class="activity-icon complete"><i data-lucide="check"></i></span><div><b>已完成证据归纳</b><small>识别出 3 个可验证的策略方向</small></div><time>09:18</time></div>
-                  <div class="activity-item"><span class="activity-icon complete"><i data-lucide="check"></i></span><div><b>已标记不确定性</b><small>“80 个线索”仍依赖现场转化率假设</small></div><time>09:20</time></div>
-                  <div class="activity-item is-current"><span class="activity-icon working"><i data-lucide="loader-circle"></i></span><div><b>等待你的判断</b><small>是否把“证据交换站”作为主创意？</small><button class="inline-approve" type="button" id="approveIdea"><i data-lucide="thumbs-up"></i> 采用方向</button></div><time>现在</time></div>
+
+            <div class="metric-row" aria-label="当前审核统计">
+              <div><span>候选</span><strong id="metricTotal">0</strong></div>
+              <div><span>待处理</span><strong id="metricPending">0</strong></div>
+              <div><span>已接受</span><strong id="metricApproved">0</strong></div>
+              <div><span>已修改</span><strong id="metricModified">0</strong></div>
+              <div><span>已拒绝</span><strong id="metricRejected">0</strong></div>
+            </div>
+
+            <div class="console-grid">
+              <aside class="run-panel" aria-labelledby="runPanelTitle">
+                <div class="panel-heading"><div><span class="console-label">RUNS</span><h3 id="runPanelTitle">提取记录</h3></div><span id="runCount">0</span></div>
+                <div class="run-list" id="runList"><div class="panel-empty">尚无提取记录</div></div>
+              </aside>
+
+              <section class="candidate-panel" aria-labelledby="candidatePanelTitle">
+                <div class="panel-heading candidate-toolbar">
+                  <div><span class="console-label">CANDIDATES</span><h3 id="candidatePanelTitle">待审候选</h3></div>
+                  <div class="filter-group" role="group" aria-label="筛选候选">
+                    <button type="button" class="filter-button is-active" data-review-filter="all">全部</button>
+                    <button type="button" class="filter-button" data-review-filter="pending">待处理</button>
+                  </div>
                 </div>
-                <div class="assistant-footer"><span><i data-lucide="shield-check"></i> 需要人工批准</span><button class="icon-button quiet" type="button" aria-label="停止助手" title="停止"><i data-lucide="square"></i></button></div>
+                <div class="candidate-list" id="candidateList"><div class="panel-empty panel-empty-large"><i data-lucide="scan-text"></i><strong>等待服务器候选</strong><span>恢复项目后，可读取既有记录或发起一次确定性提取。</span></div></div>
+              </section>
+
+              <aside class="decision-panel" aria-labelledby="decisionPanelTitle">
+                <div class="panel-heading">
+                  <div><span class="console-label">EVIDENCE & DECISION</span><h3 id="decisionPanelTitle">审核详情</h3></div>
+                  <select id="reviewVersionSelect" aria-label="查看审核版本" disabled><option>版本 -</option></select>
+                </div>
+                <div id="decisionContent" class="decision-content"><div class="panel-empty panel-empty-large"><i data-lucide="mouse-pointer-2"></i><strong>选择一个候选</strong><span>这里会显示引用、来源位置和人工决定。</span></div></div>
               </aside>
             </div>
           </section>
-          <p class="demo-disclaimer"><i data-lucide="info"></i> 当前为可交互原型：研究、语音、翻译与模型生成使用演示数据，未连接外部 API。</p>
-        </section>
+
+          <p class="claim-boundary"><i data-lucide="info"></i>当前工程证据仅证明合成数据上的审阅行为，不代表真实需求、ROI、节省时间或生产容量。</p>
+        </div>
       </main>
     </div>
+
+    <aside class="assistant-drawer" id="assistantDrawer" aria-label="工作台助手" aria-hidden="true">
+      <header><div><h2><span class="console-label">SECONDARY ASSISTANT</span>工作台助手</h2></div><button class="icon-button" id="assistantClose" type="button" aria-label="关闭助手"><i data-lucide="x"></i></button></header>
+      <div class="assistant-body"><div class="assistant-message"><span>AI</span><p>我可以解释候选类型、引用位置和审核状态。模型 API 尚未接入，因此不会生成或提交项目决定。</p></div><div class="assistant-context"><span class="eyebrow">VISIBLE CONTEXT</span><strong id="assistantContext">尚未选择候选</strong><small>助手只能读取当前界面状态，人工审核仍由你提交。</small></div></div>
+      <form class="assistant-form" id="assistantForm"><label for="assistantInput">询问当前工作台</label><div><input id="assistantInput" autocomplete="off" placeholder="例如：为什么这个候选是 hypothesis？" /><button class="icon-button" type="submit" aria-label="发送"><i data-lucide="send"></i></button></div></form>
+    </aside>
+    <div class="drawer-scrim" id="drawerScrim" hidden></div>
     <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
     <dialog class="brief-dialog" id="briefDialog">
       <form method="dialog" id="briefForm">
-        <div class="dialog-heading"><div><span class="section-kicker">M1 IMPORT</span><h2>导入已批准方案</h2><p>文件将发送到当前部署的 Server API，并按认证工作区范围保留；不会发送到外部模型。</p></div><button class="icon-button quiet" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
-        <div class="form-grid">
-          <label>项目名称<input name="name" required autocomplete="off" placeholder="例如：秋季客户增长峰会" /></label>
-          <label>方案版本<input name="proposalVersion" type="number" min="1" step="1" value="1" required /></label>
-        </div>
+        <div class="dialog-heading"><div><h2><span class="console-label">M1 IMPORT</span>导入已批准方案</h2><p>文件只发送到当前部署的 Server API，不会发送到外部模型。</p></div><button class="icon-button" type="button" data-dialog-close aria-label="关闭"><i data-lucide="x"></i></button></div>
+        <div class="form-grid"><label>项目名称<input name="name" required autocomplete="off" placeholder="例如：秋季客户增长峰会" /></label><label>方案版本<input name="proposalVersion" type="number" min="1" step="1" value="1" required /></label></div>
         <label>项目原始资料<input name="sourceFile" type="file" accept=".md,.markdown,.csv,.docx" required /><small>支持 Markdown、CSV 和基础 DOCX；PDF、扫描件、PPTX 暂不支持。</small></label>
         <label>已批准方案文件<input name="proposalFile" type="file" accept=".md,.markdown,.docx" required /></label>
         <label class="approval-check"><input name="approvalConfirmed" type="checkbox" required /><span>我确认这是当前已批准、可进入执行拆解的方案版本。</span></label>
         <p class="form-status" id="importFormStatus" role="status" aria-live="polite"></p>
-        <div class="dialog-actions"><button class="button button-ghost" type="button" data-dialog-close id="cancelImportButton">取消</button><button class="button button-primary" type="submit" id="createProjectButton">上传并创建 <i data-lucide="arrow-right"></i></button></div>
+        <div class="dialog-actions"><button class="button button-quiet" type="button" data-dialog-close id="cancelImportButton">取消</button><button class="button button-primary" type="submit" id="createProjectButton">上传并创建<i data-lucide="arrow-right"></i></button></div>
       </form>
     </dialog>
+
     <script src="project-import.js"></script>
+    <script src="review-workbench.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

@@ -326,3 +326,25 @@ WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verif
 - 本地完整 `apps/api` 套件通过 353 项、跳过 55 项；跳过项来自本机缺少 FastAPI、PostgreSQL、Linux `flock` 或 Windows 符号链接权限，不能单独作为通过证据。同一提交 CI 补齐了 FastAPI/PostgreSQL/Linux 运行路径。
 - 两份专项独立复审和最终 SHA 非实现者收口复审均返回 `CLEAN APPROVE`，未发现 P0/P1/P2。该结论只关闭 WP2B-1 API，不关闭浏览器审核 UI 或 `M1-02`。
 - 审计随后发现 UI 首次创建 run 需要 approved proposal SHA，而项目详情尚未暴露该服务器事实；后续兼容性修复只补齐项目详情 SHA 读取链和 review API client，不改变 WP2B-1 数据库/HTTP 写入语义。
+
+### WP2B-2 浏览器审核 UI 工作包
+
+- Task ID：`M1-02`；基线提交：`3b1b32553c9534b2336746beeef40c6d39c372db`。
+- Owned paths：根目录 `index.html`、`styles.css`、`app.js`、新增的浏览器审核模块、聚焦的浏览器 UI 契约测试，以及本节文档。
+- Forbidden paths：`project-status.json`、手工编辑 `docs/PROJECT_STATUS.md`、顶层 CI、数据库 migration、review domain/database/HTTP 写入语义、连接器、跨项目检索、真实客户文件、凭据和未审查依赖。
+- Frozen inputs：服务器恢复的项目详情、approved proposal `versionId`/`sha256`，以及 `project-import.js` 中已验证的四个 review API client 方法。
+- Outputs：可创建或安全重放审核 run、浏览完整引用候选、按 `expectedReviewVersion` 接受/修改/拒绝、读取历史版本并在冲突后从 GET 对账的浏览器工作台。浏览器不得提交候选、引用、对象路径、parser blocks 或认证 scope。
+- UI boundary：采用用户已确认的黑/白/紫、完整深浅主题和紧凑控制台语言；来源证据、提取候选、人工决定与历史版本必须可区分。动效只表达同步、选中、提交和冲突恢复状态，并尊重 `prefers-reduced-motion`。AI 助手保持次要，不替代人工批准。
+- Acceptance：聚焦的确定性 JavaScript 契约测试；既有 M1-01 浏览器 cutover gate；聚焦 M1-02 HTTP/service/read/preparation 测试；Chromium 桌面与移动端的 loading/empty/error/latest/history/modify/reject/conflict 状态检查；无横向溢出、移动触控目标不小于 44px、无控制台错误；`git diff --check`；最后由非实现者复审。
+- Reviewer role：非实现者验证客户端只使用服务器 proposal identity、幂等重放不会复制 run、决定严格携带当前版本、409 后读取服务器事实而非盲重试、历史版本不被伪装为最新状态、错误不泄露敏感内容，以及既有导入/刷新恢复不回归。实现者自测不能替代最终审查。
+- Completion boundary：本工作包通过也只补齐 M1-02 产品切片。未经授权/脱敏真实方案可用性实验、注册表验收证据、自检和主集成者批准前，`M1-02` 继续保持 `in_progress`。
+
+### WP2B-2 实现者证据与独立复审入口
+
+- 当前候选实现文件为 `index.html`、`styles.css`、`app.js`、`review-workbench.js`；聚焦单元测试为 `tests/review-workbench.test.mjs`。合成 Chromium 门禁位于 `scripts/run_m1_02_review_browser_gate.mjs`，门禁契约测试位于 `apps/api/tests/test_m1_02_review_browser_gate.py`。
+- 合成 Chromium 门禁只模拟已冻结的 HTTP 响应契约，不读取客户资料、不上传文件、不使用凭据、不访问外部网络。它验证浏览器状态机和请求边界，不能替代 FastAPI/PostgreSQL runtime、真实客户可用性或价值证据。
+- 2026-08-13 实现者本地检查通过：`node --test tests/review-workbench.test.mjs` 为 4/4；浏览器门禁契约、M1-01 浏览器 cutover 契约与聚焦 M1-02 HTTP/service/read/preparation 共 71 项通过、8 项因本机缺少运行能力跳过；`node scripts/progress.mjs check` 与 `git diff --check` 通过。
+- Headless Chrome 门禁的 12 个布尔结果全部为 `true`：不确定 create 后同 key 重放且只有一个 run、引用渲染、接受/修改/拒绝、409 后 GET 对账、不确定 decision 后 GET 对账、历史只读、主题切换、375/1440 响应式、无 console failure、无外部请求和请求边界合规。
+- `finesse-ui` detector 对 `index.html`、`styles.css`、`app.js` 与 `review-workbench.js` 返回零 finding；该结果是静态辅助证据，不能替代实际渲染和人工视觉判断。
+- 独立 reviewer 应从本节工作包基线 `3b1b325` 审查当前 diff，重跑上述命令，并重点检查：稳定幂等键只在完成服务器对账后清除；create 不确定时不会产生第二个 run；decision 冲突/不确定时不盲重试；客户端只提交 proposal identity 和人工决定字段；历史版本没有提交表单；M1-01 导入与 URL 恢复仍然成立；错误和门禁证据不包含内容、路径、凭据或客户材料。
+- 当前未形成独立复审结论，也没有完整 FastAPI/PostgreSQL 浏览器 runtime 或获授权真实方案实验。因此本节只记录“实现者候选与可复现本地证据”，不得据此把 `M1-02` 标记为 `completed`。

@@ -1,54 +1,17 @@
+/* finesse · workflow client · server facts · explicit approval · bounded motion */
 const toast = document.querySelector('#toast');
 let toastTimer;
 const {
-  ProjectApiError,
-  createProjectApiClient,
-  createRetryKeyManager,
-  importFingerprint,
-  importThenLoad,
-  isSupportedImportName,
-  isSupportedProposalName,
-  loadInitialProject,
+  ProjectApiError, createProjectApiClient, createRetryKeyManager, importFingerprint,
+  importThenLoad, isSupportedImportName, isSupportedProposalName, loadInitialProject,
 } = window.MarketOpsProjectImport;
 
 const iconGlyphs = {
-  'arrow-right': '>',
-  'arrow-up-right': '↗',
-  'check': '✓',
-  'check-circle-2': '✓',
-  'chevron-down': '⌄',
-  'chevron-right': '›',
-  'chevrons-up-down': '↕',
-  'download': '↓',
-  'file-check-2': '✓',
-  'flask-conical': '△',
-  'folder-kanban': '□',
-  'folder-plus': '+',
-  'info': 'i',
-  'library': '▤',
-  'loader-circle': '○',
-  'mic': '•',
-  'more-horizontal': '···',
-  'paperclip': '⌁',
-  'plus': '+',
-  'radar': '◎',
-  'refresh-cw': '↻',
-  'search': '⌕',
-  'settings-2': '⚙',
-  'shield-check': '✓',
-  'sparkles': '✦',
-  'square': '■',
-  'sun-medium': '☼',
-  'thumbs-up': '✓',
-  'x': '×',
+  'arrow-right': '>', 'check': '✓', 'chevron-right': '›', 'file-check': '✓',
+  'git-branch': '⑂', history: '↶', info: 'i', library: '▤',
+  'mouse-pointer-2': '↖', pencil: '✎', plus: '+', 'refresh-cw': '↻',
+  'scan-text': '⌗', send: '↑', 'shield-check': '✓', sparkles: '✦', sun: '☼', moon: '☾', x: '×',
 };
-
-function showToast(message) {
-  toast.textContent = message;
-  toast.classList.add('is-visible');
-  clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 2600);
-}
 
 function refreshIcons() {
   document.querySelectorAll('[data-lucide]').forEach((icon) => {
@@ -57,70 +20,44 @@ function refreshIcons() {
   });
 }
 
-document.querySelectorAll('[data-toast]').forEach((button) => {
-  button.addEventListener('click', () => showToast(button.dataset.toast));
-});
-
-document.querySelectorAll('.nav-item[data-view]').forEach((button) => {
-  button.addEventListener('click', () => {
-    document.querySelectorAll('.nav-item').forEach((item) => item.classList.remove('is-active'));
-    button.classList.add('is-active');
-    showToast(`${button.querySelector('span')?.textContent || '视图'}将在下一阶段接入完整数据`);
-  });
-});
-
-document.querySelectorAll('.recent-project').forEach((button) => {
-  button.addEventListener('click', () => {
-    showToast('最近项目仍为界面示例，服务器项目只从导入摘要进入');
-  });
-});
-
-function selectTab(name) {
-  document.querySelectorAll('[data-tab]').forEach((item) => item.classList.toggle('is-active', item.dataset.tab === name));
-  const labels = { brief: 'Brief', research: '证据研究', strategy: '策略草稿', activation: '激活计划', review: '交付与复盘' };
-  showToast(`已打开 ${labels[name] || name} 阶段`);
+function showToast(message) {
+  toast.textContent = message;
+  toast.classList.add('is-visible');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => toast.classList.remove('is-visible'), 2800);
 }
 
-document.querySelectorAll('[data-tab]').forEach((button) => button.addEventListener('click', () => selectTab(button.dataset.tab)));
+document.querySelectorAll('[data-toast]').forEach((button) => button.addEventListener('click', () => showToast(button.dataset.toast)));
 
-document.querySelectorAll('.radar-item').forEach((item) => {
-  item.addEventListener('click', () => showToast(`已加入工作实验：「${item.dataset.experiment}」`));
-});
+const errorCopy = {
+  APPROVAL_REQUIRED: '请确认方案已经人工批准。',
+  AUTHORIZATION_REQUIRED: '当前浏览器会话无权访问此工作区，请重新完成服务器认证。',
+  CLIENT_CAPABILITY_REQUIRED: '当前浏览器缺少完成操作所需的能力。',
+  IDEMPOTENCY_CONFLICT: '同一请求标识对应了不同方案。请重新导入或联系管理员核对。',
+  INVALID_DOCUMENT: '文件内容未通过服务器结构校验，请检查后重试。',
+  INVALID_INPUT: '请求信息不完整，请检查后重试。',
+  INVALID_MEDIA_TYPE: '浏览器上传的文件类型无法被服务器接受。',
+  INVALID_PROJECT_ID: '当前项目链接无效，请移除链接中的 projectId 后重试。',
+  MALFORMED_RESPONSE: '服务器返回了无法验证的响应，页面没有采纳这些事实。',
+  NETWORK_ERROR: '无法连接 Server API。提交结果不确定时，页面会先与服务器对账。',
+  OBJECT_INTEGRITY_MISMATCH: '服务器文件完整性校验失败，未更新页面事实。',
+  OBJECT_WRITE_FAILED: '服务器未能保留文件，可使用同一请求安全重试。',
+  PAYLOAD_TOO_LARGE: '至少一个文件超过 25 MiB 限制。',
+  PROJECT_NOT_FOUND: '服务器中没有找到这个项目，或当前工作区无权访问。',
+  REQUEST_CANCELLED: '本次请求已取消。服务器可能已提交时会先对账。',
+  REVIEW_CONFLICT: '审核版本已更新，正在读取服务器最新事实。',
+  REVIEW_NOT_FOUND: '没有找到该审核记录，或当前操作者无权访问。',
+  UNSUPPORTED_FORMAT: '项目资料限 Markdown、CSV、基础 DOCX；批准方案限 Markdown 或基础 DOCX。',
+};
 
-document.querySelectorAll('.check-toggle').forEach((button) => {
-  button.addEventListener('click', () => {
-    const card = button.closest('.evidence-card');
-    const selected = card.classList.toggle('selected');
-    button.setAttribute('aria-label', selected ? '取消采用此来源' : '采用此来源');
-    button.innerHTML = selected ? '<i data-lucide="check"></i>' : '<i data-lucide="plus"></i>';
-    refreshIcons();
-    showToast(selected ? '证据已加入策略上下文' : '证据已从策略上下文移除');
-  });
-});
+function describeError(error) {
+  const code = error instanceof ProjectApiError ? error.code : 'MALFORMED_RESPONSE';
+  const base = errorCopy[code] || 'Server API 请求失败，页面未更新项目事实。';
+  return error?.requestId ? `${base} 请求编号：${error.requestId}` : base;
+}
 
-document.querySelector('#generateStrategy').addEventListener('click', (event) => {
-  const button = event.currentTarget;
-  button.disabled = true;
-  button.innerHTML = '<i data-lucide="loader-circle"></i> 正在整理证据';
-  refreshIcons();
-  showToast('策略助手正在基于已采用证据生成草稿…');
-  setTimeout(() => {
-    button.disabled = false;
-    button.innerHTML = '<i data-lucide="check"></i> 草稿已更新';
-    refreshIcons();
-    showToast('草稿已更新，下一步需要你评审');
-  }, 1200);
-});
-
-document.querySelector('#approveIdea').addEventListener('click', (event) => {
-  const button = event.currentTarget;
-  button.innerHTML = '<i data-lucide="check"></i> 已采用';
-  button.classList.add('is-approved');
-  button.disabled = true;
-  refreshIcons();
-  showToast('已记录为人工决定：采用「证据交换站」方向');
-});
-
+const api = createProjectApiClient();
+const retryKeys = createRetryKeyManager();
 const dialog = document.querySelector('#briefDialog');
 const importForm = document.querySelector('#briefForm');
 const importFormStatus = document.querySelector('#importFormStatus');
@@ -131,36 +68,18 @@ const importSummaryKicker = document.querySelector('#importSummaryKicker');
 const importSummaryBadge = document.querySelector('#importSummaryBadge');
 const retryProjectLoad = document.querySelector('#retryProjectLoad');
 const serverStatusText = document.querySelector('#serverStatusText');
-const privacyNote = document.querySelector('.privacy-note span');
-if (privacyNote) privacyNote.textContent = '项目资料由当前部署的 Server API 按工作区范围保留';
-
-const api = createProjectApiClient();
-const retryKeys = createRetryKeyManager();
+const connectionState = document.querySelector('#connectionState');
 let activeImportController = null;
 
-const errorCopy = {
-  APPROVAL_REQUIRED: '请确认方案已经人工批准。',
-  AUTHORIZATION_REQUIRED: '当前浏览器会话无权访问此工作区，请重新完成服务器认证。',
-  CLIENT_CAPABILITY_REQUIRED: '当前浏览器缺少完成导入所需的能力。',
-  IDEMPOTENCY_CONFLICT: '同一次重试对应了不同内容，请关闭窗口后重新发起导入。',
-  INVALID_DOCUMENT: '文件内容未通过服务器结构校验，请检查后重试。',
-  INVALID_INPUT: '导入信息不完整，请检查项目名、方案版本和文件。',
-  INVALID_MEDIA_TYPE: '浏览器上传的文件类型无法被服务器接受。',
-  INVALID_PROJECT_ID: '当前项目链接无效，请移除链接中的 projectId 后重试。',
-  MALFORMED_RESPONSE: '服务器返回了无法验证的响应，未更新页面项目事实。',
-  NETWORK_ERROR: '无法连接 Server API。可直接重试，系统会沿用同一请求标识。',
-  OBJECT_INTEGRITY_MISMATCH: '服务器文件完整性校验失败，未更新页面项目事实。',
-  OBJECT_WRITE_FAILED: '服务器未能保留文件。可直接重试。',
-  PAYLOAD_TOO_LARGE: '至少一个文件超过 25 MiB 限制。',
-  PROJECT_NOT_FOUND: '服务器中没有找到这个项目，或当前工作区无权访问。',
-  REQUEST_CANCELLED: '本次请求已取消。若服务器可能已收到文件，可直接重试。',
-  UNSUPPORTED_FORMAT: '文件格式不支持。项目资料限 Markdown、CSV、基础 DOCX；批准方案限 Markdown 或基础 DOCX。',
-};
+const reviewWorkbench = window.MarketOpsReviewWorkbench.createReviewWorkbench({
+  api, root: document, describeError, onToast: showToast, onIcons: refreshIcons,
+  onContext(value) { document.querySelector('#assistantContext').textContent = value; },
+});
 
 function setServerStatus(message, state = 'idle') {
-  if (!serverStatusText) return;
   serverStatusText.textContent = message;
   serverStatusText.dataset.state = state;
+  connectionState.dataset.state = state;
 }
 
 function setSummaryState(state, message, options = {}) {
@@ -177,49 +96,39 @@ function setSummaryState(state, message, options = {}) {
 
 function setEmptyState() {
   importSummary.hidden = true;
-  setServerStatus('Server API 已连接，当前工作区尚无项目', 'empty');
   document.querySelector('#breadcrumbProject').textContent = '尚未创建项目';
+  setServerStatus('Server API 已连接，当前工作区尚无项目。', 'empty');
+  reviewWorkbench.clearProject();
 }
 
-function renderImportedProject(detail, badge = '服务器已保留') {
+async function renderImportedProject(detail, badge = '服务器已保留') {
   document.querySelector('#importProjectName').textContent = detail.projectName;
   document.querySelector('#importProjectFiles').textContent = `${detail.source.filename} · 已批准方案 v${detail.proposal.proposalVersion}：${detail.proposal.filename}`;
   document.querySelector('#breadcrumbProject').textContent = detail.projectName;
-  document.querySelector('#focusTitle').textContent = detail.projectName;
-  const sourceCount = document.querySelector('.source-line span');
-  if (sourceCount) sourceCount.textContent = '2 个服务器文件版本已保留';
   importSummaryKicker.textContent = 'APPROVED PROPOSAL';
   importSummaryBadge.textContent = badge;
   retryProjectLoad.hidden = true;
   importSummary.dataset.state = 'ready';
   importSummary.setAttribute('aria-busy', 'false');
   importSummary.hidden = false;
-  setServerStatus(`Server API 已恢复项目：${detail.projectName}`, 'ready');
+  setServerStatus(`已恢复项目：${detail.projectName}`, 'ready');
   refreshIcons();
+  await reviewWorkbench.setProject(detail);
 }
 
-function projectIdFromUrl() {
-  return new URL(window.location.href).searchParams.get('projectId');
-}
+function projectIdFromUrl() { return new URLSearchParams(globalThis.location.search).get('projectId'); }
 
 function writeProjectIdToUrl(projectId) {
-  const url = new URL(window.location.href);
-  url.searchParams.set('projectId', projectId);
-  window.history.replaceState({ projectId }, '', url);
-}
-
-function describeError(error) {
-  const code = error instanceof ProjectApiError ? error.code : 'MALFORMED_RESPONSE';
-  const base = errorCopy[code] || 'Server API 请求失败，页面未更新项目事实。';
-  return error?.requestId ? `${base} 请求编号：${error.requestId}` : base;
+  const params = new URLSearchParams(globalThis.location.search);
+  params.set('projectId', projectId);
+  const nextPath = globalThis.location.pathname + '?' + params.toString() + globalThis.location.hash;
+  window.history.replaceState({ projectId }, '', nextPath);
 }
 
 function setFormBusy(busy) {
   createProjectButton.disabled = busy;
   importForm.setAttribute('aria-busy', busy ? 'true' : 'false');
-  document.querySelectorAll('[data-dialog-close]').forEach((button) => {
-    if (button !== cancelImportButton) button.disabled = busy;
-  });
+  document.querySelectorAll('[data-dialog-close]').forEach((button) => { if (button !== cancelImportButton) button.disabled = busy; });
   cancelImportButton.textContent = busy ? '取消上传' : '取消';
 }
 
@@ -234,11 +143,7 @@ document.querySelector('#newBrief').addEventListener('click', () => {
 });
 
 document.querySelectorAll('[data-dialog-close]').forEach((button) => button.addEventListener('click', () => {
-  if (activeImportController) {
-    activeImportController.abort();
-    return;
-  }
-  dialog.close();
+  if (activeImportController) activeImportController.abort(); else dialog.close();
 }));
 
 dialog.addEventListener('cancel', (event) => {
@@ -251,39 +156,29 @@ importForm.addEventListener('submit', async (event) => {
   event.preventDefault();
   const sourceFile = importForm.elements.sourceFile.files[0];
   const proposalFile = importForm.elements.proposalFile.files[0];
-
   if (!sourceFile || !proposalFile || !isSupportedImportName(sourceFile.name) || !isSupportedProposalName(proposalFile.name)) {
-    importFormStatus.textContent = '文件格式不支持。项目资料限 Markdown、CSV、基础 DOCX；批准方案限 Markdown 或基础 DOCX。';
+    importFormStatus.textContent = errorCopy.UNSUPPORTED_FORMAT;
     importFormStatus.className = 'form-status is-error';
     return;
   }
-
   const input = {
-    projectName: importForm.elements.name.value,
-    proposalVersion: Number(importForm.elements.proposalVersion.value),
-    approvalConfirmed: importForm.elements.approvalConfirmed.checked,
-    sourceFile,
-    proposalFile,
+    projectName: importForm.elements.name.value, proposalVersion: Number(importForm.elements.proposalVersion.value),
+    approvalConfirmed: importForm.elements.approvalConfirmed.checked, sourceFile, proposalFile,
   };
   const idempotencyKey = retryKeys.get(importFingerprint(input));
   activeImportController = new AbortController();
   setFormBusy(true);
-  importFormStatus.textContent = '正在上传文件并等待服务器提交…';
+  importFormStatus.textContent = '正在上传文件并等待服务器提交...';
   importFormStatus.className = 'form-status is-working';
-
   try {
     const { result, detail } = await importThenLoad(api, input, {
-      idempotencyKey,
-      signal: activeImportController.signal,
-      onProjectId(projectId) {
-        writeProjectIdToUrl(projectId);
-        importFormStatus.textContent = '服务器已提交，正在读取项目事实…';
-      },
+      idempotencyKey, signal: activeImportController.signal,
+      onProjectId(projectId) { writeProjectIdToUrl(projectId); importFormStatus.textContent = '服务器已提交，正在读取项目事实...'; },
     });
-    renderImportedProject(detail, result.replayed ? '幂等重放已确认' : '服务器已保留');
+    await renderImportedProject(detail, result.replayed ? '幂等重放已确认' : '服务器已保留');
     retryKeys.clear();
     dialog.close();
-    showToast(result.replayed ? '已确认之前提交的同一项目' : '项目已创建，服务器已保留两个文件版本');
+    showToast(result.replayed ? '已确认之前提交的同一项目' : '项目已创建，可开始提取候选');
   } catch (error) {
     importFormStatus.textContent = describeError(error);
     importFormStatus.className = error?.code === 'REQUEST_CANCELLED' ? 'form-status is-cancelled' : 'form-status is-error';
@@ -294,29 +189,57 @@ importForm.addEventListener('submit', async (event) => {
 });
 
 async function restoreProject() {
-  setSummaryState('loading', '正在读取服务器项目…', { badge: '读取中' });
-  setServerStatus('正在连接 Server API…', 'loading');
+  setSummaryState('loading', '正在读取服务器项目...', { badge: '读取中' });
+  setServerStatus('正在连接 Server API...', 'loading');
   try {
     const requestedId = projectIdFromUrl();
     const detail = await loadInitialProject(api, requestedId, { onProjectId: writeProjectIdToUrl });
-    if (!detail) {
-      setEmptyState();
-      return;
-    }
-    renderImportedProject(detail, requestedId ? '刷新后已恢复' : '服务器已恢复');
+    if (!detail) { setEmptyState(); return; }
+    await renderImportedProject(detail, requestedId ? '刷新后已恢复' : '服务器已恢复');
   } catch (error) {
     const message = describeError(error);
-    setSummaryState('error', message, {
-      kicker: 'SERVER API ERROR',
-      badge: error?.status === 401 ? '需要认证' : '读取失败',
-      retry: error?.retryable === true || error?.status === 401,
-    });
+    setSummaryState('error', message, { kicker: 'SERVER API ERROR', badge: error?.status === 401 ? '需要认证' : '读取失败', retry: error?.retryable === true || error?.status === 401 });
     setServerStatus(message, 'error');
+    reviewWorkbench.clearProject();
   }
 }
 
 retryProjectLoad.addEventListener('click', restoreProject);
-restoreProject();
 
-document.querySelector('.voice-button').addEventListener('click', () => showToast('语音输入入口已预留，接入转写模型后可用'));
+const themeToggle = document.querySelector('#themeToggle');
+function applyTheme(theme) {
+  document.documentElement.dataset.theme = theme;
+  document.querySelector('meta[name="theme-color"]').content = theme === 'dark' ? '#0b0a0f' : '#f5f3f8';
+  themeToggle.setAttribute('aria-label', theme === 'dark' ? '切换浅色主题' : '切换深色主题');
+  themeToggle.innerHTML = `<i data-lucide="${theme === 'dark' ? 'sun' : 'moon'}"></i>`;
+  localStorage.setItem('marketops.theme.v1', theme);
+  refreshIcons();
+}
+applyTheme(localStorage.getItem('marketops.theme.v1') === 'light' ? 'light' : 'dark');
+themeToggle.addEventListener('click', () => {
+  const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
+  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(() => applyTheme(next));
+  else applyTheme(next);
+});
+
+const drawer = document.querySelector('#assistantDrawer');
+const scrim = document.querySelector('#drawerScrim');
+function setDrawer(open) {
+  drawer.classList.toggle('is-open', open);
+  drawer.setAttribute('aria-hidden', open ? 'false' : 'true');
+  scrim.hidden = !open;
+  if (open) document.querySelector('#assistantInput').focus();
+}
+document.querySelector('#assistantToggle').addEventListener('click', () => setDrawer(true));
+document.querySelector('#assistantClose').addEventListener('click', () => setDrawer(false));
+scrim.addEventListener('click', () => setDrawer(false));
+document.querySelector('#assistantForm').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const input = document.querySelector('#assistantInput');
+  if (!input.value.trim()) return;
+  showToast('模型 API 尚未配置；助手不会伪造回答或提交审核决定');
+  input.value = '';
+});
+
 refreshIcons();
+restoreProject();
