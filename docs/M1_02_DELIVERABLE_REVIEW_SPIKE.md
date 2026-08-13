@@ -1,8 +1,8 @@
 # M1-02 交付物提取与人工审核切片
 
-状态：`WP1/WP2A/WP2B-0/WP2B-1 API passed; browser review UI pending`
+状态：`WP1/WP2A/WP2B-0/WP2B-1/WP2B-2 engineering passed; authorized usability validation pending`
 
-日期：`2026-08-12`
+日期：`2026-08-13`
 
 ## 1. Job statement
 
@@ -329,7 +329,7 @@ WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verif
 
 ### WP2B-2 浏览器审核 UI 工作包
 
-- Task ID：`M1-02`；基线提交：`3b1b32553c9534b2336746beeef40c6d39c372db`。
+- Task ID：`M1-02`；基线提交：`3b1b3252b6bf7263be7382fed150491997442576`。
 - Owned paths：根目录 `index.html`、`styles.css`、`app.js`、新增的浏览器审核模块、聚焦的浏览器 UI 契约测试，以及本节文档。
 - Forbidden paths：`project-status.json`、手工编辑 `docs/PROJECT_STATUS.md`、顶层 CI、数据库 migration、review domain/database/HTTP 写入语义、连接器、跨项目检索、真实客户文件、凭据和未审查依赖。
 - Frozen inputs：服务器恢复的项目详情、approved proposal `versionId`/`sha256`，以及 `project-import.js` 中已验证的四个 review API client 方法。
@@ -343,8 +343,11 @@ WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verif
 
 - 当前候选实现文件为 `index.html`、`styles.css`、`app.js`、`review-workbench.js`；聚焦单元测试为 `tests/review-workbench.test.mjs`。合成 Chromium 门禁位于 `scripts/run_m1_02_review_browser_gate.mjs`，门禁契约测试位于 `apps/api/tests/test_m1_02_review_browser_gate.py`。
 - 合成 Chromium 门禁只模拟已冻结的 HTTP 响应契约，不读取客户资料、不上传文件、不使用凭据、不访问外部网络。它验证浏览器状态机和请求边界，不能替代 FastAPI/PostgreSQL runtime、真实客户可用性或价值证据。
-- 2026-08-13 实现者本地检查通过：`node --test tests/review-workbench.test.mjs` 为 4/4；浏览器门禁契约、M1-01 浏览器 cutover 契约与聚焦 M1-02 HTTP/service/read/preparation 共 71 项通过、8 项因本机缺少运行能力跳过；`node scripts/progress.mjs check` 与 `git diff --check` 通过。
+- 2026-08-13 最终实现者本地检查通过：`node --test tests/review-workbench.test.mjs` 为 6/6；实际 Chrome 门禁 12/12；浏览器门禁、M1-01 静态资源与聚焦 HTTP 契约在当前默认解释器下 15 项通过、27 项因缺少可选 FastAPI 能力跳过；`node scripts/progress.mjs check`、`git diff --check` 与敏感模式扫描通过。此前完整 `apps/api` 回归为 356 项通过、55 项因本机运行能力跳过。
 - Headless Chrome 门禁的 12 个布尔结果全部为 `true`：不确定 create 后同 key 重放且只有一个 run、引用渲染、接受/修改/拒绝、409 后 GET 对账、不确定 decision 后 GET 对账、历史只读、主题切换、375/1440 响应式、无 console failure、无外部请求和请求边界合规。
 - `finesse-ui` detector 对 `index.html`、`styles.css`、`app.js` 与 `review-workbench.js` 返回零 finding；该结果是静态辅助证据，不能替代实际渲染和人工视觉判断。
-- 独立 reviewer 应从本节工作包基线 `3b1b325` 审查当前 diff，重跑上述命令，并重点检查：稳定幂等键只在完成服务器对账后清除；create 不确定时不会产生第二个 run；decision 冲突/不确定时不盲重试；客户端只提交 proposal identity 和人工决定字段；历史版本没有提交表单；M1-01 导入与 URL 恢复仍然成立；错误和门禁证据不包含内容、路径、凭据或客户材料。
-- 当前未形成独立复审结论，也没有完整 FastAPI/PostgreSQL 浏览器 runtime 或获授权真实方案实验。因此本节只记录“实现者候选与可复现本地证据”，不得据此把 `M1-02` 标记为 `completed`。
+- 最终受审实现提交为 `2bbc0fa11ba814248f4353ec2c01d05f657fabcb`；GitHub Actions run [31712779704](https://github.com/Patch-A/marketops-ai-workbench/actions/runs/31712779704) 的 `headSha` 一致，`static-checks` 与 PostgreSQL 18.4/FastAPI/Chromium runtime job 均通过。
+- 首轮独立复审发现两个 P1：浏览器 `localStorage` 持久化幂等键违反冻结边界；新 run 详情 GET 失败时旧 detail 可能被误判为成功对账并清除稳定 key。最终实现改用页面内 `Map` 保存未决 key，并要求详情 GET 成功且返回目标 run ID 才算对账；单元与 Chromium 门禁分别固定无持久浏览器存储和旧 detail 失败路径。
+- 同一非实现者对修复 tree `834c23128aecd16b9a059d0c85eb829b0b607230` 增量复审后返回 `CLEAN APPROVE`，未发现新增 P0/P1/P2。确认同一页面内不确定 create 仍以同 key 重放，历史、冲突和不确定 decision 对账没有回归。
+- 残余限制：刷新页面后，现有协议不能跨会话精确重放一个仍未决的随机 create key；页面只能从服务器 run 列表恢复已经提交的事实。若以后要求跨刷新精确重放，需要服务端可恢复 operation identity 或按 proposal 查询待决操作，不能用浏览器持久存储补洞。
+- WP2B-2 工程门禁已经通过，但当前没有获授权/脱敏真实方案可用性实验，仍不能证明需求、审核节省时间、漏项改善、重复使用、生产容量、ROI 或付费意愿。因此 `M1-02` 继续保持 `in_progress`，不得标记 `completed`。
