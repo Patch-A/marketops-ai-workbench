@@ -40,26 +40,30 @@
     return descriptions[location.kind]?.() || '位置不可识别';
   }
 
-  function runRequestStorageKey(project) {
+  function runRequestIdentity(project) {
     return `marketops.review.request.v1:${project.projectId}:${project.proposal.versionId}:${project.proposal.sha256}`;
   }
 
-  function getStableRunKey(project, storage, cryptoImpl) {
-    const storageKey = runRequestStorageKey(project);
-    let value = storage?.getItem(storageKey) || '';
+  function getStableRunKey(project, requestKeys, cryptoImpl) {
+    const identity = runRequestIdentity(project);
+    let value = requestKeys.get(identity) || '';
     if (value.length < 8 || value.length > 200) {
       value = `review-${cryptoImpl.randomUUID()}`;
-      storage?.setItem(storageKey, value);
+      requestKeys.set(identity, value);
     }
     return value;
   }
 
-  function clearStableRunKey(project, storage) {
-    storage?.removeItem(runRequestStorageKey(project));
+  function clearStableRunKey(project, requestKeys) {
+    requestKeys.delete(runRequestIdentity(project));
+  }
+
+  function isReconciledRun(loadSucceeded, detail, expectedRunId) {
+    return loadSucceeded === true && detail?.run?.runId === expectedRunId;
   }
 
   function createReviewWorkbench(options) {
-    const { api, root, storage = globalScope.localStorage, cryptoImpl = globalScope.crypto,
+    const { api, root, cryptoImpl = globalScope.crypto,
       describeError = () => '请求失败。', onToast = () => {}, onIcons = () => {}, onContext = () => {} } = options;
     if (!api || !root || !cryptoImpl?.randomUUID) throw new Error('Review workbench dependencies are incomplete.');
 
@@ -74,6 +78,8 @@
       rejected: root.querySelector('#metricRejected'),
     };
     const state = { project: null, runs: [], detail: null, candidateId: null, filter: 'all', busy: false };
+    // Keep uncertain create retries stable for this page without persisting browser state.
+    const requestKeys = new Map();
 
     function setStatus(message, status = 'idle') {
       elements.status.dataset.state = status;
@@ -214,8 +220,10 @@
         setStatus(detail.selectedReviewVersion === detail.run.latestReviewVersion
           ? `已读取最新审核版本 v${detail.selectedReviewVersion}。`
           : `正在查看历史版本 v${detail.selectedReviewVersion}；该快照不可修改。`, 'ready');
+        return true;
       } catch (error) {
         setStatus(describeError(error), 'error');
+        return false;
       } finally {
         setBusy(false);
         if (state.detail) renderVersionSelect();
@@ -235,8 +243,9 @@
           setStatus('当前方案还没有提取记录。', 'empty');
           return true;
         }
-        await loadDetail(options.runId || state.runs[0].runId, undefined, { message: '正在读取最新审核版本...' });
-        return state.detail !== null;
+        const requestedRunId = options.runId || state.runs[0].runId;
+        const loaded = await loadDetail(requestedRunId, undefined, { message: '正在读取最新审核版本...' });
+        return isReconciledRun(loaded, state.detail, requestedRunId);
       } catch (error) {
         elements.console.dataset.state = 'error';
         setStatus(describeError(error), 'error');
@@ -253,10 +262,10 @@
         const result = await api.createReviewRun(state.project.projectId, {
           expectedProposalVersionId: state.project.proposal.versionId,
           expectedProposalSha256: state.project.proposal.sha256,
-        }, { idempotencyKey: getStableRunKey(state.project, storage, cryptoImpl) });
+        }, { idempotencyKey: getStableRunKey(state.project, requestKeys, cryptoImpl) });
         const reconciled = await loadRuns({ runId: result.runId, message: result.replayed ? '正在核对已存在的同一提取记录...' : '提取已提交，正在读取完整快照...' });
         if (!reconciled) return;
-        clearStableRunKey(state.project, storage);
+        clearStableRunKey(state.project, requestKeys);
         onToast(result.replayed ? '已安全重放同一提取记录，没有创建重复 run' : `已提取 ${result.candidateCount} 个引用候选`);
       } catch (error) {
         setStatus(describeError(error), 'error');
@@ -363,6 +372,6 @@
   }
 
   globalScope.MarketOpsReviewWorkbench = Object.freeze({
-    clearStableRunKey, createReviewWorkbench, describeLocation, escapeHtml, getStableRunKey, reviewMetrics, runRequestStorageKey,
+    clearStableRunKey, createReviewWorkbench, describeLocation, escapeHtml, getStableRunKey, isReconciledRun, reviewMetrics, runRequestIdentity,
   });
 })(typeof window === 'undefined' ? globalThis : window);

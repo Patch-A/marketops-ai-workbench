@@ -24,20 +24,30 @@ test('source locations render bounded human-readable coordinates', () => {
   assert.equal(api.describeLocation({ kind: 'docx_table_cell', part: 'document.xml', table: 1, row: 2, column: 3 }), 'document.xml / 表格 1 / 2 行 3 列');
 });
 
-test('stable review request key is created once per approved proposal', () => {
-  const values = new Map();
-  const storage = { getItem: (key) => values.get(key) || null, setItem: (key, value) => values.set(key, value), removeItem: (key) => values.delete(key) };
+test('stable review request key stays in page memory for an uncertain request', () => {
+  const requestKeys = new Map();
   let calls = 0;
   const cryptoImpl = { randomUUID: () => 'uuid-' + (++calls) };
   const project = { projectId: 'project', proposal: { versionId: 'version', sha256: 'hash' } };
-  const first = api.getStableRunKey(project, storage, cryptoImpl);
-  const second = api.getStableRunKey(project, storage, cryptoImpl);
+  const first = api.getStableRunKey(project, requestKeys, cryptoImpl);
+  const second = api.getStableRunKey(project, requestKeys, cryptoImpl);
   assert.equal(first, second);
   assert.equal(calls, 1);
-  assert.match(api.runRequestStorageKey(project), /project:version:hash$/);
-  api.clearStableRunKey(project, storage);
-  assert.notEqual(api.getStableRunKey(project, storage, cryptoImpl), first);
+  assert.match(api.runRequestIdentity(project), /project:version:hash$/);
+  api.clearStableRunKey(project, requestKeys);
+  assert.notEqual(api.getStableRunKey(project, requestKeys, cryptoImpl), first);
   assert.equal(calls, 2);
+});
+
+test('run reconciliation rejects stale detail after the requested GET fails', () => {
+  const oldDetail = { run: { runId: 'old-run' } };
+  assert.equal(api.isReconciledRun(false, oldDetail, 'new-run'), false);
+  assert.equal(api.isReconciledRun(true, oldDetail, 'new-run'), false);
+  assert.equal(api.isReconciledRun(true, { run: { runId: 'new-run' } }, 'new-run'), true);
+});
+
+test('review workbench does not access persistent browser storage', () => {
+  assert.doesNotMatch(source, /localStorage|sessionStorage|indexedDB|document\.cookie/);
 });
 
 test('escapeHtml protects cited text before it reaches the review surface', () => {

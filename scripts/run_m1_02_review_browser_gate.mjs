@@ -362,6 +362,7 @@ async function run(args) {
     await evaluate(client, click('#createReview'));
     await waitForExpression(client, "document.querySelector('#reviewConsole')?.dataset.state === 'ready'", 'replayed review state');
     const replayPassed = state.runCreated && state.createAttempts === 2 && state.createKeys[0] === state.createKeys[1];
+    const browserStorageEmpty = await evaluate(client, "localStorage.length === 0 && sessionStorage.length === 0 && document.cookie === ''");
     const citationsRendered = await evaluate(client, "document.querySelector('.citation-card blockquote')?.textContent.includes('Bounded source quote')");
 
     await evaluate(client, decisionExpression(0, 'approve', 'Approved by gate'));
@@ -427,7 +428,7 @@ async function run(args) {
       && !state.requests.some((request) => /candidate|citation|object|parser|scope/i.test(request.path));
     const result = {
       singleRunAfterUncertainCreate: state.runCreated === true,
-      sameKeyReplayObserved: replayPassed,
+      sameKeyReplayObserved: replayPassed && browserStorageEmpty,
       citationsRendered: citationsRendered === true,
       approveModifyRejectCompleted: ['approve', 'modify', 'reject'].every((action) => state.decisions.some((decision) => decision.action === action)),
       conflictReconciledByGet: state.conflictInjected && getCountAfterConflict > getCountBeforeConflict,
