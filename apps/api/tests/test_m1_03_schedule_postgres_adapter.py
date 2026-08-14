@@ -229,6 +229,16 @@ class M103SchedulePostgresAdapterTests(unittest.IsolatedAsyncioTestCase):
             "schedule snapshot is inconsistent with its plan version",
         ):
             self.assertIn(invariant, sql)
+        self.assertIn(
+            "candidate.run_id = plan_record.source_review_run_id",
+            sql,
+        )
+        self.assertRegex(
+            sql,
+            r"FROM marketops\.wbs_tasks AS task\s+WHERE task\.plan_version_id = "
+            r"version_record\.id\s+AND \([\s\S]+?OR NOT EXISTS \(\s+SELECT 1\s+"
+            r"FROM marketops\.extraction_candidates AS candidate",
+        )
         self.assertNotRegex(sql.lower(), r"\bgrant\b")
 
 

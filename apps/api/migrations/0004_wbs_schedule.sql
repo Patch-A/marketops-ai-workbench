@@ -273,30 +273,9 @@ BEGIN
     IF EXISTS (
         SELECT 1
         FROM marketops.wbs_tasks AS task
-        JOIN marketops.extraction_candidates AS candidate
-          ON candidate.organization_id = task.organization_id
-         AND candidate.workspace_id = task.workspace_id
-         AND candidate.client_id = task.client_id
-         AND candidate.project_id = task.project_id
-         AND candidate.run_id = task.source_review_run_id
-         AND candidate.id = task.candidate_id
-        JOIN marketops.review_snapshots AS snapshot
-          ON snapshot.organization_id = task.organization_id
-         AND snapshot.workspace_id = task.workspace_id
-         AND snapshot.client_id = task.client_id
-         AND snapshot.project_id = task.project_id
-         AND snapshot.run_id = task.source_review_run_id
-         AND snapshot.id = plan_record.source_review_snapshot_id
-        JOIN marketops.review_snapshot_items AS item
-          ON item.snapshot_id = snapshot.id AND item.candidate_id = candidate.id
         WHERE task.plan_version_id = version_record.id
           AND (
               task.source_review_run_id IS DISTINCT FROM plan_record.source_review_run_id
-              OR item.status NOT IN ('approve', 'modify')
-              OR candidate.kind NOT IN ('deliverable', 'milestone')
-              OR task.kind IS DISTINCT FROM candidate.kind
-              OR task.source_version_id IS DISTINCT FROM candidate.source_version_id
-              OR task.source_sha256 IS DISTINCT FROM candidate.source_sha256
               OR task.task_payload->>'taskId' IS DISTINCT FROM task.task_id
               OR task.task_payload->>'candidateId' IS DISTINCT FROM task.candidate_id::text
               OR task.task_payload->>'kind' IS DISTINCT FROM task.kind
@@ -305,8 +284,38 @@ BEGIN
               OR decode(task.task_payload->'sourceCitation'->>'sourceSha256', 'hex') IS DISTINCT FROM task.source_sha256
               OR NOT EXISTS (
                   SELECT 1
-                  FROM jsonb_array_elements(version_record.plan_payload->'tasks') AS payload_task
-                  WHERE payload_task = task.task_payload
+                  FROM marketops.extraction_candidates AS candidate
+                  JOIN marketops.review_snapshots AS snapshot
+                    ON snapshot.organization_id = task.organization_id
+                   AND snapshot.workspace_id = task.workspace_id
+                   AND snapshot.client_id = task.client_id
+                   AND snapshot.project_id = task.project_id
+                   AND snapshot.run_id = plan_record.source_review_run_id
+                   AND snapshot.id = plan_record.source_review_snapshot_id
+                  JOIN marketops.review_snapshot_items AS item
+                    ON item.organization_id = snapshot.organization_id
+                   AND item.workspace_id = snapshot.workspace_id
+                   AND item.client_id = snapshot.client_id
+                   AND item.project_id = snapshot.project_id
+                   AND item.run_id = snapshot.run_id
+                   AND item.snapshot_id = snapshot.id
+                   AND item.candidate_id = candidate.id
+                  WHERE candidate.organization_id = task.organization_id
+                    AND candidate.workspace_id = task.workspace_id
+                    AND candidate.client_id = task.client_id
+                    AND candidate.project_id = task.project_id
+                    AND candidate.run_id = plan_record.source_review_run_id
+                    AND candidate.id = task.candidate_id
+                    AND item.status IN ('approve', 'modify')
+                    AND candidate.kind IN ('deliverable', 'milestone')
+                    AND task.kind IS NOT DISTINCT FROM candidate.kind
+                    AND task.source_version_id IS NOT DISTINCT FROM candidate.source_version_id
+                    AND task.source_sha256 IS NOT DISTINCT FROM candidate.source_sha256
+                    AND EXISTS (
+                        SELECT 1
+                        FROM jsonb_array_elements(version_record.plan_payload->'tasks') AS payload_task
+                        WHERE payload_task = task.task_payload
+                    )
               )
           )
     ) THEN

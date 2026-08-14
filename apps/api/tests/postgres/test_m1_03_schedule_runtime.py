@@ -337,6 +337,116 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertCountEqual(await asyncio.gather(revise(2), revise(4)), [2, "PLAN_CONFLICT"])
 
+    async def test_deferred_trigger_rejects_task_from_different_review_run(self):
+        first = await self._create_plan()
+        second_candidates = (
+            self._candidate("deliverable", "Publish the alternate launch brief."),
+            self._candidate("milestone", "Approve the alternate launch checkpoint."),
+        )
+        second_run = await self.review_service.create_run(
+            CreateReviewRunRequest(
+                self.project_id,
+                self.artifact_id,
+                self.version_id,
+                1,
+                self.source_hash,
+                second_candidates,
+            ),
+            self.review_scope,
+        )
+        for version, candidate in enumerate(second_candidates, start=1):
+            await self.review_service.review_candidate(
+                self.project_id,
+                second_run.run.run_id,
+                ReviewRequest(version, candidate.candidate_id, "approve", "runtime WBS"),
+                self.review_scope,
+            )
+        second = await self.schedule_service.create_plan(
+            CreatePlanRequest(self.project_id, second_run.run.run_id, 3),
+            self.schedule_scope,
+        )
+        malicious_version_id = str(uuid4())
+
+        with self.assertRaises(self.asyncpg.CheckViolationError) as raised:
+            async with self.admin.transaction():
+                await self.admin.execute(
+                    """
+                    INSERT INTO marketops.wbs_plan_versions (
+                        id, organization_id, workspace_id, client_id, project_id,
+                        plan_id, plan_version, status, schema_version, plan_payload,
+                        plan_digest, task_count, created_by, created_at
+                    )
+                    SELECT
+                        $1, source.organization_id, source.workspace_id,
+                        source.client_id, source.project_id, $2, 2, 'draft', 1,
+                        jsonb_set(
+                            source.plan_payload,
+                            '{tasks}',
+                            jsonb_build_array(foreign_task.task_payload),
+                            false
+                        ),
+                        decode($4, 'hex'), 1, source.created_by, $5
+                    FROM marketops.wbs_plan_versions AS source
+                    CROSS JOIN marketops.wbs_tasks AS foreign_task
+                    WHERE source.id = $3
+                      AND foreign_task.plan_version_id = $6
+                    ORDER BY foreign_task.ordinal
+                    LIMIT 1
+                    """,
+                    malicious_version_id,
+                    first.plan.plan.plan_id,
+                    first.plan.version.version_id,
+                    "c" * 64,
+                    datetime.now(timezone.utc),
+                    second.plan.version.version_id,
+                )
+                await self.admin.execute(
+                    """
+                    INSERT INTO marketops.wbs_tasks (
+                        organization_id, workspace_id, client_id, project_id,
+                        plan_id, plan_version_id, source_review_run_id,
+                        task_id, ordinal, candidate_id, kind, title,
+                        duration_workdays, predecessors, owner_role,
+                        planned_start, planned_finish, hard_deadline,
+                        approved_buffer_workdays, is_locked, execution_status,
+                        source_version_id, source_sha256, task_payload,
+                        created_by, created_at
+                    )
+                    SELECT
+                        organization_id, workspace_id, client_id, project_id,
+                        $1, $2, source_review_run_id,
+                        task_id, 1, candidate_id, kind, title,
+                        duration_workdays, predecessors, owner_role,
+                        planned_start, planned_finish, hard_deadline,
+                        approved_buffer_workdays, is_locked, execution_status,
+                        source_version_id, source_sha256, task_payload,
+                        created_by, $4
+                    FROM marketops.wbs_tasks
+                    WHERE plan_version_id = $3
+                    ORDER BY ordinal
+                    LIMIT 1
+                    """,
+                    first.plan.plan.plan_id,
+                    malicious_version_id,
+                    second.plan.version.version_id,
+                    datetime.now(timezone.utc),
+                )
+        self.assertEqual(raised.exception.sqlstate, "23514")
+        self.assertEqual(
+            await self.admin.fetchval(
+                "SELECT count(*) FROM marketops.wbs_plan_versions WHERE id = $1",
+                malicious_version_id,
+            ),
+            0,
+        )
+        self.assertEqual(
+            await self.admin.fetchval(
+                "SELECT count(*) FROM marketops.wbs_tasks WHERE plan_version_id = $1",
+                malicious_version_id,
+            ),
+            0,
+        )
+
     async def test_failed_task_insert_rolls_back_plan_and_version(self):
         failing = FailingScheduleRepository(self.schedule_repository)
         with self.assertRaises(ScheduleServiceFailure) as raised:
