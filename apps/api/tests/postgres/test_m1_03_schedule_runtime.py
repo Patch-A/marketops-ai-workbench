@@ -328,10 +328,10 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await connection.fetchrow(
                     """
                     SELECT
-                        set_config('marketops.workspace_id', $1, true),
-                        set_config('marketops.client_id', $2, true),
-                        set_config('marketops.project_id', $3, true),
-                        set_config('marketops.actor_id', $4, true)
+                        set_config('app.workspace_id', $1, true),
+                        set_config('app.client_id', $2, true),
+                        set_config('app.project_id', $3, true),
+                        set_config('app.actor_id', $4, true)
                     """,
                     self.workspace_id,
                     self.client_id,
