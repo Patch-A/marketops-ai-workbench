@@ -30,6 +30,7 @@ The human remains responsible for accepting task wording, assigning owners, chan
 
 - Server-owned approved proposal identity: `versionId` and `sha256`.
 - One selected immutable M1-02 review snapshot containing project/run identity, selected review version, candidates, complete human decisions, replacement text when modified, and `sourceCitation`.
+- The server-only `bind_review_snapshot` adapter combines the scoped M1-02 GET response with the already validated route `projectId/runId`; raw browser or client JSON must not bypass the M1-02 scoped read service.
 - Editable task fields: title, duration in workdays, predecessors, owner role, planned dates, hard deadline, approved buffer, lock flag, and execution status.
 - Project start date and an explicitly supplied holiday list.
 
@@ -45,6 +46,7 @@ The human remains responsible for accepting task wording, assigning owners, chan
 - The input review snapshot and candidate citations are immutable facts; the WBS draft and schedule are new derived versions.
 - The review run proposal identity and every accepted citation must match the server-approved proposal; every accepted candidate must carry a complete matching human decision for the selected run and snapshot.
 - The review run project identity must match the requested project before any candidate is consumed.
+- The adapter preserves the existing M1-02 HTTP response contract by enriching a deep copy with route identity; the WBS domain still rejects unbound snapshots.
 - The WBS stores the selected `sourceReviewRunId` and `sourceReviewVersion`; it never infers snapshot identity from the maximum candidate decision version.
 - Task edits require `expectedPlanVersion`, allow only WBS-owned fields, and return a new plan version; stale edits fail with `plan_version_conflict`.
 - `pending` and `reject` candidates never enter the formal WBS.
@@ -75,10 +77,10 @@ The smallest later validation experiment is one authorized or de-identified prop
 ## 7. Implementer evidence
 
 - Candidate implementation is limited to `apps/api/marketops_schedule/` and `apps/api/tests/test_m1_03_schedule_domain.py`; it does not add HTTP, persistence, migration, browser UI, or external dependencies.
-- Focused M1-03 domain tests pass 12/12. They cover approved-only handoff, explicit review-snapshot identity, complete matching human decisions, proposal/citation binding, modified text with preserved source text, stable date/type failures, deterministic output, input immutability, version conflicts, immutable review-owned fields, digest changes, missing plan identity, missing predecessors, dependency cycles, locked conflicts, and deadline misses.
+- Focused M1-03 domain tests pass 13/13. They cover the actual M1-02 HTTP response shape plus scoped server adapter, approved-only handoff, explicit review-snapshot identity, complete matching human decisions, project/proposal/citation binding, modified text with preserved source text, malformed plan/date/type failures, deterministic output, input immutability, version conflicts, immutable review-owned fields, digest changes, missing plan identity, missing predecessors, dependency cycles, locked conflicts, and deadline misses.
 - The existing M0-03 scheduling check still passes all 4 scenarios, 3 rejected-input paths, and 2 reported issue types.
 - Full local API discovery passes 364 tests and skips 55 capability-gated tests. The skipped tests require PostgreSQL, FastAPI/runtime dependencies, Linux `flock`, or Windows symbolic-link privileges; local skips are not runtime acceptance evidence.
 - Frontend review tests pass 6/6; Python `compileall`, JavaScript syntax, `node scripts/progress.mjs check`, and `git diff --check` pass.
 - The repository Quality workflow already runs `python -m unittest discover -s apps/api/tests -p 'test_*.py' -v`, so the new domain tests are included without changing the top-level CI workflow.
 
-The first independent review found a blocking trust-boundary gap plus review-version, date-failure, and field-type weaknesses. The follow-up implementation binds the selected review run/snapshot and full human decisions to the approved proposal, records the explicit snapshot version, and adds stable fail-closed validation for dates and editable field types. M1-03 remains `pending`, and M1-02 remains the only registry task marked `in_progress` until the revised package passes same-SHA CI and non-implementer re-review.
+Independent review found trust-boundary, review-version, date/type, project-scope, and M1-02 handoff incompatibilities. The follow-up implementation adds a server-only route-binding adapter, binds the selected review run/snapshot and full human decisions to the project and approved proposal, records the explicit snapshot version, and adds stable fail-closed validation for malformed plans, citations, dates, and editable field types. M1-03 remains `pending`, and M1-02 remains the only registry task marked `in_progress` until the revised package passes same-SHA CI and final non-implementer re-review.

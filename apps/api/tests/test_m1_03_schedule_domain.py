@@ -1,7 +1,7 @@
 import copy
 import unittest
 
-from apps.api.marketops_schedule import ScheduleFailure, build_wbs_draft, calculate_schedule, revise_wbs
+from apps.api.marketops_schedule import ScheduleFailure, bind_review_snapshot, build_wbs_draft, calculate_schedule, revise_wbs
 
 
 def candidate(candidate_id, kind="deliverable", status="approve", text=None, review_version=2):
@@ -25,7 +25,6 @@ def candidate(candidate_id, kind="deliverable", status="approve", text=None, rev
                 "replacementText": replacement_text,
                 "actorId": "actor-1",
                 "createdAt": "2026-08-14T00:00:00Z",
-                "runId": "run-1",
             },
         },
     }
@@ -35,7 +34,6 @@ def snapshot(candidates, version=4):
     return {
         "run": {
             "runId": "run-1",
-            "projectId": "project-1",
             "proposalVersionId": "proposal-v1",
             "proposalSha256": "a" * 64,
             "latestReviewVersion": version,
@@ -50,7 +48,8 @@ class M103ScheduleDomainTests(unittest.TestCase):
         self.proposal = {"versionId": "proposal-v1", "sha256": "a" * 64}
 
     def build(self, candidates, version=4):
-        return build_wbs_draft("project-1", self.proposal, snapshot(candidates, version))
+        bound = bind_review_snapshot("project-1", "run-1", snapshot(candidates, version))
+        return build_wbs_draft("project-1", self.proposal, bound)
 
     def test_only_approved_candidates_enter_wbs_and_controls_remain_cited(self):
         draft = self.build([
@@ -90,14 +89,34 @@ class M103ScheduleDomainTests(unittest.TestCase):
         wrong_run = snapshot([candidate("wrong-run")])
         wrong_run["run"]["proposalSha256"] = "b" * 64
         with self.assertRaises(ScheduleFailure) as context:
-            build_wbs_draft("project-1", self.proposal, wrong_run)
+            bound = bind_review_snapshot("project-1", "run-1", wrong_run)
+            build_wbs_draft("project-1", self.proposal, bound)
         self.assertEqual(context.exception.code, "review_proposal_mismatch")
 
-        wrong_project = snapshot([candidate("wrong-project")])
-        wrong_project["run"]["projectId"] = "project-other"
+        bound = bind_review_snapshot("project-1", "run-1", snapshot([candidate("wrong-project")]))
         with self.assertRaises(ScheduleFailure) as context:
-            build_wbs_draft("project-1", self.proposal, wrong_project)
+            build_wbs_draft("project-other", self.proposal, bound)
         self.assertEqual(context.exception.code, "review_project_mismatch")
+
+    def test_server_adapter_binds_actual_m1_02_http_shape_to_route_identity(self):
+        raw = snapshot([candidate("http-shaped")])
+        self.assertNotIn("projectId", raw["run"])
+        self.assertNotIn("runId", raw["candidates"][0]["review"]["lastDecision"])
+        with self.assertRaises(ScheduleFailure) as context:
+            build_wbs_draft("project-1", self.proposal, raw)
+        self.assertEqual(context.exception.code, "invalid_review_snapshot")
+
+        bound = bind_review_snapshot("project-1", "run-1", raw)
+        draft = build_wbs_draft("project-1", self.proposal, bound)
+        self.assertEqual(draft["sourceReviewRunId"], "run-1")
+        self.assertEqual(bound["run"]["projectId"], "project-1")
+        self.assertEqual(bound["candidates"][0]["review"]["lastDecision"]["runId"], "run-1")
+        self.assertNotIn("projectId", raw["run"])
+        self.assertNotIn("runId", raw["candidates"][0]["review"]["lastDecision"])
+
+        with self.assertRaises(ScheduleFailure) as context:
+            bind_review_snapshot("project-1", "run-other", raw)
+        self.assertEqual(context.exception.code, "review_route_mismatch")
 
     def test_approved_candidates_require_complete_matching_human_decisions(self):
         missing_decision = candidate("missing-decision")
@@ -108,8 +127,9 @@ class M103ScheduleDomainTests(unittest.TestCase):
 
         wrong_run = candidate("wrong-decision-run")
         wrong_run["review"]["lastDecision"]["runId"] = "run-other"
+        raw = snapshot([wrong_run])
         with self.assertRaises(ScheduleFailure) as context:
-            self.build([wrong_run])
+            bind_review_snapshot("project-1", "run-1", raw)
         self.assertEqual(context.exception.code, "review_decision_mismatch")
 
     def test_source_review_version_comes_from_the_selected_snapshot(self):
@@ -151,6 +171,11 @@ class M103ScheduleDomainTests(unittest.TestCase):
         with self.assertRaises(ScheduleFailure) as context:
             revise_wbs(plan, 1, [{"taskId": "candidate:b", "changes": {"isLocked": "false"}}])
         self.assertEqual(context.exception.code, "invalid_lock_flag")
+        malformed = copy.deepcopy(plan)
+        malformed["tasks"] = [None]
+        with self.assertRaises(ScheduleFailure) as context:
+            revise_wbs(malformed, 1, [{"taskId": "candidate:b", "changes": {"title": "Edited"}}])
+        self.assertEqual(context.exception.code, "invalid_task_id")
 
     def test_schedule_digest_changes_after_a_valid_revision(self):
         plan = self.build([candidate("a")])
@@ -167,6 +192,12 @@ class M103ScheduleDomainTests(unittest.TestCase):
         with self.assertRaises(ScheduleFailure) as context:
             calculate_schedule(plan, "2026-08-28")
         self.assertEqual(context.exception.code, "invalid_plan_identity")
+
+        plan = self.build([candidate("a")])
+        plan["tasks"][0]["sourceCitation"]["sourceSha256"] = "b" * 64
+        with self.assertRaises(ScheduleFailure) as context:
+            calculate_schedule(plan, "2026-08-28")
+        self.assertEqual(context.exception.code, "source_citation_mismatch")
 
     def test_cycle_and_missing_predecessor_are_rejected(self):
         plan = self.build([candidate("a"), candidate("b")])

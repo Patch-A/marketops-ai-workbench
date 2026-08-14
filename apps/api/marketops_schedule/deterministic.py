@@ -153,6 +153,37 @@ def _review_decision(
     return decision
 
 
+def bind_review_snapshot(project_id: str, run_id: str, review_model: Mapping[str, Any]) -> dict[str, Any]:
+    """Bind a server-validated M1-02 read model to its scoped route identity."""
+    if not isinstance(project_id, str) or not project_id.strip() or not isinstance(run_id, str) or not run_id.strip():
+        _fail("invalid_review_route", "Review snapshot binding needs project and run route identities.")
+    if not isinstance(review_model, Mapping):
+        _fail("invalid_review_snapshot", "Review snapshot must be an object.")
+    result = deepcopy(dict(review_model))
+    run = result.get("run")
+    candidates = result.get("candidates")
+    if not isinstance(run, dict) or run.get("runId") != run_id or not isinstance(candidates, list):
+        _fail("review_route_mismatch", "Review response does not match the requested run.")
+    existing_project_id = run.get("projectId")
+    if existing_project_id is not None and existing_project_id != project_id:
+        _fail("review_project_mismatch", "Review response project identity conflicts with the requested project.")
+    run["projectId"] = project_id
+    for candidate in candidates:
+        if not isinstance(candidate, dict):
+            _fail("invalid_candidate", "Review snapshot candidates must be objects.")
+        review = candidate.get("review")
+        decision = review.get("lastDecision") if isinstance(review, dict) else None
+        if decision is None:
+            continue
+        if not isinstance(decision, dict):
+            _fail("invalid_review_decision", "Candidate review decision must be an object.", candidateId=candidate.get("candidateId"))
+        existing_run_id = decision.get("runId")
+        if existing_run_id is not None and existing_run_id != run_id:
+            _fail("review_decision_mismatch", "Candidate decision conflicts with the requested run.", candidateId=candidate.get("candidateId"))
+        decision["runId"] = run_id
+    return result
+
+
 def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], review_snapshot: Mapping[str, Any]) -> dict[str, Any]:
     """Build a new WBS draft from only human-approved review candidates."""
     if (
@@ -292,11 +323,14 @@ def revise_wbs(plan: Mapping[str, Any], expected_plan_version: int, task_updates
     current_version = plan.get("planVersion") if isinstance(plan, Mapping) else None
     if not isinstance(current_version, int) or isinstance(current_version, bool) or current_version < 1:
         _fail("invalid_plan_version", "The plan needs a positive planVersion.")
+    if not isinstance(expected_plan_version, int) or isinstance(expected_plan_version, bool) or expected_plan_version < 1:
+        _fail("invalid_expected_plan_version", "expectedPlanVersion must be a positive integer.")
     if expected_plan_version != current_version:
         _fail("plan_version_conflict", "The plan version changed before this edit.", expectedPlanVersion=expected_plan_version, currentPlanVersion=current_version)
     tasks = plan.get("tasks")
     if not isinstance(tasks, list):
         _fail("invalid_plan", "The plan tasks must be a list.")
+    _topological_order(tasks)
     by_id = {task.get("taskId"): task for task in tasks if isinstance(task, Mapping)}
     result = deepcopy(dict(plan))
     result_by_id = {task["taskId"]: task for task in result["tasks"]}
@@ -369,7 +403,18 @@ def calculate_schedule(plan: Mapping[str, Any], project_start: str, holidays: Se
     proposal = plan.get("proposal") if isinstance(plan, Mapping) else None
     if not isinstance(plan_version, int) or isinstance(plan_version, bool) or plan_version < 1:
         _fail("invalid_plan_version", "The plan needs a positive planVersion.")
-    if not plan.get("projectId") or not isinstance(proposal, Mapping) or not proposal.get("versionId") or not proposal.get("sha256"):
+    source_review_version = plan.get("sourceReviewVersion")
+    if (
+        not plan.get("projectId")
+        or not isinstance(proposal, Mapping)
+        or not proposal.get("versionId")
+        or not proposal.get("sha256")
+        or not isinstance(plan.get("sourceReviewRunId"), str)
+        or not plan["sourceReviewRunId"].strip()
+        or not isinstance(source_review_version, int)
+        or isinstance(source_review_version, bool)
+        or source_review_version < 1
+    ):
         _fail("invalid_plan_identity", "The plan must retain project and approved proposal identity.")
     tasks = plan.get("tasks") if isinstance(plan, Mapping) else None
     if not isinstance(tasks, list) or not tasks:
@@ -389,7 +434,7 @@ def calculate_schedule(plan: Mapping[str, Any], project_start: str, holidays: Se
         task = by_id[task_id]
         if not isinstance(task.get("title"), str) or not task["title"].strip():
             _fail("invalid_task_title", "WBS tasks need a non-empty title.", taskId=task_id)
-        _citation(task, task_id)
+        _citation(task, task_id, proposal)
         duration = task.get("durationWorkdays")
         if not isinstance(duration, int) or isinstance(duration, bool) or duration < 1:
             _fail("invalid_duration", "Duration must be a positive integer.", taskId=task_id)
