@@ -22,6 +22,7 @@ from .marketops_review import (
     ReviewService,
 )
 from .marketops_extract import RuntimeProposalParser
+from .marketops_schedule import AsyncpgScheduleRepository, ScheduleService
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,12 @@ async def _lifespan(application: FastAPI):
             id_factory=lambda: str(uuid4()),
             clock=lambda: datetime.now(timezone.utc),
         )
+        schedule_service = ScheduleService(
+            repository=AsyncpgScheduleRepository(pool),
+            review_service=review_service,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
         application.state.authenticator = StaticBearerAuthenticator(
             settings.bearer_token,
             settings.scope,
@@ -96,6 +103,7 @@ async def _lifespan(application: FastAPI):
             clock=lambda: datetime.now(timezone.utc),
         )
         application.state.review_service = review_service
+        application.state.schedule_service = schedule_service
         application.state.review_preparation = ApprovedProposalPreparationService(
             source_reader=AsyncpgApprovedProposalSourceReader(pool),
             object_store=object_store,

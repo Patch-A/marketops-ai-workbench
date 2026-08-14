@@ -50,6 +50,12 @@ from apps.api.marketops_review import (  # noqa: E402
 from apps.api.marketops_import.postgres import AsyncpgImportRepository  # noqa: E402
 from apps.api.marketops_import.service import ProjectImportService, StoredObject  # noqa: E402
 from apps.api.marketops_import.storage import LocalObjectStore  # noqa: E402
+from apps.api.marketops_schedule import (  # noqa: E402
+    AsyncpgScheduleRepository,
+    CreatePlanRequest,
+    ScheduleScopeContext,
+    ScheduleService,
+)
 from scripts.run_m1_01_postgres_gate import (  # noqa: E402
     APPLICATION_ROLE,
     DATABASE_NAME,
@@ -932,6 +938,65 @@ async def seed_review_history(asyncpg: Any, admin_dsn: str, app_dsn: str, scope:
         await pool.close()
 
 
+async def seed_schedule_history(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    review_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=2)
+    try:
+        review_scope = ReviewScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        schedule_scope = ScheduleScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        review_service = ReviewService(
+            repository=AsyncpgReviewRepository(pool),
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        schedule_service = ScheduleService(
+            repository=AsyncpgScheduleRepository(pool),
+            review_service=review_service,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        created = await schedule_service.create_plan(
+            CreatePlanRequest(
+                committed["projectId"],
+                review_history["runId"],
+                review_history["latestReviewVersion"],
+            ),
+            schedule_scope,
+        )
+        scheduled = await schedule_service.calculate_plan_schedule(
+            committed["projectId"],
+            created.plan.plan.plan_id,
+            created.plan.version.version,
+            "2026-08-17",
+            ("2026-08-20",),
+            schedule_scope,
+        )
+        return {
+            "planId": created.plan.plan.plan_id,
+            "planVersion": created.plan.version.version,
+            "scheduleSnapshotId": scheduled.snapshot.snapshot_id,
+            "scheduleDigest": scheduled.snapshot.schedule_digest,
+            "status": scheduled.snapshot.status,
+        }
+    finally:
+        await pool.close()
+
+
 async def verify_legacy_upgrade_restore(
     asyncpg: Any,
     *,
@@ -1147,6 +1212,9 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             dump_version=dump_version,
             restore_version=restore_version,
         )
+        schedule_history = await seed_schedule_history(
+            asyncpg, app_dsn, scope, committed, review_history
+        )
         manifest, toc_tables = await export_bundle(
             asyncpg,
             admin_dsn=admin_dsn,
@@ -1287,6 +1355,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
                 "security": security,
                 "visibility": visibility,
                 "reviewHistory": review_history,
+                "scheduleHistory": schedule_history,
                 "freshReviewReplay": review_replayed,
                 "persistentIdempotencyRequestRestored": (
                     manifest["snapshot"]["extraction_run_requests"]["count"] == 1
@@ -1299,8 +1368,8 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
                 "This synthetic CI experiment establishes application-level logical backup and "
                 "isolated restore for the reviewed PostgreSQL 18.4 migrations, non-empty review history, "
                 "a seven-table v1 bundle and a twelve-table v2 review bundle each upgraded into the current "
-                "three-migration schema, a non-empty v3 persistent review idempotency request replayed through "
-                "a fresh ReviewService, and the current immutable "
+                "four-migration schema, a non-empty v3 persistent review idempotency request replayed through "
+                "a fresh ReviewService, non-empty WBS and schedule rows restored by row-set hash, and the current immutable "
                 "local-object adapter. It does not establish physical crash consistency, WAL/PITR, "
                 "authenticity, encryption, off-site retention, production cutover, RPO/RTO, "
                 "cross-host or PostgreSQL-version recovery, demand, ROI, repeat use, payment, or M1-02 completion."

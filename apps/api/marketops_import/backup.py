@@ -13,11 +13,14 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
 
-SCHEMA_VERSION = 3
-TASK_ID = "M1-02"
+SCHEMA_VERSION = 4
+TASK_ID = "M1-03"
 LEGACY_SCHEMA_VERSION = 1
 LEGACY_TASK_ID = "M1-01"
 REVIEW_SCHEMA_VERSION = 2
+REVIEW_TASK_ID = "M1-02"
+IDEMPOTENCY_SCHEMA_VERSION = 3
+IDEMPOTENCY_TASK_ID = "M1-02"
 MIGRATION_NAME = "0001_project_import.sql"
 MIGRATION_PATH = Path(__file__).resolve().parents[1] / "migrations" / MIGRATION_NAME
 MIGRATION_SHA256 = hashlib.sha256(MIGRATION_PATH.read_bytes()).hexdigest()
@@ -31,15 +34,29 @@ IDEMPOTENCY_MIGRATION_PATH = (
 IDEMPOTENCY_MIGRATION_SHA256 = hashlib.sha256(
     IDEMPOTENCY_MIGRATION_PATH.read_bytes()
 ).hexdigest()
+SCHEDULE_MIGRATION_NAME = "0004_wbs_schedule.sql"
+SCHEDULE_MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1] / "migrations" / SCHEDULE_MIGRATION_NAME
+)
+SCHEDULE_MIGRATION_SHA256 = hashlib.sha256(
+    SCHEDULE_MIGRATION_PATH.read_bytes()
+).hexdigest()
 REVIEW_MIGRATION_SET = (
     {"name": MIGRATION_NAME, "sha256": MIGRATION_SHA256},
     {"name": REVIEW_MIGRATION_NAME, "sha256": REVIEW_MIGRATION_SHA256},
 )
-MIGRATION_SET = (
+IDEMPOTENCY_MIGRATION_SET = (
     *REVIEW_MIGRATION_SET,
     {
         "name": IDEMPOTENCY_MIGRATION_NAME,
         "sha256": IDEMPOTENCY_MIGRATION_SHA256,
+    },
+)
+MIGRATION_SET = (
+    *IDEMPOTENCY_MIGRATION_SET,
+    {
+        "name": SCHEDULE_MIGRATION_NAME,
+        "sha256": SCHEDULE_MIGRATION_SHA256,
     },
 )
 DATABASE_ARCHIVE_PATH = "database.dump"
@@ -61,7 +78,14 @@ REVIEW_BUSINESS_TABLES = (
     "review_snapshot_items",
     "review_decisions",
 )
-BUSINESS_TABLES = (*REVIEW_BUSINESS_TABLES, "extraction_run_requests")
+IDEMPOTENCY_BUSINESS_TABLES = (*REVIEW_BUSINESS_TABLES, "extraction_run_requests")
+BUSINESS_TABLES = (
+    *IDEMPOTENCY_BUSINESS_TABLES,
+    "wbs_plans",
+    "wbs_plan_versions",
+    "wbs_tasks",
+    "schedule_snapshots",
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _ARCHIVE_PATH = re.compile(r"objects/[0-9a-f]{2}/[0-9a-f]{62}")
 _STORAGE_KEY = re.compile(
@@ -155,8 +179,12 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         tables = LEGACY_BUSINESS_TABLES
     elif version == REVIEW_SCHEMA_VERSION:
         root = _exact_keys(value, _ROOT_KEYS, "manifest")
-        expected_task = TASK_ID
+        expected_task = REVIEW_TASK_ID
         tables = REVIEW_BUSINESS_TABLES
+    elif version == IDEMPOTENCY_SCHEMA_VERSION:
+        root = _exact_keys(value, _ROOT_KEYS, "manifest")
+        expected_task = IDEMPOTENCY_TASK_ID
+        tables = IDEMPOTENCY_BUSINESS_TABLES
     elif version == SCHEMA_VERSION:
         root = _exact_keys(value, _ROOT_KEYS, "manifest")
         expected_task = TASK_ID
@@ -181,6 +209,8 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         expected_migrations = (
             REVIEW_MIGRATION_SET
             if version == REVIEW_SCHEMA_VERSION
+            else IDEMPOTENCY_MIGRATION_SET
+            if version == IDEMPOTENCY_SCHEMA_VERSION
             else MIGRATION_SET
         )
         migrations = root["migrations"]

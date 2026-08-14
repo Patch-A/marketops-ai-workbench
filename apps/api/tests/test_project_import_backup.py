@@ -11,6 +11,9 @@ from uuid import UUID
 from apps.api.marketops_import.backup import (
     BUSINESS_TABLES,
     BackupBundleError,
+    IDEMPOTENCY_BUSINESS_TABLES,
+    IDEMPOTENCY_MIGRATION_SET,
+    IDEMPOTENCY_SCHEMA_VERSION,
     LEGACY_BUSINESS_TABLES,
     MIGRATION_SET,
     MIGRATION_SHA256,
@@ -271,6 +274,7 @@ class BackupBundleTests(unittest.TestCase):
         bundle = self.create()
         manifest = dict(bundle.manifest)
         manifest["schemaVersion"] = REVIEW_SCHEMA_VERSION
+        manifest["taskId"] = "M1-02"
         manifest["migrations"] = list(REVIEW_MIGRATION_SET)
         manifest["database"] = {
             **manifest["database"],
@@ -291,6 +295,33 @@ class BackupBundleTests(unittest.TestCase):
         self.assertEqual(
             loaded.manifest["database"]["tableData"],
             list(REVIEW_BUSINESS_TABLES),
+        )
+
+    def test_idempotency_v3_manifest_remains_readable_after_v4_upgrade(self):
+        bundle = self.create()
+        manifest = dict(bundle.manifest)
+        manifest["schemaVersion"] = IDEMPOTENCY_SCHEMA_VERSION
+        manifest["taskId"] = "M1-02"
+        manifest["migrations"] = list(IDEMPOTENCY_MIGRATION_SET)
+        manifest["database"] = {
+            **manifest["database"],
+            "tableData": list(IDEMPOTENCY_BUSINESS_TABLES),
+        }
+        manifest["snapshot"] = {
+            table: manifest["snapshot"][table]
+            for table in IDEMPOTENCY_BUSINESS_TABLES
+        }
+        (bundle.root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_backup_bundle(bundle.root)
+
+        self.assertEqual(loaded.manifest["schemaVersion"], IDEMPOTENCY_SCHEMA_VERSION)
+        self.assertEqual(
+            loaded.manifest["database"]["tableData"],
+            list(IDEMPOTENCY_BUSINESS_TABLES),
         )
 
 
