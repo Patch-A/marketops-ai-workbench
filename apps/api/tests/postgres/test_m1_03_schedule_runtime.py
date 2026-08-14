@@ -23,7 +23,10 @@ from apps.api.marketops_schedule import (
     ScheduleService,
     ScheduleServiceFailure,
 )
-from apps.api.marketops_schedule.postgres import AsyncpgScheduleTransaction
+from apps.api.marketops_schedule.postgres import (
+    AsyncpgScheduleTransaction,
+    _INSERT_PLAN_SQL,
+)
 
 
 ADMIN_DSN = os.environ.get("MARKETOPS_TEST_ADMIN_DATABASE_URL", "").strip()
@@ -338,7 +341,23 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 transaction = AsyncpgScheduleTransaction(
                     connection, self.schedule_scope, self.project_id
                 )
-                await transaction.insert_plan(plan)
+                await connection.execute(
+                    _INSERT_PLAN_SQL,
+                    plan.plan_id,
+                    plan.organization_id,
+                    plan.workspace_id,
+                    plan.client_id,
+                    plan.project_id,
+                    plan.proposal_artifact_id,
+                    plan.proposal_version_id,
+                    bytes.fromhex(plan.proposal_sha256),
+                    plan.source_review_run_id,
+                    plan.source_review_snapshot_id,
+                    plan.source_review_version,
+                    plan.created_by,
+                    plan.created_at,
+                )
+                transaction._plans[plan.plan_id] = plan
                 await transaction.insert_plan_version(version)
                 await transaction.insert_plan_tasks(version)
                 await connection.execute("SET CONSTRAINTS ALL IMMEDIATE")
