@@ -9,6 +9,7 @@ from uuid import uuid4
 
 from apps.api.marketops_extract import Candidate, SourceCitation, SourceLocation
 from apps.api.marketops_review import (
+    ApprovedProposal,
     AsyncpgReviewRepository,
     CreateReviewRunRequest,
     ReviewRequest,
@@ -22,6 +23,7 @@ from apps.api.marketops_schedule import (
     ScheduleService,
     ScheduleServiceFailure,
 )
+from apps.api.marketops_schedule.postgres import AsyncpgScheduleTransaction
 
 
 ADMIN_DSN = os.environ.get("MARKETOPS_TEST_ADMIN_DATABASE_URL", "").strip()
@@ -51,6 +53,35 @@ class FailingScheduleTransaction:
 
     async def insert_plan_tasks(self, version):
         raise RuntimeError("synthetic schedule task failure")
+
+
+class CapturingScheduleRepository:
+    def __init__(self, approved):
+        self.approved = approved
+        self.plan = None
+        self.version = None
+
+    @asynccontextmanager
+    async def transaction(self, scope, project_id):
+        yield self
+
+    async def get_plan_by_source_for_update(self, review_run_id, review_version):
+        return None
+
+    async def get_approved_proposal_for_update(self, project_id):
+        return self.approved
+
+    async def insert_plan(self, plan):
+        self.plan = plan
+
+    async def insert_plan_version(self, version):
+        self.version = version
+
+    async def insert_plan_tasks(self, version):
+        return None
+
+    async def append_audit_event(self, event):
+        return None
 
 
 @unittest.skipUnless(
@@ -262,6 +293,55 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
         return await service.create_plan(
             CreatePlanRequest(self.project_id, self.run_id, 3), self.schedule_scope
         )
+
+    async def _capture_plan(self):
+        repository = CapturingScheduleRepository(
+            ApprovedProposal(
+                self.organization_id,
+                self.workspace_id,
+                self.client_id,
+                self.project_id,
+                self.artifact_id,
+                self.version_id,
+                1,
+                self.source_hash,
+            )
+        )
+        service = ScheduleService(
+            repository=repository,
+            review_service=self.review_service,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        await service.create_plan(
+            CreatePlanRequest(self.project_id, self.run_id, 3), self.schedule_scope
+        )
+        return repository.plan, repository.version
+
+    async def test_direct_asyncpg_transaction_accepts_valid_plan(self):
+        plan, version = await self._capture_plan()
+        async with self.pool.acquire() as connection:
+            async with connection.transaction():
+                await connection.fetchrow(
+                    """
+                    SELECT
+                        set_config('marketops.workspace_id', $1, true),
+                        set_config('marketops.client_id', $2, true),
+                        set_config('marketops.project_id', $3, true),
+                        set_config('marketops.actor_id', $4, true)
+                    """,
+                    self.workspace_id,
+                    self.client_id,
+                    self.project_id,
+                    self.actor_id,
+                )
+                transaction = AsyncpgScheduleTransaction(
+                    connection, self.schedule_scope, self.project_id
+                )
+                await transaction.insert_plan(plan)
+                await transaction.insert_plan_version(version)
+                await transaction.insert_plan_tasks(version)
+                await connection.execute("SET CONSTRAINTS ALL IMMEDIATE")
 
     async def test_persisted_plan_revision_schedule_and_replay_are_scoped(self):
         created = await self._create_plan()
