@@ -1,6 +1,6 @@
 # M1-03 WBS 与确定性排期准备切片
 
-状态：`Preparation package; M1-02 remains the registry's only in_progress task`
+状态：`Preparation package independently reviewed; M1-02 remains the registry's only in_progress task`
 
 日期：`2026-08-14`
 
@@ -84,3 +84,5 @@ The smallest later validation experiment is one authorized or de-identified prop
 - The repository Quality workflow already runs `python -m unittest discover -s apps/api/tests -p 'test_*.py' -v`, so the new domain tests are included without changing the top-level CI workflow.
 
 Independent review found trust-boundary, review-version, date/type, project-scope, and M1-02 handoff incompatibilities. The follow-up implementation adds a server-only route-binding adapter, binds the selected review run/snapshot and full human decisions to the project and approved proposal, records the explicit snapshot version, and adds stable fail-closed validation for malformed plans, citations, dates, and editable field types. M1-03 remains `pending`, and M1-02 remains the only registry task marked `in_progress` until the revised package passes same-SHA CI and final non-implementer re-review.
+
+The final reviewed implementation is commit `94d534b`. GitHub Actions Quality run `31803184303` passed both `static-checks` and `m1-01-runtime`, and the final non-implementer review returned APPROVE with no P0/P1/P2 finding. This closes only the domain preparation package. M1-03 remains `pending` because HTTP writes, PostgreSQL persistence, the browser WBS editor, and real-proposal validation are not implemented.
