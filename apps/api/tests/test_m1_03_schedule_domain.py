@@ -171,6 +171,10 @@ class M103ScheduleDomainTests(unittest.TestCase):
         with self.assertRaises(ScheduleFailure) as context:
             revise_wbs(plan, 1, [{"taskId": "candidate:b", "changes": {"isLocked": "false"}}])
         self.assertEqual(context.exception.code, "invalid_lock_flag")
+        for bad_version in (True, 0, 1.5):
+            with self.assertRaises(ScheduleFailure) as context:
+                revise_wbs(plan, bad_version, [{"taskId": "candidate:b", "changes": {"title": "Edited"}}])
+            self.assertEqual(context.exception.code, "invalid_expected_plan_version")
         malformed = copy.deepcopy(plan)
         malformed["tasks"] = [None]
         with self.assertRaises(ScheduleFailure) as context:
