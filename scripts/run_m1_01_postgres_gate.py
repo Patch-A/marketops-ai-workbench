@@ -97,6 +97,7 @@ EXPECTED_COLUMN_UPDATE_PRIVILEGES = frozenset(
     {
         ("projects", "created_by"),
         ("extraction_runs", "created_by"),
+        ("wbs_plans", "created_by"),
     }
 )
 
@@ -266,6 +267,7 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
             TO {APPLICATION_ROLE};
             GRANT UPDATE (created_by) ON marketops.projects TO {APPLICATION_ROLE};
             GRANT UPDATE (created_by) ON marketops.extraction_runs TO {APPLICATION_ROLE};
+            GRANT UPDATE (created_by) ON marketops.wbs_plans TO {APPLICATION_ROLE};
             """
         )
         post_grant_replay = await run_migrations(

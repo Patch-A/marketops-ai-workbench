@@ -178,6 +178,7 @@ class RuntimeGatePrivilegeAttestationTests(unittest.TestCase):
             [
                 "marketops.extraction_runs.created_by",
                 "marketops.projects.created_by",
+                "marketops.wbs_plans.created_by",
             ],
         )
 
