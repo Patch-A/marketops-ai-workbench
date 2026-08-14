@@ -1,6 +1,6 @@
 # M1-03 PostgreSQL 与服务集成工作包
 
-状态：`contract frozen; implementation pending`
+状态：`implemented and independently reviewed as a bounded preparation package; registry unchanged`
 
 日期：`2026-08-14`
 
@@ -104,3 +104,13 @@ Capability-gated PostgreSQL skips are not runtime evidence. The runtime test mus
 Confirmed engineering risks are stale plan revisions, partial writes, source-review mismatch, task-row drift, cross-scope reads, and duplicate schedule requests. The migration and service tests must exercise each path.
 
 Unknowns remain whether users understand the fields, whether the calendar model fits a real organization, and whether extracted tasks are complete. The smallest later validation experiment is one authorized or de-identified proposal: complete M1-02 review, create a persisted WBS, compare it with a manual baseline, record retained/edited/rejected tasks and missed dependencies, then revise and recalculate once. That experiment is deferred by user decision and is not replaced by this package.
+
+## 9. Final evidence
+
+- Final candidate commit: `fd5e8d8`.
+- Same-SHA GitHub Actions Quality run: `31810250390`; `static-checks` and `m1-01-runtime` passed, including PostgreSQL 18.4, browser cutover, restart, backup/restore, orphan cleanup, and connection-loss rollback.
+- Local API discovery: `385 passed, 61 skipped`; capability-gated skips are not treated as runtime evidence.
+- Focused service/adapter tests and PostgreSQL runtime coverage verify valid commits, replay, stale revision conflicts, rollback, cross-review-run rejection with the specific integrity message, and row/payload plan-version consistency.
+- Independent review found no P0/P1. Its two P2 findings were closed by binding every task to the selected review run/snapshot and requiring `plan_payload.planVersion` to equal the persisted row version in both the database trigger and service read validation.
+
+This accepts only the server persistence preparation package. `M1-03` remains `pending`, and `M1-02` remains the registry's only `in_progress` task. HTTP writes, browser WBS editing, plan approval, export, and authorized real-proposal validation remain unfinished.
