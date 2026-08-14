@@ -22,6 +22,7 @@ EDITABLE_TASK_FIELDS = frozenset({
     "title", "durationWorkdays", "predecessors", "ownerRole", "plannedStart",
     "plannedFinish", "hardDeadline", "approvedBufferWorkdays", "isLocked", "status",
 })
+TASK_STATUSES = frozenset({"not_started", "in_progress", "blocked", "completed", "cancelled"})
 
 
 class ScheduleFailure(Exception):
@@ -45,6 +46,15 @@ def _parse_date(value: str | None, field: str, task_id: str | None = None) -> da
         return date.fromisoformat(value)
     except (TypeError, ValueError) as error:
         raise ScheduleFailure("invalid_date", f"{field} must be an ISO date.", field=field, taskId=task_id, value=value) from error
+
+
+def _required_date(value: Any, field: str, task_id: str | None = None) -> date:
+    if not isinstance(value, str) or not value.strip():
+        _fail("invalid_date", f"{field} must be a non-empty ISO date.", field=field, taskId=task_id, value=value)
+    parsed = _parse_date(value, field, task_id)
+    if parsed is None:
+        _fail("invalid_date", f"{field} must be a non-empty ISO date.", field=field, taskId=task_id, value=value)
+    return parsed
 
 
 def _is_workday(value: date, holidays: set[date]) -> bool:
@@ -84,10 +94,16 @@ def _canonical_digest(value: Any) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def _citation(candidate: Mapping[str, Any], candidate_id: str) -> dict[str, Any]:
+def _citation(candidate: Mapping[str, Any], candidate_id: str, proposal: Mapping[str, Any] | None = None) -> dict[str, Any]:
     value = candidate.get("sourceCitation")
     if not isinstance(value, Mapping) or not value.get("sourceVersionId") or not value.get("sourceSha256") or not value.get("quote"):
         _fail("missing_source_citation", "Approved candidates must retain a source citation.", candidateId=candidate_id)
+    if proposal is not None and (
+        value.get("sourceVersionId") != proposal.get("versionId")
+        or not isinstance(value.get("sourceSha256"), str)
+        or value["sourceSha256"].lower() != str(proposal.get("sha256", "")).lower()
+    ):
+        _fail("source_citation_mismatch", "Candidate citation does not match the approved proposal.", candidateId=candidate_id)
     return deepcopy(dict(value))
 
 
@@ -103,15 +119,74 @@ def _candidate_text(candidate: Mapping[str, Any], status: str, candidate_id: str
     return value.strip()
 
 
-def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], candidates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
+def _review_decision(
+    candidate: Mapping[str, Any],
+    status: str,
+    selected_review_version: int,
+    run_id: str,
+    candidate_id: str,
+) -> Mapping[str, Any]:
+    review = candidate.get("review")
+    decision = review.get("lastDecision") if isinstance(review, Mapping) else None
+    required_strings = ("decisionId", "candidateId", "action", "reason", "actorId", "createdAt", "runId")
+    if not isinstance(decision, Mapping) or any(
+        not isinstance(decision.get(field), str) or not decision[field].strip()
+        for field in required_strings
+    ):
+        _fail("invalid_review_decision", "Approved candidates need a complete human review decision.", candidateId=candidate_id)
+    review_version = decision.get("reviewVersion")
+    if (
+        not isinstance(review_version, int)
+        or isinstance(review_version, bool)
+        or not 2 <= review_version <= selected_review_version
+        or decision.get("candidateId") != candidate_id
+        or decision.get("action") != status
+        or decision.get("runId") != run_id
+        or decision.get("replacementText") != review.get("replacementText")
+    ):
+        _fail("review_decision_mismatch", "Candidate review decision does not match the selected review snapshot.", candidateId=candidate_id)
+    return decision
+
+
+def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], review_snapshot: Mapping[str, Any]) -> dict[str, Any]:
     """Build a new WBS draft from only human-approved review candidates."""
     if not project_id or not isinstance(proposal, Mapping) or not proposal.get("versionId") or not proposal.get("sha256"):
         _fail("invalid_proposal_identity", "A WBS draft needs the server-approved proposal identity.")
+    if not isinstance(review_snapshot, Mapping):
+        _fail("invalid_review_snapshot", "A WBS draft needs a validated review snapshot.")
+    run = review_snapshot.get("run")
+    selected_review_version = review_snapshot.get("selectedReviewVersion")
+    candidates = review_snapshot.get("candidates")
+    if (
+        not isinstance(run, Mapping)
+        or not isinstance(run.get("runId"), str)
+        or not run["runId"].strip()
+        or not isinstance(selected_review_version, int)
+        or isinstance(selected_review_version, bool)
+        or selected_review_version < 1
+        or not isinstance(candidates, list)
+    ):
+        _fail("invalid_review_snapshot", "Review snapshot identity and candidates are required.")
+    if (
+        run.get("proposalVersionId") != proposal.get("versionId")
+        or not isinstance(run.get("proposalSha256"), str)
+        or run["proposalSha256"].lower() != str(proposal.get("sha256", "")).lower()
+    ):
+        _fail("review_proposal_mismatch", "Review snapshot does not belong to the approved proposal.")
+    latest_review_version = run.get("latestReviewVersion")
+    if (
+        not isinstance(latest_review_version, int)
+        or isinstance(latest_review_version, bool)
+        or latest_review_version < selected_review_version
+    ):
+        _fail("invalid_review_snapshot", "Review snapshot version is not available on the run.")
 
     tasks: list[dict[str, Any]] = []
     controls: list[dict[str, Any]] = []
     seen: set[str] = set()
     for candidate in candidates:
+        if not isinstance(candidate, Mapping):
+            _fail("invalid_candidate", "Review snapshot candidates must be objects.")
         candidate_id = candidate.get("candidateId")
         if not isinstance(candidate_id, str) or not candidate_id:
             _fail("invalid_candidate_id", "Candidate IDs are required.")
@@ -127,6 +202,7 @@ def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], candidates: Se
         kind = candidate.get("kind")
         if kind not in TASK_KINDS | CONTROL_KINDS:
             _fail("unsupported_candidate_kind", "Candidate kind cannot enter a WBS draft.", candidateId=candidate_id, kind=kind)
+        decision = _review_decision(candidate, status, selected_review_version, run["runId"], candidate_id)
         text = _candidate_text(candidate, status, candidate_id)
         item = {
             "candidateId": candidate_id,
@@ -134,9 +210,9 @@ def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], candidates: Se
             "classification": candidate.get("classification"),
             "sourceText": candidate.get("text"),
             "text": text,
-            "sourceCitation": _citation(candidate, candidate_id),
+            "sourceCitation": _citation(candidate, candidate_id, proposal),
             "reviewStatus": status,
-            "reviewVersion": review.get("lastDecision", {}).get("reviewVersion") if isinstance(review.get("lastDecision"), Mapping) else None,
+            "reviewDecision": deepcopy(dict(decision)),
         }
         if kind in CONTROL_KINDS:
             controls.append(item)
@@ -158,17 +234,40 @@ def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], candidates: Se
 
     if not tasks:
         _fail("no_schedulable_candidates", "A WBS draft needs an approved deliverable or milestone.")
-    review_versions = [item["reviewVersion"] for item in [*tasks, *controls] if isinstance(item.get("reviewVersion"), int)]
     return {
         "schemaVersion": 1,
         "planVersion": 1,
         "status": "draft",
         "projectId": project_id,
         "proposal": {"versionId": proposal["versionId"], "sha256": proposal["sha256"]},
-        "sourceReviewVersion": max(review_versions) if review_versions else None,
+        "sourceReviewRunId": run["runId"],
+        "sourceReviewVersion": selected_review_version,
         "tasks": tasks,
         "controls": controls,
     }
+
+
+def _validate_task_change(field: str, value: Any, task_id: str) -> None:
+    if field == "title" and (not isinstance(value, str) or not value.strip()):
+        _fail("invalid_task_title", "WBS tasks need a non-empty title.", taskId=task_id)
+    if field == "durationWorkdays" and (not isinstance(value, int) or isinstance(value, bool) or value < 1):
+        _fail("invalid_duration", "Duration must be a positive integer.", taskId=task_id)
+    if field == "predecessors" and (
+        not isinstance(value, list)
+        or any(not isinstance(item, str) or not item for item in value)
+        or len(value) != len(set(value))
+    ):
+        _fail("invalid_predecessors", "Predecessors must be a duplicate-free list.", taskId=task_id)
+    if field == "ownerRole" and not isinstance(value, str):
+        _fail("invalid_owner_role", "ownerRole must be a string.", taskId=task_id)
+    if field in {"plannedStart", "plannedFinish", "hardDeadline"} and value is not None:
+        _required_date(value, field, task_id)
+    if field == "approvedBufferWorkdays" and (not isinstance(value, int) or isinstance(value, bool) or value < 0):
+        _fail("invalid_buffer", "Approved buffers must be non-negative integers.", taskId=task_id)
+    if field == "isLocked" and not isinstance(value, bool):
+        _fail("invalid_lock_flag", "isLocked must be a boolean.", taskId=task_id)
+    if field == "status" and value not in TASK_STATUSES:
+        _fail("invalid_task_status", "Task status is not supported.", taskId=task_id, status=value)
 
 
 def revise_wbs(plan: Mapping[str, Any], expected_plan_version: int, task_updates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -202,6 +301,7 @@ def revise_wbs(plan: Mapping[str, Any], expected_plan_version: int, task_updates
         if unsupported:
             _fail("immutable_task_field", "Review-owned task fields cannot be edited.", taskId=task_id, fields=unsupported)
         for field, value in changes.items():
+            _validate_task_change(field, value, task_id)
             result_by_id[task_id][field] = deepcopy(value)
         changed_ids.append(task_id)
     if not changed_ids:
@@ -257,10 +357,10 @@ def calculate_schedule(plan: Mapping[str, Any], project_start: str, holidays: Se
     tasks = plan.get("tasks") if isinstance(plan, Mapping) else None
     if not isinstance(tasks, list) or not tasks:
         _fail("empty_plan", "A schedule needs at least one WBS task.")
-    start_value = _parse_date(project_start, "projectStart")
-    assert start_value is not None
-    holiday_values = {_parse_date(item, "holiday") for item in holidays}
-    holiday_set = {item for item in holiday_values if item is not None}
+    start_value = _required_date(project_start, "projectStart")
+    if isinstance(holidays, (str, bytes)) or not isinstance(holidays, Sequence):
+        _fail("invalid_holidays", "Holidays must be a sequence of ISO dates.")
+    holiday_set = {_required_date(item, "holiday") for item in holidays}
     order = _topological_order(tasks)
     by_id = {task["taskId"]: task for task in tasks}
     calculated: dict[str, dict[str, Any]] = {}
@@ -280,6 +380,10 @@ def calculate_schedule(plan: Mapping[str, Any], project_start: str, holidays: Se
         if not isinstance(buffer_days, int) or isinstance(buffer_days, bool) or buffer_days < 0:
             _fail("invalid_buffer", "Approved buffers must be non-negative integers.", taskId=task_id)
         predecessors = task.get("predecessors", [])
+        if not isinstance(task.get("isLocked"), bool):
+            _fail("invalid_lock_flag", "isLocked must be a boolean.", taskId=task_id)
+        if task.get("status") not in TASK_STATUSES:
+            _fail("invalid_task_status", "Task status is not supported.", taskId=task_id, status=task.get("status"))
         required_start = _next_workday(start_value, holiday_set) if not predecessors else _start_after(max(calculated[item]["finishDate"] for item in predecessors), buffer_days, holiday_set)
         planned_start = _parse_date(task.get("plannedStart"), "plannedStart", task_id)
         planned_finish = _parse_date(task.get("plannedFinish"), "plannedFinish", task_id)
@@ -318,7 +422,7 @@ def calculate_schedule(plan: Mapping[str, Any], project_start: str, holidays: Se
             "predecessors": list(task.get("predecessors", [])),
             "durationWorkdays": task["durationWorkdays"],
             "approvedBufferWorkdays": task.get("approvedBufferWorkdays", 0),
-            "isLocked": bool(task.get("isLocked")),
+            "isLocked": task["isLocked"],
             "calculatedStart": item["startDate"].isoformat(),
             "calculatedFinish": item["finishDate"].isoformat(),
             "requiredStart": item["requiredStart"].isoformat(),
@@ -327,6 +431,7 @@ def calculate_schedule(plan: Mapping[str, Any], project_start: str, holidays: Se
     output = {
         "schemaVersion": 1,
         "planVersion": plan_version,
+        "sourceReviewRunId": plan.get("sourceReviewRunId"),
         "sourceReviewVersion": plan.get("sourceReviewVersion"),
         "planDigest": _canonical_digest(plan),
         "projectStart": _next_workday(start_value, holiday_set).isoformat(),
