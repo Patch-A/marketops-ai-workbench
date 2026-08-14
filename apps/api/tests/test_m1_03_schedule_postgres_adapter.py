@@ -224,6 +224,7 @@ class M103SchedulePostgresAdapterTests(unittest.IsolatedAsyncioTestCase):
             "WBS source is not the current approved proposal",
             "WBS source review is incomplete",
             "WBS plan versions must be contiguous",
+            "plan_payload->>'planVersion' IS DISTINCT FROM version_record.plan_version::text",
             "WBS task batch is incomplete",
             "WBS task is not backed by an accepted review candidate",
             "schedule snapshot is inconsistent with its plan version",

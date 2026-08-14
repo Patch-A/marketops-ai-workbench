@@ -261,6 +261,7 @@ BEGIN
     SELECT * INTO plan_record FROM marketops.wbs_plans WHERE id = version_record.plan_id;
     IF plan_record IS NULL
        OR version_record.plan_payload->>'projectId' IS DISTINCT FROM version_record.project_id::text
+       OR version_record.plan_payload->>'planVersion' IS DISTINCT FROM version_record.plan_version::text
        OR version_record.plan_payload->>'sourceReviewRunId' IS DISTINCT FROM plan_record.source_review_run_id::text
        OR version_record.plan_payload->>'sourceReviewSnapshotId' IS DISTINCT FROM plan_record.source_review_snapshot_id::text
        OR (version_record.plan_payload->>'sourceReviewVersion')::integer IS DISTINCT FROM plan_record.source_review_version

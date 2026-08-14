@@ -504,6 +504,7 @@ class ScheduleService:
             or version.plan_id != plan.plan_id
             or version.created_by != scope.actor_id
             or version.version not in model.available_versions
+            or version.payload.get("planVersion") != version.version
             or model.available_versions != tuple(sorted(set(model.available_versions)))
             or (requested_version is not None and version.version != requested_version)
             or version.payload.get("sourceReviewRunId") != plan.source_review_run_id

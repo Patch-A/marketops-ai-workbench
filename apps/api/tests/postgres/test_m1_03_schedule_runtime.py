@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import json
 import os
 import unittest
 from contextlib import asynccontextmanager
@@ -465,6 +467,15 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
             self.schedule_scope,
         )
         malicious_version_id = str(uuid4())
+        malicious_payload = dict(first.plan.version.payload)
+        malicious_payload["planVersion"] = 2
+        malicious_payload["tasks"] = [second.plan.version.payload["tasks"][0]]
+        malicious_payload_json = json.dumps(
+            malicious_payload, ensure_ascii=True, sort_keys=True, separators=(",", ":")
+        )
+        malicious_digest = hashlib.sha256(
+            malicious_payload_json.encode("utf-8")
+        ).hexdigest()
 
         with self.assertRaises(self.asyncpg.CheckViolationError) as raised:
             async with self.admin.transaction():
@@ -478,26 +489,16 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     SELECT
                         $1, source.organization_id, source.workspace_id,
                         source.client_id, source.project_id, $2, 2, 'draft', 1,
-                        jsonb_set(
-                            source.plan_payload,
-                            '{tasks}',
-                            jsonb_build_array(foreign_task.task_payload),
-                            false
-                        ),
-                        decode($4, 'hex'), 1, source.created_by, $5
+                        $4::jsonb, decode($5, 'hex'), 1, source.created_by, $6
                     FROM marketops.wbs_plan_versions AS source
-                    CROSS JOIN marketops.wbs_tasks AS foreign_task
                     WHERE source.id = $3
-                      AND foreign_task.plan_version_id = $6
-                    ORDER BY foreign_task.ordinal
-                    LIMIT 1
                     """,
                     malicious_version_id,
                     first.plan.plan.plan_id,
                     first.plan.version.version_id,
-                    "c" * 64,
+                    malicious_payload_json,
+                    malicious_digest,
                     datetime.now(timezone.utc),
-                    second.plan.version.version_id,
                 )
                 await self.admin.execute(
                     """
@@ -532,12 +533,71 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 )
         self.assertEqual(raised.exception.sqlstate, "23514")
         self.assertEqual(
+            str(raised.exception),
+            "WBS task is not backed by an accepted review candidate",
+        )
+        self.assertEqual(
             await self.admin.fetchval(
                 "SELECT count(*) FROM marketops.wbs_plan_versions WHERE id = $1",
                 malicious_version_id,
             ),
             0,
         )
+
+    async def test_deferred_trigger_rejects_payload_version_drift(self):
+        created = await self._create_plan()
+        malicious_version_id = str(uuid4())
+
+        with self.assertRaises(self.asyncpg.CheckViolationError) as raised:
+            async with self.admin.transaction():
+                await self.admin.execute(
+                    """
+                    INSERT INTO marketops.wbs_plan_versions (
+                        id, organization_id, workspace_id, client_id, project_id,
+                        plan_id, plan_version, status, schema_version, plan_payload,
+                        plan_digest, task_count, created_by, created_at
+                    )
+                    SELECT
+                        $1, organization_id, workspace_id, client_id, project_id,
+                        plan_id, 2, status, schema_version, plan_payload,
+                        plan_digest, task_count, created_by, $3
+                    FROM marketops.wbs_plan_versions
+                    WHERE id = $2
+                    """,
+                    malicious_version_id,
+                    created.plan.version.version_id,
+                    datetime.now(timezone.utc),
+                )
+                await self.admin.execute(
+                    """
+                    INSERT INTO marketops.wbs_tasks (
+                        organization_id, workspace_id, client_id, project_id,
+                        plan_id, plan_version_id, source_review_run_id,
+                        task_id, ordinal, candidate_id, kind, title,
+                        duration_workdays, predecessors, owner_role,
+                        planned_start, planned_finish, hard_deadline,
+                        approved_buffer_workdays, is_locked, execution_status,
+                        source_version_id, source_sha256, task_payload,
+                        created_by, created_at
+                    )
+                    SELECT
+                        organization_id, workspace_id, client_id, project_id,
+                        plan_id, $1, source_review_run_id,
+                        task_id, ordinal, candidate_id, kind, title,
+                        duration_workdays, predecessors, owner_role,
+                        planned_start, planned_finish, hard_deadline,
+                        approved_buffer_workdays, is_locked, execution_status,
+                        source_version_id, source_sha256, task_payload,
+                        created_by, $3
+                    FROM marketops.wbs_tasks
+                    WHERE plan_version_id = $2
+                    """,
+                    malicious_version_id,
+                    created.plan.version.version_id,
+                    datetime.now(timezone.utc),
+                )
+        self.assertEqual(raised.exception.sqlstate, "23514")
+        self.assertEqual(str(raised.exception), "WBS plan version payload is inconsistent")
         self.assertEqual(
             await self.admin.fetchval(
                 "SELECT count(*) FROM marketops.wbs_tasks WHERE plan_version_id = $1",

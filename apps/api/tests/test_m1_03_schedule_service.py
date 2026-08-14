@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import datetime, timezone
 from uuid import uuid4
 
@@ -230,6 +231,21 @@ class M103ScheduleServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(created.plan.version.payload["tasks"]), 1)
         self.assertEqual(len(self.repository.audits), 1)
         self.assertEqual(self.repository.tasks, [(created.plan.plan.plan_id, 1, 1)])
+
+    async def test_read_rejects_payload_version_drift(self):
+        created = await self._create()
+        current = self.repository.versions[created.plan.plan.plan_id][-1]
+        payload = dict(current.payload)
+        payload["planVersion"] = current.version + 1
+        self.repository.versions[created.plan.plan.plan_id][-1] = replace(
+            current, payload=payload
+        )
+
+        with self.assertRaises(ScheduleServiceFailure) as raised:
+            await self.service.read_plan(
+                self.project_id, created.plan.plan.plan_id, self.scope
+            )
+        self.assertEqual(raised.exception.code, "REPOSITORY_FAILURE")
 
     async def test_incomplete_review_fails_before_persistence(self):
         self.review_service.model = self._review_model(pending=True)
