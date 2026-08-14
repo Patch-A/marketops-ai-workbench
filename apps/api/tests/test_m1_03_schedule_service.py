@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import unittest
 from contextlib import asynccontextmanager
 from dataclasses import replace
@@ -237,8 +239,16 @@ class M103ScheduleServiceTests(unittest.IsolatedAsyncioTestCase):
         current = self.repository.versions[created.plan.plan.plan_id][-1]
         payload = dict(current.payload)
         payload["planVersion"] = current.version + 1
+        digest = hashlib.sha256(
+            json.dumps(
+                payload,
+                ensure_ascii=True,
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode("utf-8")
+        ).hexdigest()
         self.repository.versions[created.plan.plan.plan_id][-1] = replace(
-            current, payload=payload
+            current, payload=payload, digest=digest
         )
 
         with self.assertRaises(ScheduleServiceFailure) as raised:

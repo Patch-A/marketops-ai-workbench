@@ -19,6 +19,10 @@ DETAIL_ROUTE = "/v1/projects/{projectId}"
 REVIEW_COLLECTION_ROUTE = "/v1/projects/{projectId}/extraction-runs"
 REVIEW_DETAIL_ROUTE = "/v1/projects/{projectId}/extraction-runs/{runId}"
 REVIEW_DECISION_ROUTE = REVIEW_DETAIL_ROUTE + "/decisions"
+WBS_COLLECTION_ROUTE = "/v1/projects/{projectId}/wbs-plans"
+WBS_DETAIL_ROUTE = WBS_COLLECTION_ROUTE + "/{planId}"
+WBS_REVISION_ROUTE = WBS_DETAIL_ROUTE + "/revisions"
+SCHEDULE_ROUTE = WBS_DETAIL_ROUTE + "/schedule-snapshots"
 FORBIDDEN_SCOPE_FIELDS = {"organizationId", "workspaceId", "clientId", "actorId"}
 REQUIRED_RESPONSES = {
     "201",
@@ -44,7 +48,7 @@ PROPOSAL_MEDIA_TYPES = (
     "text/plain",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 )
-# Frozen against the ImportFailure codes emitted by marketops_import.service.
+# Frozen against the public import, review, WBS, and schedule adapter codes.
 REQUIRED_ERROR_CODES = frozenset(
     {
         "INVALID_INPUT",
@@ -76,6 +80,13 @@ REQUIRED_ERROR_CODES = frozenset(
         "REVIEW_NOT_FOUND",
         "CANDIDATE_NOT_FOUND",
         "REVIEW_CONFLICT",
+        "REVIEW_INCOMPLETE",
+        "PLAN_NOT_FOUND",
+        "PLAN_CONFLICT",
+        "APPROVED_PROPOSAL_NOT_FOUND",
+        "SOURCE_CONFLICT",
+        "WBS_VALIDATION_FAILED",
+        "INTERNAL_FAILURE",
     }
 )
 ERROR_CODE_GUARD = "stable error code enum"
@@ -114,6 +125,40 @@ def review_detail_operation(document):
 
 def review_decision_operation(document):
     return document.get("paths", {}).get(REVIEW_DECISION_ROUTE, {}).get("post", {})
+
+
+def wbs_create_operation(document):
+    return document.get("paths", {}).get(WBS_COLLECTION_ROUTE, {}).get("post", {})
+
+
+def wbs_read_operation(document):
+    return document.get("paths", {}).get(WBS_DETAIL_ROUTE, {}).get("get", {})
+
+
+def wbs_revision_operation(document):
+    return document.get("paths", {}).get(WBS_REVISION_ROUTE, {}).get("post", {})
+
+
+def schedule_operation(document):
+    return document.get("paths", {}).get(SCHEDULE_ROUTE, {}).get("post", {})
+
+
+def wbs_request_schema(document, operation_value):
+    schema = json_request_schema(operation_value)
+    if "$ref" not in schema:
+        return schema
+    prefix = "#/components/schemas/"
+    name = schema["$ref"][len(prefix) :]
+    return component_schema(document, name)
+
+
+def wbs_operations(document):
+    return (
+        wbs_create_operation(document),
+        wbs_read_operation(document),
+        wbs_revision_operation(document),
+        schedule_operation(document),
+    )
 
 
 def json_request_schema(operation_value):
@@ -713,6 +758,210 @@ GUARDS = (
             .get("required", [])
         ),
         lambda d: d["components"]["schemas"]["ImportError"].update(required=[]),
+    ),
+    Guard(
+        "scoped WBS and schedule routes",
+        lambda d: set(
+            (
+                WBS_COLLECTION_ROUTE,
+                WBS_DETAIL_ROUTE,
+                WBS_REVISION_ROUTE,
+                SCHEDULE_ROUTE,
+            )
+        ).issubset(d.get("paths", {}))
+        and all(
+            operation_value.get("security") == security_options(d)
+            for operation_value in wbs_operations(d)
+        ),
+        lambda d: d.get("paths", {}).pop(WBS_REVISION_ROUTE, None),
+    ),
+    Guard(
+        "closed WBS create request",
+        lambda d: wbs_create_operation(d).get("security") == security_options(d)
+        and wbs_request_schema(d, wbs_create_operation(d)).get("type") == "object"
+        and wbs_request_schema(d, wbs_create_operation(d)).get("additionalProperties")
+        is False
+        and set(wbs_request_schema(d, wbs_create_operation(d)).get("required", []))
+        == {"reviewRunId", "reviewVersion"}
+        and set(wbs_request_schema(d, wbs_create_operation(d)).get("properties", {}))
+        == {"reviewRunId", "reviewVersion"}
+        and FORBIDDEN_SCOPE_FIELDS.isdisjoint(
+            wbs_request_schema(d, wbs_create_operation(d)).get("properties", {})
+        ),
+        lambda d: wbs_request_schema(d, wbs_create_operation(d))
+        .setdefault("properties", {})
+        .update(actorId={"type": "string"}),
+    ),
+    Guard(
+        "closed WBS revision request",
+        lambda d: wbs_revision_operation(d).get("security") == security_options(d)
+        and wbs_request_schema(d, wbs_revision_operation(d)).get("additionalProperties")
+        is False
+        and set(wbs_request_schema(d, wbs_revision_operation(d)).get("required", []))
+        == {"expectedPlanVersion", "taskUpdates"}
+        and wbs_request_schema(d, wbs_revision_operation(d))
+        .get("properties", {})
+        .get("taskUpdates", {})
+        .get("items", {})
+        .get("additionalProperties")
+        is False,
+        lambda d: wbs_request_schema(d, wbs_revision_operation(d)).update(
+            additionalProperties=True
+        ),
+    ),
+    Guard(
+        "closed WBS task changes",
+        lambda d: (
+            component_schema(d, "WbsTaskChanges").get("type") == "object"
+            and component_schema(d, "WbsTaskChanges").get("additionalProperties") is False
+            and component_schema(d, "WbsTaskChanges").get("minProperties") == 1
+            and set(component_schema(d, "WbsTaskChanges").get("properties", {}))
+            == {
+                "title",
+                "durationWorkdays",
+                "predecessors",
+                "ownerRole",
+                "plannedStart",
+                "plannedFinish",
+                "hardDeadline",
+                "approvedBufferWorkdays",
+                "isLocked",
+                "status",
+            }
+            and component_schema(d, "WbsTaskChanges")
+            .get("properties", {})
+            .get("status", {})
+            .get("type")
+            == "string"
+        ),
+        lambda d: component_schema(d, "WbsTaskChanges").update(
+            additionalProperties=True
+        ),
+    ),
+    Guard(
+        "closed WBS revision items",
+        lambda d: (
+            component_schema(d, "WbsRevisionRequest")
+            .get("properties", {})
+            .get("taskUpdates", {})
+            .get("items", {})
+            .get("type")
+            == "object"
+            and component_schema(d, "WbsRevisionRequest")
+            .get("properties", {})
+            .get("taskUpdates", {})
+            .get("items", {})
+            .get("additionalProperties")
+            is False
+            and set(
+                component_schema(d, "WbsRevisionRequest")
+                .get("properties", {})
+                .get("taskUpdates", {})
+                .get("items", {})
+                .get("required", [])
+            )
+            == {"taskId", "changes"}
+        ),
+        lambda d: component_schema(d, "WbsRevisionRequest")
+        .get("properties", {})
+        .get("taskUpdates", {})
+        .get("items", {})
+        .get("required", [])
+        .remove("taskId"),
+    ),
+    Guard(
+        "typed schedule holidays",
+        lambda d: (
+            component_schema(d, "ScheduleRequest")
+            .get("properties", {})
+            .get("holidays", {})
+            .get("items", {})
+            .get("type")
+            == "string"
+            and component_schema(d, "ScheduleRequest")
+            .get("properties", {})
+            .get("holidays", {})
+            .get("items", {})
+            .get("format")
+            == "date"
+        ),
+        lambda d: component_schema(d, "ScheduleRequest")
+        .get("properties", {})
+        .get("holidays", {})
+        .get("items", {})
+        .update(type="integer"),
+    ),
+    Guard(
+        "typed WBS task status",
+        lambda d: (
+            component_schema(d, "WbsTask")
+            .get("properties", {})
+            .get("status", {})
+            .get("type")
+            == "string"
+            and set(
+                component_schema(d, "WbsTask")
+                .get("properties", {})
+                .get("status", {})
+                .get("enum", [])
+            )
+            == {"not_started", "in_progress", "blocked", "completed", "cancelled"}
+        ),
+        lambda d: component_schema(d, "WbsTask")
+        .get("properties", {})
+        .get("status", {})
+        .update(type="integer"),
+    ),
+    Guard(
+        "closed schedule request",
+        lambda d: schedule_operation(d).get("security") == security_options(d)
+        and wbs_request_schema(d, schedule_operation(d)).get("additionalProperties")
+        is False
+        and set(wbs_request_schema(d, schedule_operation(d)).get("required", []))
+        == {"expectedPlanVersion", "projectStart", "holidays"}
+        and set(wbs_request_schema(d, schedule_operation(d)).get("properties", {}))
+        == {"expectedPlanVersion", "projectStart", "holidays"},
+        lambda d: wbs_request_schema(d, schedule_operation(d)).update(
+            additionalProperties=True
+        ),
+    ),
+    Guard(
+        "WBS and schedule response status and cache contract",
+        lambda d: set(wbs_create_operation(d).get("responses", {}))
+        == {"201", "400", "401", "403", "404", "409", "413", "422", "500", "503"}
+        and set(wbs_read_operation(d).get("responses", {}))
+        == {"200", "400", "401", "403", "404", "503"}
+        and set(wbs_revision_operation(d).get("responses", {}))
+        == {"201", "400", "401", "403", "404", "409", "413", "422", "500", "503"}
+        and set(schedule_operation(d).get("responses", {}))
+        == {"201", "400", "401", "403", "404", "409", "413", "422", "500", "503"}
+        and no_store_header(wbs_create_operation(d).get("responses", {}).get("201", {}))
+        and no_store_header(wbs_read_operation(d).get("responses", {}).get("200", {}))
+        and no_store_header(wbs_revision_operation(d).get("responses", {}).get("201", {}))
+        and no_store_header(schedule_operation(d).get("responses", {}).get("201", {}))
+        and wbs_create_operation(d).get("responses", {}).get("201", {}).get("headers", {}).get("Location", {}).get("required") is True
+        and schedule_operation(d).get("responses", {}).get("201", {}).get("headers", {}).get("Location", {}).get("required") is True,
+        lambda d: schedule_operation(d).get("responses", {}).pop("503", None),
+    ),
+    Guard(
+        "closed WBS and schedule response schemas",
+        lambda d: all(
+            component_schema(d, name).get("additionalProperties") is False
+            for name in ("WbsTask", "WbsControl", "WbsPlan", "ScheduleSnapshot", "ScheduledTask")
+        )
+        and {"planId", "projectId", "selectedPlanVersion", "planDigest", "tasks", "controls"}.issubset(
+            set(component_schema(d, "WbsPlan").get("required", []))
+        )
+        and {"snapshotId", "planId", "planVersion", "status", "scheduleDigest", "tasks"}.issubset(
+            set(component_schema(d, "ScheduleSnapshot").get("required", []))
+        )
+        and wbs_create_operation(d).get("responses", {}).get("201", {}).get("content", {}).get("application/json", {}).get("schema")
+        == {"$ref": "#/components/schemas/WbsPlanCreateResult"}
+        and schedule_operation(d).get("responses", {}).get("201", {}).get("content", {}).get("application/json", {}).get("schema")
+        == {"$ref": "#/components/schemas/ScheduleCreateResult"},
+        lambda d: component_schema(d, "ScheduleSnapshot").get("required", []).remove(
+            "scheduleDigest"
+        ),
     ),
     Guard(
         ERROR_CODE_GUARD,

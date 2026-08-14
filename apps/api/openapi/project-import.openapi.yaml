@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MarketOps Project Import API",
-    "version": "0.2.0",
-    "description": "M1-01 contract only. Authorization scope is resolved from the authenticated deployment actor and is never accepted from multipart fields."
+    "version": "0.3.0",
+    "description": "M1 proposal-to-schedule API contract. Authorization scope is resolved from the authenticated deployment actor and is never accepted from request bodies."
   },
   "paths": {
     "/v1/project-imports": {
@@ -395,6 +395,138 @@
           "503": { "$ref": "#/components/responses/ImportFailure" }
         }
       }
+    },
+    "/v1/projects/{projectId}/wbs-plans": {
+      "post": {
+        "operationId": "createWbsPlan",
+        "summary": "Create or replay a WBS plan from one completed review snapshot",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": {
+            "type": "object", "additionalProperties": false,
+            "required": ["reviewRunId", "reviewVersion"],
+            "properties": {
+              "reviewRunId": { "type": "string", "format": "uuid" },
+              "reviewVersion": { "type": "integer", "minimum": 1 }
+            }
+          } } }
+        },
+        "responses": {
+          "201": {
+            "description": "WBS plan created or the same immutable review source replayed.",
+            "headers": {
+              "Location": { "required": true, "schema": { "type": "string", "pattern": "^/v1/projects/[0-9a-f-]{36}/wbs-plans/[0-9a-f-]{36}\\?planVersion=[1-9][0-9]*$" } },
+              "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WbsPlanCreateResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "422": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/wbs-plans/{planId}": {
+      "get": {
+        "operationId": "getWbsPlan",
+        "summary": "Read the latest or an explicit immutable WBS plan version",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "planId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "planVersion", "in": "query", "required": false, "schema": { "type": "integer", "minimum": 1 } }
+        ],
+        "responses": {
+          "200": {
+            "description": "A scoped WBS plan version.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WbsPlan" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/wbs-plans/{planId}/revisions": {
+      "post": {
+        "operationId": "reviseWbsPlan",
+        "summary": "Append one optimistic-concurrency WBS revision",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "planId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WbsRevisionRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "A new immutable WBS plan version.",
+            "headers": {
+              "Location": { "required": true, "schema": { "type": "string", "pattern": "^/v1/projects/[0-9a-f-]{36}/wbs-plans/[0-9a-f-]{36}\\?planVersion=[1-9][0-9]*$" } },
+              "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/WbsPlan" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "422": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/wbs-plans/{planId}/schedule-snapshots": {
+      "post": {
+        "operationId": "createScheduleSnapshot",
+        "summary": "Create or replay a deterministic schedule snapshot",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "planId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "A deterministic schedule snapshot created or replayed.",
+            "headers": {
+              "Location": { "required": true, "schema": { "type": "string", "pattern": "^/v1/projects/[0-9a-f-]{36}/wbs-plans/[0-9a-f-]{36}/schedule-snapshots/[0-9a-f-]{36}$" } },
+              "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ScheduleCreateResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "422": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
     }
   },
   "components": {
@@ -577,6 +709,169 @@
           "decision": { "$ref": "#/components/schemas/ReviewDecision" }
         }
       },
+      "WbsTask": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskId", "candidateId", "kind", "classification", "sourceText", "title", "sourceCitation", "reviewStatus", "durationWorkdays", "predecessors", "ownerRole", "plannedStart", "plannedFinish", "hardDeadline", "approvedBufferWorkdays", "isLocked", "status"],
+        "properties": {
+          "taskId": { "type": "string", "pattern": "^candidate:[0-9a-f-]{36}$" },
+          "candidateId": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "enum": ["deliverable", "milestone"] },
+          "classification": { "type": "string", "enum": ["fact", "hypothesis"] },
+          "sourceText": { "type": "string", "minLength": 1 },
+          "title": { "type": "string", "minLength": 1 },
+          "sourceCitation": { "$ref": "#/components/schemas/SourceCitation" },
+          "reviewStatus": { "type": "string", "enum": ["approve", "modify"] },
+          "durationWorkdays": { "type": "integer", "minimum": 1 },
+          "predecessors": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^candidate:[0-9a-f-]{36}$" } },
+          "ownerRole": { "type": "string" },
+          "plannedStart": { "type": ["string", "null"], "format": "date" },
+          "plannedFinish": { "type": ["string", "null"], "format": "date" },
+          "hardDeadline": { "type": ["string", "null"], "format": "date" },
+          "approvedBufferWorkdays": { "type": "integer", "minimum": 0 },
+          "isLocked": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["not_started", "in_progress", "blocked", "completed", "cancelled"] }
+        }
+      },
+      "WbsControl": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["candidateId", "kind", "classification", "sourceText", "text", "sourceCitation", "reviewStatus"],
+        "properties": {
+          "candidateId": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "enum": ["constraint", "assumption"] },
+          "classification": { "type": "string", "enum": ["fact", "hypothesis"] },
+          "sourceText": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "sourceCitation": { "$ref": "#/components/schemas/SourceCitation" },
+          "reviewStatus": { "type": "string", "enum": ["approve", "modify"] }
+        }
+      },
+      "WbsPlan": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["planId", "projectId", "proposalVersionId", "proposalSha256", "sourceReviewRunId", "sourceReviewSnapshotId", "sourceReviewVersion", "selectedPlanVersion", "availablePlanVersions", "status", "planDigest", "createdAt", "tasks", "controls"],
+        "properties": {
+          "planId": { "type": "string", "format": "uuid" },
+          "projectId": { "type": "string", "format": "uuid" },
+          "proposalVersionId": { "type": "string", "format": "uuid" },
+          "proposalSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "sourceReviewRunId": { "type": "string", "format": "uuid" },
+          "sourceReviewSnapshotId": { "type": "string", "format": "uuid" },
+          "sourceReviewVersion": { "type": "integer", "minimum": 1 },
+          "selectedPlanVersion": { "type": "integer", "minimum": 1 },
+          "availablePlanVersions": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "integer", "minimum": 1 } },
+          "status": { "type": "string", "const": "draft" },
+          "planDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "tasks": { "type": "array", "minItems": 1, "maxItems": 1000, "items": { "$ref": "#/components/schemas/WbsTask" } },
+          "controls": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/components/schemas/WbsControl" } }
+        }
+      },
+      "WbsPlanCreateResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["plan", "replayed"],
+        "properties": {
+          "plan": { "$ref": "#/components/schemas/WbsPlan" },
+          "replayed": { "type": "boolean" }
+        }
+      },
+      "WbsTaskChanges": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "title": { "type": "string", "minLength": 1 },
+          "durationWorkdays": { "type": "integer", "minimum": 1 },
+          "predecessors": { "type": "array", "uniqueItems": true, "items": { "type": "string", "pattern": "^candidate:[0-9a-f-]{36}$" } },
+          "ownerRole": { "type": "string" },
+          "plannedStart": { "type": ["string", "null"], "format": "date" },
+          "plannedFinish": { "type": ["string", "null"], "format": "date" },
+          "hardDeadline": { "type": ["string", "null"], "format": "date" },
+          "approvedBufferWorkdays": { "type": "integer", "minimum": 0 },
+          "isLocked": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["not_started", "in_progress", "blocked", "completed", "cancelled"] }
+        }
+      },
+      "WbsRevisionRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedPlanVersion", "taskUpdates"],
+        "properties": {
+          "expectedPlanVersion": { "type": "integer", "minimum": 1 },
+          "taskUpdates": {
+            "type": "array", "minItems": 1, "maxItems": 1000,
+            "items": {
+              "type": "object", "additionalProperties": false,
+              "required": ["taskId", "changes"],
+              "properties": {
+                "taskId": { "type": "string", "pattern": "^candidate:[0-9a-f-]{36}$" },
+                "changes": { "$ref": "#/components/schemas/WbsTaskChanges" }
+              }
+            }
+          }
+        }
+      },
+      "ScheduleRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["expectedPlanVersion", "projectStart", "holidays"],
+        "properties": {
+          "expectedPlanVersion": { "type": "integer", "minimum": 1 },
+          "projectStart": { "type": "string", "format": "date" },
+          "holidays": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "date" } }
+        }
+      },
+      "ScheduledTask": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskId", "candidateId", "title", "sourceCitation", "predecessors", "durationWorkdays", "approvedBufferWorkdays", "isLocked", "calculatedStart", "calculatedFinish", "requiredStart", "hardDeadline"],
+        "properties": {
+          "taskId": { "type": "string" },
+          "candidateId": { "type": "string", "format": "uuid" },
+          "title": { "type": "string" },
+          "sourceCitation": { "$ref": "#/components/schemas/SourceCitation" },
+          "predecessors": { "type": "array", "items": { "type": "string" } },
+          "durationWorkdays": { "type": "integer", "minimum": 1 },
+          "approvedBufferWorkdays": { "type": "integer", "minimum": 0 },
+          "isLocked": { "type": "boolean" },
+          "calculatedStart": { "type": "string", "format": "date" },
+          "calculatedFinish": { "type": "string", "format": "date" },
+          "requiredStart": { "type": "string", "format": "date" },
+          "hardDeadline": { "type": ["string", "null"], "format": "date" }
+        }
+      },
+      "ScheduleSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["snapshotId", "planId", "planVersion", "status", "projectStart", "holidays", "planDigest", "scheduleDigest", "createdAt", "topologicalOrder", "tasks", "conflicts", "deadlineMisses", "sourceDateDrift"],
+        "properties": {
+          "snapshotId": { "type": "string", "format": "uuid" },
+          "planId": { "type": "string", "format": "uuid" },
+          "planVersion": { "type": "integer", "minimum": 1 },
+          "status": { "type": "string", "enum": ["ready", "needs_review"] },
+          "projectStart": { "type": "string", "format": "date" },
+          "holidays": { "type": "array", "uniqueItems": true, "items": { "type": "string", "format": "date" } },
+          "planDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "scheduleDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "topologicalOrder": { "type": "array", "items": { "type": "string" } },
+          "tasks": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/ScheduledTask" } },
+          "conflicts": { "type": "array", "items": { "type": "object" } },
+          "deadlineMisses": { "type": "array", "items": { "type": "object" } },
+          "sourceDateDrift": { "type": "array", "items": { "type": "object" } }
+        }
+      },
+      "ScheduleCreateResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["snapshot", "replayed"],
+        "properties": {
+          "snapshot": { "$ref": "#/components/schemas/ScheduleSnapshot" },
+          "replayed": { "type": "boolean" }
+        }
+      },
       "ImportError": {
         "type": "object",
         "additionalProperties": false,
@@ -618,7 +913,14 @@
               "REPOSITORY_FAILURE",
               "REVIEW_NOT_FOUND",
               "CANDIDATE_NOT_FOUND",
-              "REVIEW_CONFLICT"
+              "REVIEW_CONFLICT",
+              "REVIEW_INCOMPLETE",
+              "PLAN_NOT_FOUND",
+              "PLAN_CONFLICT",
+              "APPROVED_PROPOSAL_NOT_FOUND",
+              "SOURCE_CONFLICT",
+              "WBS_VALIDATION_FAILED",
+              "INTERNAL_FAILURE"
             ]
           },
           "message": {

@@ -13,7 +13,7 @@ import re
 import tempfile
 from contextlib import AbstractAsyncContextManager
 from pathlib import Path
-from typing import Any, AsyncIterator, Awaitable, Callable
+from typing import Any, AsyncIterator, Awaitable, Callable, Mapping
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
@@ -36,6 +36,11 @@ from ..marketops_review import (
     ReviewRequest,
     ReviewScopeContext,
 )
+from ..marketops_schedule import (
+    CreatePlanRequest,
+    ScheduleScopeContext,
+    ScheduleServiceFailure,
+)
 
 
 Authenticator = Callable[
@@ -49,6 +54,7 @@ _FILE_FIELDS = frozenset({"sourceFile", "proposalFile"})
 _MAX_TEXT_FIELD_SIZE_BYTES = 4096
 _MAX_MULTIPART_REQUEST_SIZE_BYTES = 2 * MAX_FILE_SIZE_BYTES + 64 * 1024
 _MAX_REVIEW_JSON_BYTES = 16 * 1024
+_MAX_SCHEDULE_JSON_BYTES = 128 * 1024
 _CREATE_REVIEW_FIELDS = frozenset(
     {"expectedProposalVersionId", "expectedProposalSha256"}
 )
@@ -56,6 +62,26 @@ _DECISION_REQUIRED_FIELDS = frozenset(
     {"expectedReviewVersion", "candidateId", "action", "reason"}
 )
 _DECISION_OPTIONAL_FIELDS = frozenset({"comment", "replacementText"})
+_CREATE_PLAN_FIELDS = frozenset({"reviewRunId", "reviewVersion"})
+_REVISE_PLAN_FIELDS = frozenset({"expectedPlanVersion", "taskUpdates"})
+_CREATE_SCHEDULE_FIELDS = frozenset(
+    {"expectedPlanVersion", "projectStart", "holidays"}
+)
+_TASK_UPDATE_FIELDS = frozenset({"taskId", "changes"})
+_EDITABLE_TASK_FIELDS = frozenset(
+    {
+        "title",
+        "durationWorkdays",
+        "predecessors",
+        "ownerRole",
+        "plannedStart",
+        "plannedFinish",
+        "hardDeadline",
+        "approvedBufferWorkdays",
+        "isLocked",
+        "status",
+    }
+)
 _OPENAPI_CONTRACT = (
     Path(__file__).resolve().parents[1] / "openapi" / "project-import.openapi.yaml"
 )
@@ -88,11 +114,18 @@ _STATUS_BY_CODE = {
     "REVIEW_NOT_FOUND": 404,
     "CANDIDATE_NOT_FOUND": 404,
     "REVIEW_CONFLICT": 409,
+    "REVIEW_INCOMPLETE": 422,
+    "PLAN_NOT_FOUND": 404,
+    "PLAN_CONFLICT": 409,
+    "APPROVED_PROPOSAL_NOT_FOUND": 422,
+    "SOURCE_CONFLICT": 409,
+    "WBS_VALIDATION_FAILED": 422,
+    "INTERNAL_FAILURE": 500,
 }
 _PUBLIC_MESSAGES = {
     "INVALID_INPUT": "The import request is malformed or incomplete.",
     "AUTHORIZATION_REQUIRED": "A valid server authorization scope is required.",
-    "PAYLOAD_TOO_LARGE": "An uploaded file exceeds the 25 MiB limit.",
+    "PAYLOAD_TOO_LARGE": "The request payload exceeds its allowed size.",
     "UNSUPPORTED_FORMAT": "An uploaded file format is unsupported.",
     "INVALID_MEDIA_TYPE": "An uploaded file media type is unsupported.",
     "INVALID_DOCUMENT": "An uploaded document is invalid.",
@@ -115,10 +148,17 @@ _PUBLIC_MESSAGES = {
     "NO_CANDIDATES": "The approved proposal produced no review candidates.",
     "CANDIDATE_LIMIT_EXCEEDED": "The approved proposal produced too many candidates.",
     "REVIEW_CREATE_FAILED": "The review run could not be created.",
-    "REPOSITORY_FAILURE": "The review repository is temporarily unavailable.",
+    "REPOSITORY_FAILURE": "The requested server operation is temporarily unavailable.",
     "REVIEW_NOT_FOUND": "The requested review run was not found.",
     "CANDIDATE_NOT_FOUND": "The requested candidate was not found.",
     "REVIEW_CONFLICT": "The review version is stale and must be refreshed.",
+    "REVIEW_INCOMPLETE": "Every extracted candidate needs a human review decision.",
+    "PLAN_NOT_FOUND": "The requested WBS plan was not found.",
+    "PLAN_CONFLICT": "The WBS plan changed and must be refreshed.",
+    "APPROVED_PROPOSAL_NOT_FOUND": "The approved proposal is not available.",
+    "SOURCE_CONFLICT": "The review source no longer matches the approved proposal.",
+    "WBS_VALIDATION_FAILED": "The WBS or schedule request is invalid.",
+    "INTERNAL_FAILURE": "The server could not allocate schedule state.",
 }
 
 _STATIC_FILES = {
@@ -185,6 +225,7 @@ def create_app(
     project_reader: Any | None = None,
     review_preparation: Any | None = None,
     review_service: Any | None = None,
+    schedule_service: Any | None = None,
     static_root: Path | None = None,
     request_id_factory: Callable[[], Any] = uuid4,
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[Any]] | None = None,
@@ -207,6 +248,8 @@ def create_app(
         app.state.review_preparation = review_preparation
     if review_service is not None:
         app.state.review_service = review_service
+    if schedule_service is not None:
+        app.state.schedule_service = schedule_service
 
     @app.post("/v1/project-imports", status_code=201)
     async def import_project(request: Request) -> JSONResponse:
@@ -607,6 +650,217 @@ def create_app(
         except Exception:
             return _failure("REPOSITORY_FAILURE", request_id, status=503, retryable=True)
 
+    @app.post("/v1/projects/{project_id}/wbs-plans", status_code=201)
+    async def create_wbs_plan(project_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        if canonical_project is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(
+                request, max_bytes=_MAX_SCHEDULE_JSON_BYTES
+            )
+            _require_exact_fields(body, _CREATE_PLAN_FIELDS)
+            run_id = _canonical_review_uuid(body.get("reviewRunId"))
+            review_version = _positive_json_integer(body.get("reviewVersion"))
+            if run_id is None:
+                raise _MalformedRequest
+            service = getattr(request.app.state, "schedule_service", None)
+            if service is None:
+                return _failure(
+                    "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+                )
+            result = await service.create_plan(
+                CreatePlanRequest(canonical_project, run_id, review_version),
+                _schedule_scope(scope_or_error),
+            )
+            response = _json_no_store(
+                {
+                    "plan": _plan_model_json(result.plan),
+                    "replayed": bool(result.replayed),
+                },
+                status_code=201,
+            )
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_project}/wbs-plans/"
+                f"{result.plan.plan.plan_id}?planVersion={result.plan.version.version}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/wbs-plans/{plan_id}")
+    async def get_wbs_plan(
+        project_id: str, plan_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_plan = _canonical_review_uuid(plan_id)
+        if canonical_project is None or canonical_plan is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            plan_version = _plan_version_query(request)
+            service = getattr(request.app.state, "schedule_service", None)
+            if service is None:
+                return _failure(
+                    "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+                )
+            result = await service.read_plan(
+                canonical_project,
+                canonical_plan,
+                _schedule_scope(scope_or_error),
+                plan_version=plan_version,
+            )
+            return _json_no_store(_plan_model_json(result))
+        except asyncio.CancelledError:
+            raise
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+            )
+
+    @app.post(
+        "/v1/projects/{project_id}/wbs-plans/{plan_id}/revisions",
+        status_code=201,
+    )
+    async def revise_wbs_plan(
+        project_id: str, plan_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_plan = _canonical_review_uuid(plan_id)
+        if canonical_project is None or canonical_plan is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(
+                request, max_bytes=_MAX_SCHEDULE_JSON_BYTES
+            )
+            _require_exact_fields(body, _REVISE_PLAN_FIELDS)
+            expected = _positive_json_integer(body.get("expectedPlanVersion"))
+            updates = _task_updates(body.get("taskUpdates"))
+            service = getattr(request.app.state, "schedule_service", None)
+            if service is None:
+                return _failure(
+                    "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+                )
+            result = await service.revise_plan(
+                canonical_project,
+                canonical_plan,
+                expected,
+                updates,
+                _schedule_scope(scope_or_error),
+            )
+            response = _json_no_store(_plan_model_json(result), status_code=201)
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_project}/wbs-plans/{canonical_plan}"
+                f"?planVersion={result.version.version}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+            )
+
+    @app.post(
+        "/v1/projects/{project_id}/wbs-plans/{plan_id}/schedule-snapshots",
+        status_code=201,
+    )
+    async def create_schedule_snapshot(
+        project_id: str, plan_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_plan = _canonical_review_uuid(plan_id)
+        if canonical_project is None or canonical_plan is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(
+                request, max_bytes=_MAX_SCHEDULE_JSON_BYTES
+            )
+            _require_exact_fields(body, _CREATE_SCHEDULE_FIELDS)
+            expected = _positive_json_integer(body.get("expectedPlanVersion"))
+            project_start = body.get("projectStart")
+            holidays = body.get("holidays")
+            if (
+                not isinstance(project_start, str)
+                or not project_start
+                or not isinstance(holidays, list)
+                or any(not isinstance(item, str) or not item for item in holidays)
+                or len(holidays) != len(set(holidays))
+            ):
+                raise _MalformedRequest
+            service = getattr(request.app.state, "schedule_service", None)
+            if service is None:
+                return _failure(
+                    "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+                )
+            result = await service.calculate_plan_schedule(
+                canonical_project,
+                canonical_plan,
+                expected,
+                project_start,
+                tuple(holidays),
+                _schedule_scope(scope_or_error),
+            )
+            response = _json_no_store(
+                {
+                    "snapshot": _schedule_snapshot_json(result.snapshot),
+                    "replayed": bool(result.replayed),
+                },
+                status_code=201,
+            )
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_project}/wbs-plans/{canonical_plan}"
+                f"/schedule-snapshots/{result.snapshot.snapshot_id}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+            )
+
     if static_root is not None:
         root = static_root.resolve(strict=True)
 
@@ -851,7 +1105,18 @@ def _review_scope(scope: ScopeContext) -> ReviewScopeContext:
     )
 
 
-async def _read_strict_json(request: Request) -> dict[str, Any]:
+def _schedule_scope(scope: ScopeContext) -> ScheduleScopeContext:
+    return ScheduleScopeContext(
+        scope.organization_id,
+        scope.workspace_id,
+        scope.client_id,
+        scope.actor_id,
+    )
+
+
+async def _read_strict_json(
+    request: Request, *, max_bytes: int = _MAX_REVIEW_JSON_BYTES
+) -> dict[str, Any]:
     content_types = request.headers.getlist("content-type")
     if len(content_types) != 1 or content_types[0].split(";", 1)[0].strip().lower() != "application/json":
         raise _MalformedRequest
@@ -859,12 +1124,16 @@ async def _read_strict_json(request: Request) -> dict[str, Any]:
     chunks: list[bytes] = []
     async for chunk in request.stream():
         observed += len(chunk)
-        if observed > _MAX_REVIEW_JSON_BYTES:
+        if observed > max_bytes:
             raise _PayloadTooLarge
         chunks.append(chunk)
     try:
         raw = b"".join(chunks).decode("utf-8")
-        value = json.loads(raw, object_pairs_hook=_reject_duplicate_json_members)
+        value = json.loads(
+            raw,
+            object_pairs_hook=_reject_duplicate_json_members,
+            parse_constant=_reject_nonstandard_json_constant,
+        )
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
         raise _MalformedRequest from None
     if not isinstance(value, dict):
@@ -881,9 +1150,44 @@ def _reject_duplicate_json_members(pairs: list[tuple[str, Any]]) -> dict[str, An
     return result
 
 
+def _reject_nonstandard_json_constant(value: str) -> None:
+    raise ValueError(f"non-standard JSON constant: {value}")
+
+
 def _require_exact_fields(value: dict[str, Any], expected: frozenset[str]) -> None:
     if frozenset(value) != expected:
         raise _MalformedRequest
+
+
+def _positive_json_integer(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise _MalformedRequest
+    return value
+
+
+def _task_updates(value: Any) -> tuple[dict[str, Any], ...]:
+    if not isinstance(value, list) or not value or len(value) > 1000:
+        raise _MalformedRequest
+    result: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for item in value:
+        if not isinstance(item, dict) or frozenset(item) != _TASK_UPDATE_FIELDS:
+            raise _MalformedRequest
+        task_id = item.get("taskId")
+        changes = item.get("changes")
+        if (
+            not isinstance(task_id, str)
+            or not task_id
+            or len(task_id) > 300
+            or task_id in seen
+            or not isinstance(changes, dict)
+            or not changes
+            or not frozenset(changes).issubset(_EDITABLE_TASK_FIELDS)
+        ):
+            raise _MalformedRequest
+        seen.add(task_id)
+        result.append({"taskId": task_id, "changes": changes})
+    return tuple(result)
 
 
 def _require_decision_fields(value: dict[str, Any]) -> None:
@@ -923,6 +1227,17 @@ def _review_version_query(request: Request) -> int | None:
     ):
         raise _MalformedRequest
     return int(raw)
+
+
+def _plan_version_query(request: Request) -> int | None:
+    values: dict[str, list[str]] = {}
+    for name, value in request.query_params.multi_items():
+        values.setdefault(name, []).append(value)
+    if not values:
+        return None
+    if set(values) != {"planVersion"} or len(values["planVersion"]) != 1:
+        raise _MalformedRequest
+    return _positive_integer(values["planVersion"][0])
 
 
 def _review_summary_json(summary: Any) -> dict[str, Any]:
@@ -1003,6 +1318,96 @@ def _review_failure(error: ReviewFailure, request_id: str) -> JSONResponse:
         request_id,
         status=_STATUS_BY_CODE.get(error.code, 500),
         retryable=error.code == "REPOSITORY_FAILURE",
+    )
+
+
+def _plan_model_json(model: Any) -> dict[str, Any]:
+    plan = model.plan
+    version = model.version
+    payload = version.payload
+    return {
+        "planId": plan.plan_id,
+        "projectId": plan.project_id,
+        "proposalVersionId": plan.proposal_version_id,
+        "proposalSha256": plan.proposal_sha256,
+        "sourceReviewRunId": plan.source_review_run_id,
+        "sourceReviewSnapshotId": plan.source_review_snapshot_id,
+        "sourceReviewVersion": plan.source_review_version,
+        "selectedPlanVersion": version.version,
+        "availablePlanVersions": list(model.available_versions),
+        "status": version.status,
+        "planDigest": version.digest,
+        "createdAt": version.created_at.isoformat(),
+        "tasks": [_wbs_task_json(item) for item in payload["tasks"]],
+        "controls": [_wbs_control_json(item) for item in payload["controls"]],
+    }
+
+
+def _wbs_task_json(item: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "taskId": item["taskId"],
+        "candidateId": item["candidateId"],
+        "kind": item["kind"],
+        "classification": item["classification"],
+        "sourceText": item["sourceText"],
+        "title": item["title"],
+        "sourceCitation": item["sourceCitation"],
+        "reviewStatus": item["reviewStatus"],
+        "durationWorkdays": item["durationWorkdays"],
+        "predecessors": list(item["predecessors"]),
+        "ownerRole": item["ownerRole"],
+        "plannedStart": item["plannedStart"],
+        "plannedFinish": item["plannedFinish"],
+        "hardDeadline": item["hardDeadline"],
+        "approvedBufferWorkdays": item["approvedBufferWorkdays"],
+        "isLocked": item["isLocked"],
+        "status": item["status"],
+    }
+
+
+def _wbs_control_json(item: Mapping[str, Any]) -> dict[str, Any]:
+    return {
+        "candidateId": item["candidateId"],
+        "kind": item["kind"],
+        "classification": item["classification"],
+        "sourceText": item["sourceText"],
+        "text": item["text"],
+        "sourceCitation": item["sourceCitation"],
+        "reviewStatus": item["reviewStatus"],
+    }
+
+
+def _schedule_snapshot_json(snapshot: Any) -> dict[str, Any]:
+    payload = snapshot.payload
+    return {
+        "snapshotId": snapshot.snapshot_id,
+        "planId": snapshot.plan_id,
+        "planVersion": snapshot.plan_version,
+        "status": snapshot.status,
+        "projectStart": snapshot.project_start,
+        "holidays": list(snapshot.holidays),
+        "planDigest": snapshot.plan_digest,
+        "scheduleDigest": snapshot.schedule_digest,
+        "createdAt": snapshot.created_at.isoformat(),
+        "topologicalOrder": list(payload["topologicalOrder"]),
+        "tasks": list(payload["tasks"]),
+        "conflicts": list(payload["conflicts"]),
+        "deadlineMisses": list(payload["deadlineMisses"]),
+        "sourceDateDrift": list(payload["sourceDateDrift"]),
+    }
+
+
+def _schedule_failure(
+    error: ScheduleServiceFailure, request_id: str
+) -> JSONResponse:
+    code = error.code
+    if code not in _PUBLIC_MESSAGES:
+        code = "WBS_VALIDATION_FAILED" if code.islower() else "INTERNAL_FAILURE"
+    return _failure(
+        code,
+        request_id,
+        status=_STATUS_BY_CODE.get(code, 500),
+        retryable=code == "REPOSITORY_FAILURE",
     )
 
 
