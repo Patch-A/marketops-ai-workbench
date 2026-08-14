@@ -16,7 +16,7 @@
         <div class="brand-lockup"><span class="brand-mark" aria-hidden="true">M</span><span><strong>MarketOps</strong><small>REVIEW CONSOLE</small></span></div>
         <nav class="primary-nav" aria-label="工作区导航">
           <button class="nav-item is-active" type="button"><i data-lucide="scan-text"></i><span>交付审核</span><kbd>M1-02</kbd></button>
-          <button class="nav-item" type="button" data-toast="排期工作台将在 M1-03 验收后开放"><i data-lucide="git-branch"></i><span>执行排期</span><kbd>LOCKED</kbd></button>
+          <button class="nav-item" type="button" id="scheduleNav"><i data-lucide="git-branch"></i><span>执行排期</span><kbd>M1-03</kbd></button>
           <button class="nav-item" type="button" data-toast="项目知识区尚未接入此切片"><i data-lucide="library"></i><span>项目知识</span></button>
         </nav>
         <div class="sidebar-context">
@@ -103,6 +103,24 @@
             </div>
           </section>
 
+          <section class="schedule-workbench" id="scheduleWorkbench" aria-labelledby="scheduleTitle" data-state="empty">
+            <header class="console-header schedule-header">
+              <div><h2 id="scheduleTitle"><span class="console-label">WBS / DETERMINISTIC SCHEDULE</span>执行排期工作台</h2><p class="schedule-subtitle" id="schedulePlanMeta">未创建计划</p></div>
+              <div class="console-actions"><button class="button button-quiet" type="button" id="refreshWbsPlan" disabled><i data-lucide="refresh-cw"></i>刷新</button><button class="button button-primary" type="button" id="createWbsPlan" disabled><i data-lucide="git-branch"></i>从审核生成 WBS</button></div>
+            </header>
+            <div class="review-status" id="scheduleStatus" role="status" aria-live="polite"><span class="review-status-dot"></span><span id="scheduleStatusText">先完成审核，再生成 WBS。</span></div>
+            <div class="schedule-toolbar">
+              <label>计划版本<select id="schedulePlanVersion" disabled><option value="">版本 -</option></select></label>
+              <label>项目开始日<input id="scheduleProjectStart" type="date" /></label>
+              <label class="schedule-holidays">节假日<input id="scheduleHolidays" placeholder="YYYY-MM-DD, YYYY-MM-DD" /></label>
+              <div class="schedule-toolbar-actions"><button class="button button-quiet" type="button" id="saveWbsRevision" disabled><i data-lucide="save"></i>保存修订</button><button class="button button-primary" type="button" id="recalculateSchedule" disabled><i data-lucide="play"></i>重算排期</button></div>
+            </div>
+            <div class="schedule-grid">
+              <section class="wbs-panel" aria-labelledby="wbsTaskTitle"><div class="panel-heading"><div><span class="console-label">EDITABLE TASKS</span><h3 id="wbsTaskTitle">WBS 任务</h3></div><span>人工编辑</span></div><div class="wbs-task-list" id="wbsTaskList"><div class="schedule-empty"><i data-lucide="git-branch"></i><strong>尚未载入 WBS</strong><span>完成最新审核后，从上方生成执行计划。</span></div></div></section>
+              <aside class="schedule-summary-panel" aria-labelledby="scheduleSummaryTitle"><div class="panel-heading"><div><span class="console-label">SCHEDULE SNAPSHOT</span><h3 id="scheduleSummaryTitle">排期摘要</h3></div><span>服务端事实</span></div><div class="schedule-summary" id="scheduleSummary"><div class="schedule-empty"><strong>等待排期快照</strong><span>排期会基于明确的项目开始日和节假日计算。</span></div></div></aside>
+            </div>
+            <p class="claim-boundary"><i data-lucide="shield-check"></i>排期结果只提供可追溯的计算快照；计划执行前仍需人工确认，当前未接入模型 API、外部连接器或导出。</p>
+          </section>
           <p class="claim-boundary"><i data-lucide="info"></i>当前工程证据仅证明合成数据上的审阅行为，不代表真实需求、ROI、节省时间或生产容量。</p>
         </div>
       </main>
@@ -130,6 +148,7 @@
 
     <script src="project-import.js"></script>
     <script src="review-workbench.js"></script>
+    <script src="schedule-workbench.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

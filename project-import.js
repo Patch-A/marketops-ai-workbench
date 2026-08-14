@@ -258,6 +258,86 @@
         }
         return result;
       },
+
+      async createWbsPlan(projectId, input, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !isPlainObject(input)
+          || !UUID_PATTERN.test(input.reviewRunId || '') || !positiveInteger(input.reviewVersion)) {
+          throw new ProjectApiError('INVALID_INPUT', 'The WBS plan request is incomplete.');
+        }
+        const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans`, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ reviewRunId: input.reviewRunId, reviewVersion: input.reviewVersion }),
+          signal: request.signal,
+        }, true);
+        const result = validateWbsCreateResult(payload);
+        if (result.plan.projectId !== projectId) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The WBS plan response did not match the requested project.', { uncertain: true });
+        }
+        return result;
+      },
+
+      async getWbsPlan(projectId, planId, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')) {
+          throw new ProjectApiError('INVALID_PROJECT_ID', 'The WBS plan URL is invalid.');
+        }
+        let query = '';
+        if (request.planVersion !== undefined) {
+          if (!positiveInteger(request.planVersion)) throw new ProjectApiError('INVALID_INPUT', 'The WBS plan version is invalid.');
+          query = `?planVersion=${request.planVersion}`;
+        }
+        const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}${query}`, {
+          method: 'GET', credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: request.signal,
+        });
+        const plan = validateWbsPlan(payload);
+        if (plan.planId !== planId || plan.projectId !== projectId) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The WBS plan did not match the requested resource.');
+        }
+        return plan;
+      },
+
+      async reviseWbsPlan(projectId, planId, input, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')
+          || !isPlainObject(input) || !positiveInteger(input.expectedPlanVersion)
+          || !Array.isArray(input.taskUpdates) || input.taskUpdates.length < 1 || input.taskUpdates.length > 1000
+          || input.taskUpdates.some((item) => !isPlainObject(item)
+            || !/^candidate:[0-9a-f-]{36}$/.test(item.taskId || '') || !isPlainObject(item.changes)
+            || Object.keys(item.changes).length < 1)) {
+          throw new ProjectApiError('INVALID_INPUT', 'The WBS revision request is incomplete.');
+        }
+        const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}/revisions`, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(input), signal: request.signal,
+        }, true);
+        const plan = validateWbsPlan(payload);
+        if (plan.planId !== planId || plan.projectId !== projectId) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The revised WBS plan did not match the requested resource.', { uncertain: true });
+        }
+        return plan;
+      },
+
+      async createScheduleSnapshot(projectId, planId, input, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')
+          || !isPlainObject(input) || !positiveInteger(input.expectedPlanVersion)
+          || !isIsoDate(input.projectStart) || !Array.isArray(input.holidays)
+          || input.holidays.some((day) => !isIsoDate(day))) {
+          throw new ProjectApiError('INVALID_INPUT', 'The schedule request is incomplete.');
+        }
+        const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}/schedule-snapshots`, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(input), signal: request.signal,
+        }, true);
+        if (!isPlainObject(payload) || !hasExactKeys(payload, ['snapshot', 'replayed'])) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The schedule response violated its contract.', { uncertain: true });
+        }
+        const snapshot = validateScheduleSnapshot(payload.snapshot);
+        if (snapshot.planId !== planId || typeof payload.replayed !== 'boolean') {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The schedule response did not match the requested plan.', { uncertain: true });
+        }
+        return { snapshot, replayed: payload.replayed };
+      },
     };
   }
 
@@ -685,6 +765,75 @@
       'replacementText', 'actorId', 'createdAt'].every((key) => left[key] === right[key]);
   }
 
+  function validateWbsCreateResult(value) {
+    if (!isPlainObject(value) || !hasExactKeys(value, ['plan', 'replayed']) || typeof value.replayed !== 'boolean') {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The WBS plan response violated its contract.', { uncertain: true });
+    }
+    return { plan: validateWbsPlan(value.plan), replayed: value.replayed };
+  }
+
+  function validateWbsPlan(value) {
+    const required = ['planId', 'projectId', 'proposalVersionId', 'proposalSha256', 'sourceReviewRunId', 'sourceReviewSnapshotId',
+      'sourceReviewVersion', 'selectedPlanVersion', 'availablePlanVersions', 'status', 'planDigest', 'createdAt', 'tasks', 'controls'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required)
+      || !UUID_PATTERN.test(value.planId || '') || !UUID_PATTERN.test(value.projectId || '')
+      || !UUID_PATTERN.test(value.proposalVersionId || '') || !UUID_PATTERN.test(value.sourceReviewRunId || '')
+      || !UUID_PATTERN.test(value.sourceReviewSnapshotId || '') || !SHA256_PATTERN.test(value.proposalSha256 || '')
+      || !SHA256_PATTERN.test(value.planDigest || '') || !positiveInteger(value.sourceReviewVersion)
+      || !positiveInteger(value.selectedPlanVersion) || !Array.isArray(value.availablePlanVersions)
+      || value.availablePlanVersions.some((item) => !positiveInteger(item)) || value.status !== 'draft'
+      || !isIsoDate(value.createdAt) || !Array.isArray(value.tasks) || value.tasks.length < 1
+      || value.tasks.length > 1000 || !Array.isArray(value.controls) || value.controls.length > 1000) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The WBS plan violated its contract.', { uncertain: true });
+    }
+    return { ...value, tasks: value.tasks.map(validateWbsTask), controls: value.controls.map(validateWbsControl) };
+  }
+
+  function validateWbsTask(value) {
+    const required = ['taskId', 'candidateId', 'kind', 'classification', 'sourceText', 'title', 'sourceCitation', 'reviewStatus',
+      'durationWorkdays', 'predecessors', 'ownerRole', 'plannedStart', 'plannedFinish', 'hardDeadline', 'approvedBufferWorkdays', 'isLocked', 'status'];
+    const statuses = new Set(['not_started', 'in_progress', 'blocked', 'completed', 'cancelled']);
+    if (!isPlainObject(value) || !hasExactKeys(value, required) || !/^candidate:[0-9a-f-]{36}$/.test(value.taskId || '')
+      || !UUID_PATTERN.test(value.candidateId || '') || !['deliverable', 'milestone'].includes(value.kind)
+      || !['fact', 'hypothesis'].includes(value.classification) || !nonEmptyText(value.sourceText) || !nonEmptyText(value.title)
+      || !isPlainObject(value.sourceCitation) || !['approve', 'modify'].includes(value.reviewStatus)
+      || !positiveInteger(value.durationWorkdays) || !Array.isArray(value.predecessors)
+      || value.predecessors.some((item) => !/^candidate:[0-9a-f-]{36}$/.test(item)) || !nonEmptyText(value.ownerRole)
+      || (value.plannedStart !== null && !isCalendarDate(value.plannedStart)) || (value.plannedFinish !== null && !isCalendarDate(value.plannedFinish))
+      || (value.hardDeadline !== null && !isCalendarDate(value.hardDeadline)) || !Number.isInteger(value.approvedBufferWorkdays)
+      || value.approvedBufferWorkdays < 0 || typeof value.isLocked !== 'boolean' || !statuses.has(value.status)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'A WBS task violated its contract.', { uncertain: true });
+    }
+    return { ...value };
+  }
+
+  function validateWbsControl(value) {
+    const required = ['candidateId', 'kind', 'classification', 'sourceText', 'text', 'sourceCitation', 'reviewStatus'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required) || !UUID_PATTERN.test(value.candidateId || '')
+      || !['constraint', 'assumption'].includes(value.kind) || !['fact', 'hypothesis'].includes(value.classification)
+      || !nonEmptyText(value.sourceText) || !nonEmptyText(value.text) || !isPlainObject(value.sourceCitation)
+      || !['approve', 'modify'].includes(value.reviewStatus)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'A WBS control violated its contract.', { uncertain: true });
+    }
+    return { ...value };
+  }
+
+  function validateScheduleSnapshot(value) {
+    const required = ['snapshotId', 'planId', 'planVersion', 'status', 'projectStart', 'holidays', 'planDigest', 'scheduleDigest',
+      'createdAt', 'topologicalOrder', 'tasks', 'conflicts', 'deadlineMisses', 'sourceDateDrift'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required) || !UUID_PATTERN.test(value.snapshotId || '')
+      || !UUID_PATTERN.test(value.planId || '') || !positiveInteger(value.planVersion)
+      || !['ready', 'needs_review'].includes(value.status) || !isCalendarDate(value.projectStart)
+      || !Array.isArray(value.holidays) || value.holidays.some((day) => !isCalendarDate(day))
+      || !SHA256_PATTERN.test(value.planDigest || '') || !SHA256_PATTERN.test(value.scheduleDigest || '')
+      || !isIsoDate(value.createdAt) || !Array.isArray(value.topologicalOrder) || !Array.isArray(value.tasks)
+      || value.tasks.length < 1 || !Array.isArray(value.conflicts) || !Array.isArray(value.deadlineMisses)
+      || !Array.isArray(value.sourceDateDrift)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The schedule snapshot violated its contract.', { uncertain: true });
+    }
+    return { ...value };
+  }
+
   function nonEmptyText(value) {
     return typeof value === 'string' && value.trim() !== '';
   }
@@ -697,6 +846,16 @@
     return nonEmptyText(value)
       && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.test(value)
       && !Number.isNaN(Date.parse(value));
+  }
+
+  function isCalendarDate(value) {
+    if (!nonEmptyText(value) || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }
+
+  function positiveInteger(value) {
+    return Number.isInteger(value) && value > 0;
   }
 
   function isPlainObject(value) {

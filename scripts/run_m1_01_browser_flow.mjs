@@ -257,7 +257,7 @@ function runNetworkFailureMatcherSelfTest() {
 
 async function verifyStaticAssets(baseUrl, username, token) {
   const authorization = `Basic ${Buffer.from(`${username}:${token}`).toString('base64')}`;
-  for (const asset of ['', 'index.html', 'app.js', 'project-import.js', 'review-workbench.js', 'styles.css']) {
+  for (const asset of ['', 'index.html', 'app.js', 'project-import.js', 'review-workbench.js', 'schedule-workbench.js', 'styles.css']) {
     const response = await fetch(new URL(asset, `${baseUrl}/`), {
       headers: { Authorization: authorization },
     });

@@ -452,6 +452,7 @@ class ProjectReadHttpTests(unittest.TestCase):
                 "app.js",
                 "project-import.js",
                 "review-workbench.js",
+                "schedule-workbench.js",
                 "styles.css",
             ):
                 (root / filename).write_text(f"asset:{filename}", encoding="utf-8")
@@ -495,6 +496,16 @@ class ProjectReadHttpTests(unittest.TestCase):
             self.assertEqual(review_module.headers["cache-control"], "no-store")
             self.assertIn("javascript", review_module.headers["content-type"])
             self.assertEqual(review_module.text, "asset:review-workbench.js")
+
+            schedule_module = asyncio.run(
+                asgi_get(
+                    app,
+                    "/schedule-workbench.js",
+                    [("Authorization", f"Basic {encoded}")],
+                )
+            )
+            self.assertEqual(schedule_module.status_code, 200)
+            self.assertEqual(schedule_module.text, "asset:schedule-workbench.js")
 
             unknown = asyncio.run(
                 asgi_get(app, "/.git/config", [("Authorization", f"Basic {encoded}")])

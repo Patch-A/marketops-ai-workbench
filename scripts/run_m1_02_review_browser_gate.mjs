@@ -225,7 +225,7 @@ async function startServer(state) {
       const url = new URL(request.url || '/', 'http://127.0.0.1');
       if (url.pathname.startsWith('/v1/')) return await handleApi(request, response, state, url);
       const relative = url.pathname === '/' ? 'index.html' : url.pathname.slice(1);
-      if (!['index.html', 'app.js', 'project-import.js', 'review-workbench.js', 'styles.css'].includes(relative)) {
+      if (!['index.html', 'app.js', 'project-import.js', 'review-workbench.js', 'schedule-workbench.js', 'styles.css'].includes(relative)) {
         response.writeHead(404); response.end(); return;
       }
       const body = await readFile(resolve(ROOT, relative));

@@ -75,6 +75,10 @@ const reviewWorkbench = window.MarketOpsReviewWorkbench.createReviewWorkbench({
   api, root: document, describeError, onToast: showToast, onIcons: refreshIcons,
   onContext(value) { document.querySelector('#assistantContext').textContent = value; },
 });
+const scheduleWorkbench = window.MarketOpsScheduleWorkbench.createScheduleWorkbench({
+  api, root: document, onToast: showToast, onIcons: refreshIcons,
+  getReviewDetail() { return reviewWorkbench.snapshot().detail; },
+});
 
 function setServerStatus(message, state = 'idle') {
   serverStatusText.textContent = message;
@@ -99,6 +103,7 @@ function setEmptyState() {
   document.querySelector('#breadcrumbProject').textContent = '尚未创建项目';
   setServerStatus('Server API 已连接，当前工作区尚无项目。', 'empty');
   reviewWorkbench.clearProject();
+  scheduleWorkbench.clearProject();
 }
 
 async function renderImportedProject(detail, badge = '服务器已保留') {
@@ -114,6 +119,7 @@ async function renderImportedProject(detail, badge = '服务器已保留') {
   setServerStatus(`已恢复项目：${detail.projectName}`, 'ready');
   refreshIcons();
   await reviewWorkbench.setProject(detail);
+  scheduleWorkbench.setProject(detail);
 }
 
 function projectIdFromUrl() { return new URLSearchParams(globalThis.location.search).get('projectId'); }
@@ -201,6 +207,7 @@ async function restoreProject() {
     setSummaryState('error', message, { kicker: 'SERVER API ERROR', badge: error?.status === 401 ? '需要认证' : '读取失败', retry: error?.retryable === true || error?.status === 401 });
     setServerStatus(message, 'error');
     reviewWorkbench.clearProject();
+    scheduleWorkbench.clearProject();
   }
 }
 
@@ -239,6 +246,23 @@ document.querySelector('#assistantForm').addEventListener('submit', (event) => {
   showToast('模型 API 尚未配置；助手不会伪造回答或提交审核决定');
   input.value = '';
 });
+
+const scheduleNav = document.querySelector('#scheduleNav');
+const reviewNav = document.querySelector('.nav-item.is-active');
+const reviewConsole = document.querySelector('#reviewConsole');
+const scheduleConsole = document.querySelector('#scheduleWorkbench');
+function showWorkspace(view) {
+  const schedule = view === 'schedule';
+  reviewConsole.hidden = schedule;
+  scheduleConsole.hidden = !schedule;
+  scheduleNav.classList.toggle('is-active', schedule);
+  reviewNav.classList.toggle('is-active', !schedule);
+  document.querySelector('.page-heading h1').lastChild.textContent = schedule ? '执行排期工作台' : '交付物审阅台';
+  document.querySelector('.page-heading p').textContent = schedule ? '编辑 WBS、检查依赖，并按明确日历重算排期。' : '核对来源、修订候选，并生成可追溯的人工作业。';
+}
+scheduleNav.addEventListener('click', () => showWorkspace('schedule'));
+reviewNav.addEventListener('click', () => showWorkspace('review'));
+showWorkspace('review');
 
 refreshIcons();
 restoreProject();

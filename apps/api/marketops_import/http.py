@@ -167,6 +167,7 @@ _STATIC_FILES = {
     "/app.js": "app.js",
     "/project-import.js": "project-import.js",
     "/review-workbench.js": "review-workbench.js",
+    "/schedule-workbench.js": "schedule-workbench.js",
     "/styles.css": "styles.css",
 }
 
