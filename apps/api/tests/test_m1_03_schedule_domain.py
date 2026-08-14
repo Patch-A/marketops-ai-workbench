@@ -35,6 +35,7 @@ def snapshot(candidates, version=4):
     return {
         "run": {
             "runId": "run-1",
+            "projectId": "project-1",
             "proposalVersionId": "proposal-v1",
             "proposalSha256": "a" * 64,
             "latestReviewVersion": version,
@@ -91,6 +92,12 @@ class M103ScheduleDomainTests(unittest.TestCase):
         with self.assertRaises(ScheduleFailure) as context:
             build_wbs_draft("project-1", self.proposal, wrong_run)
         self.assertEqual(context.exception.code, "review_proposal_mismatch")
+
+        wrong_project = snapshot([candidate("wrong-project")])
+        wrong_project["run"]["projectId"] = "project-other"
+        with self.assertRaises(ScheduleFailure) as context:
+            build_wbs_draft("project-1", self.proposal, wrong_project)
+        self.assertEqual(context.exception.code, "review_project_mismatch")
 
     def test_approved_candidates_require_complete_matching_human_decisions(self):
         missing_decision = candidate("missing-decision")
@@ -196,6 +203,12 @@ class M103ScheduleDomainTests(unittest.TestCase):
         with self.assertRaises(ScheduleFailure) as context:
             calculate_schedule(plan, "2026-08-28")
         self.assertEqual(context.exception.code, "invalid_lock_flag")
+        plan["tasks"][0]["isLocked"] = False
+        for bad_status in ([], {}):
+            plan["tasks"][0]["status"] = bad_status
+            with self.assertRaises(ScheduleFailure) as context:
+                calculate_schedule(plan, "2026-08-28")
+            self.assertEqual(context.exception.code, "invalid_task_status")
 
 
 if __name__ == "__main__":

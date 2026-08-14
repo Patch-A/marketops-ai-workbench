@@ -29,7 +29,7 @@ The human remains responsible for accepting task wording, assigning owners, chan
 ### Inputs
 
 - Server-owned approved proposal identity: `versionId` and `sha256`.
-- One selected immutable M1-02 review snapshot containing run identity, selected review version, candidates, complete human decisions, replacement text when modified, and `sourceCitation`.
+- One selected immutable M1-02 review snapshot containing project/run identity, selected review version, candidates, complete human decisions, replacement text when modified, and `sourceCitation`.
 - Editable task fields: title, duration in workdays, predecessors, owner role, planned dates, hard deadline, approved buffer, lock flag, and execution status.
 - Project start date and an explicitly supplied holiday list.
 
@@ -44,6 +44,7 @@ The human remains responsible for accepting task wording, assigning owners, chan
 
 - The input review snapshot and candidate citations are immutable facts; the WBS draft and schedule are new derived versions.
 - The review run proposal identity and every accepted citation must match the server-approved proposal; every accepted candidate must carry a complete matching human decision for the selected run and snapshot.
+- The review run project identity must match the requested project before any candidate is consumed.
 - The WBS stores the selected `sourceReviewRunId` and `sourceReviewVersion`; it never infers snapshot identity from the maximum candidate decision version.
 - Task edits require `expectedPlanVersion`, allow only WBS-owned fields, and return a new plan version; stale edits fail with `plan_version_conflict`.
 - `pending` and `reject` candidates never enter the formal WBS.

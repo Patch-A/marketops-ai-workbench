@@ -119,6 +119,11 @@ def _candidate_text(candidate: Mapping[str, Any], status: str, candidate_id: str
     return value.strip()
 
 
+def _validate_task_status(value: Any, task_id: str) -> None:
+    if not isinstance(value, str) or value not in TASK_STATUSES:
+        _fail("invalid_task_status", "Task status is not supported.", taskId=task_id, status=value)
+
+
 def _review_decision(
     candidate: Mapping[str, Any],
     status: str,
@@ -150,7 +155,15 @@ def _review_decision(
 
 def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], review_snapshot: Mapping[str, Any]) -> dict[str, Any]:
     """Build a new WBS draft from only human-approved review candidates."""
-    if not project_id or not isinstance(proposal, Mapping) or not proposal.get("versionId") or not proposal.get("sha256"):
+    if (
+        not isinstance(project_id, str)
+        or not project_id.strip()
+        or not isinstance(proposal, Mapping)
+        or not isinstance(proposal.get("versionId"), str)
+        or not proposal["versionId"].strip()
+        or not isinstance(proposal.get("sha256"), str)
+        or not proposal["sha256"].strip()
+    ):
         _fail("invalid_proposal_identity", "A WBS draft needs the server-approved proposal identity.")
     if not isinstance(review_snapshot, Mapping):
         _fail("invalid_review_snapshot", "A WBS draft needs a validated review snapshot.")
@@ -161,12 +174,16 @@ def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], review_snapsho
         not isinstance(run, Mapping)
         or not isinstance(run.get("runId"), str)
         or not run["runId"].strip()
+        or not isinstance(run.get("projectId"), str)
+        or not run["projectId"].strip()
         or not isinstance(selected_review_version, int)
         or isinstance(selected_review_version, bool)
         or selected_review_version < 1
         or not isinstance(candidates, list)
     ):
         _fail("invalid_review_snapshot", "Review snapshot identity and candidates are required.")
+    if run["projectId"] != project_id:
+        _fail("review_project_mismatch", "Review snapshot does not belong to the requested project.")
     if (
         run.get("proposalVersionId") != proposal.get("versionId")
         or not isinstance(run.get("proposalSha256"), str)
@@ -195,12 +212,12 @@ def build_wbs_draft(project_id: str, proposal: Mapping[str, Any], review_snapsho
         seen.add(candidate_id)
         review = candidate.get("review")
         status = review.get("status") if isinstance(review, Mapping) else "pending"
-        if status not in REVIEW_STATUSES:
+        if not isinstance(status, str) or status not in REVIEW_STATUSES:
             _fail("unsupported_review_status", "Candidate review status is not supported.", candidateId=candidate_id, status=status)
         if status not in ACCEPTED_REVIEW_STATUSES:
             continue
         kind = candidate.get("kind")
-        if kind not in TASK_KINDS | CONTROL_KINDS:
+        if not isinstance(kind, str) or kind not in TASK_KINDS | CONTROL_KINDS:
             _fail("unsupported_candidate_kind", "Candidate kind cannot enter a WBS draft.", candidateId=candidate_id, kind=kind)
         decision = _review_decision(candidate, status, selected_review_version, run["runId"], candidate_id)
         text = _candidate_text(candidate, status, candidate_id)
@@ -266,8 +283,8 @@ def _validate_task_change(field: str, value: Any, task_id: str) -> None:
         _fail("invalid_buffer", "Approved buffers must be non-negative integers.", taskId=task_id)
     if field == "isLocked" and not isinstance(value, bool):
         _fail("invalid_lock_flag", "isLocked must be a boolean.", taskId=task_id)
-    if field == "status" and value not in TASK_STATUSES:
-        _fail("invalid_task_status", "Task status is not supported.", taskId=task_id, status=value)
+    if field == "status":
+        _validate_task_status(value, task_id)
 
 
 def revise_wbs(plan: Mapping[str, Any], expected_plan_version: int, task_updates: Sequence[Mapping[str, Any]]) -> dict[str, Any]:
@@ -382,8 +399,7 @@ def calculate_schedule(plan: Mapping[str, Any], project_start: str, holidays: Se
         predecessors = task.get("predecessors", [])
         if not isinstance(task.get("isLocked"), bool):
             _fail("invalid_lock_flag", "isLocked must be a boolean.", taskId=task_id)
-        if task.get("status") not in TASK_STATUSES:
-            _fail("invalid_task_status", "Task status is not supported.", taskId=task_id, status=task.get("status"))
+        _validate_task_status(task.get("status"), task_id)
         required_start = _next_workday(start_value, holiday_set) if not predecessors else _start_after(max(calculated[item]["finishDate"] for item in predecessors), buffer_days, holiday_set)
         planned_start = _parse_date(task.get("plannedStart"), "plannedStart", task_id)
         planned_finish = _parse_date(task.get("plannedFinish"), "plannedFinish", task_id)
