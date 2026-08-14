@@ -233,6 +233,12 @@ class M103SchedulePostgresAdapterTests(unittest.IsolatedAsyncioTestCase):
             "candidate.run_id = plan_record.source_review_run_id",
             sql,
         )
+        self.assertIn("IF TG_TABLE_NAME = 'wbs_plan_versions' THEN", sql)
+        self.assertIn("ELSIF TG_TABLE_NAME = 'wbs_tasks' THEN", sql)
+        self.assertNotIn(
+            "CASE WHEN TG_TABLE_NAME = 'wbs_plan_versions' THEN NEW.id ELSE NEW.plan_version_id END",
+            sql,
+        )
         self.assertRegex(
             sql,
             r"FROM marketops\.wbs_tasks AS task\s+WHERE task\.plan_version_id = "

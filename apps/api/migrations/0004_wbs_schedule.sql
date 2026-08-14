@@ -244,9 +244,19 @@ DECLARE
     plan_record record;
     actual_count integer;
 BEGIN
-    SELECT * INTO version_record
-    FROM marketops.wbs_plan_versions
-    WHERE id = CASE WHEN TG_TABLE_NAME = 'wbs_plan_versions' THEN NEW.id ELSE NEW.plan_version_id END;
+    IF TG_TABLE_NAME = 'wbs_plan_versions' THEN
+        SELECT * INTO version_record
+        FROM marketops.wbs_plan_versions
+        WHERE id = NEW.id;
+    ELSIF TG_TABLE_NAME = 'wbs_tasks' THEN
+        SELECT * INTO version_record
+        FROM marketops.wbs_plan_versions
+        WHERE id = NEW.plan_version_id;
+    ELSE
+        RAISE EXCEPTION USING
+            ERRCODE = '23514',
+            MESSAGE = 'unexpected WBS integrity trigger source';
+    END IF;
     IF version_record IS NULL THEN RETURN NEW; END IF;
     SELECT * INTO plan_record FROM marketops.wbs_plans WHERE id = version_record.plan_id;
     IF plan_record IS NULL
