@@ -23,6 +23,7 @@ from .marketops_review import (
 )
 from .marketops_extract import RuntimeProposalParser
 from .marketops_schedule import AsyncpgScheduleRepository, ScheduleService
+from .marketops_execution import AsyncpgExecutionRepository, ExecutionService
 
 
 @dataclass(frozen=True)
@@ -104,6 +105,10 @@ async def _lifespan(application: FastAPI):
         )
         application.state.review_service = review_service
         application.state.schedule_service = schedule_service
+        application.state.execution_service = ExecutionService(
+            AsyncpgExecutionRepository(pool),
+            clock=lambda: datetime.now(timezone.utc),
+        )
         application.state.review_preparation = ApprovedProposalPreparationService(
             source_reader=AsyncpgApprovedProposalSourceReader(pool),
             object_store=object_store,

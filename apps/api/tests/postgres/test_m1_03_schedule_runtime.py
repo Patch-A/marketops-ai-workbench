@@ -174,6 +174,7 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 await self.admin.execute("SET session_replication_role = replica")
                 for table, column, value in (
                     ("audit_events", "project_id", self.project_id),
+                    ("wbs_plan_approvals", "project_id", self.project_id),
                     ("schedule_snapshots", "project_id", self.project_id),
                     ("wbs_tasks", "project_id", self.project_id),
                     ("wbs_plan_versions", "project_id", self.project_id),
@@ -437,6 +438,76 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                 return failure.code
 
         self.assertCountEqual(await asyncio.gather(revise(2), revise(4)), [2, "PLAN_CONFLICT"])
+
+    async def test_ready_plan_approval_replays_and_remains_historical_after_revision(self):
+        created = await self._create_plan()
+        scheduled = await self.schedule_service.calculate_plan_schedule(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            "2026-08-17",
+            (),
+            self.schedule_scope,
+        )
+        self.assertEqual(scheduled.snapshot.status, "ready")
+        approved = await self.schedule_service.approve_plan(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            scheduled.snapshot.snapshot_id,
+            "Runtime plan accepted",
+            self.schedule_scope,
+        )
+        replay = await self.schedule_service.approve_plan(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            scheduled.snapshot.snapshot_id,
+            "A retry cannot replace the original reason",
+            self.schedule_scope,
+        )
+        self.assertFalse(approved.replayed)
+        self.assertTrue(replay.replayed)
+        self.assertEqual(replay.approval.approval_id, approved.approval.approval_id)
+        self.assertEqual(replay.approval.reason, "Runtime plan accepted")
+
+        task_id = created.plan.version.payload["tasks"][0]["taskId"]
+        revised = await self.schedule_service.revise_plan(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            ({"taskId": task_id, "changes": {"durationWorkdays": 2}},),
+            self.schedule_scope,
+        )
+        historical = await self.schedule_service.read_plan_approval(
+            self.project_id,
+            created.plan.plan.plan_id,
+            self.schedule_scope,
+            plan_version=1,
+        )
+        current = await self.schedule_service.read_plan_approval(
+            self.project_id,
+            created.plan.plan.plan_id,
+            self.schedule_scope,
+        )
+        self.assertEqual(revised.version.version, 2)
+        self.assertEqual(historical, approved.approval)
+        self.assertIsNone(current)
+
+        other_scope = ScheduleScopeContext(
+            self.organization_id,
+            self.workspace_id,
+            self.client_id,
+            str(uuid4()),
+        )
+        self.assertIsNone(
+            await self.schedule_repository.get_plan_approval(
+                other_scope,
+                self.project_id,
+                created.plan.plan.plan_id,
+                created.plan.version.version_id,
+            )
+        )
 
     async def test_deferred_trigger_rejects_task_from_different_review_run(self):
         first = await self._create_plan()

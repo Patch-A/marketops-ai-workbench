@@ -117,9 +117,28 @@
             </div>
             <div class="schedule-grid">
               <section class="wbs-panel" aria-labelledby="wbsTaskTitle"><div class="panel-heading"><div><span class="console-label">EDITABLE TASKS</span><h3 id="wbsTaskTitle">WBS 任务</h3></div><span>人工编辑</span></div><div class="wbs-task-list" id="wbsTaskList"><div class="schedule-empty"><i data-lucide="git-branch"></i><strong>尚未载入 WBS</strong><span>完成最新审核后，从上方生成执行计划。</span></div></div></section>
-              <aside class="schedule-summary-panel" aria-labelledby="scheduleSummaryTitle"><div class="panel-heading"><div><span class="console-label">SCHEDULE SNAPSHOT</span><h3 id="scheduleSummaryTitle">排期摘要</h3></div><span>服务端事实</span></div><div class="schedule-summary" id="scheduleSummary"><div class="schedule-empty"><strong>等待排期快照</strong><span>排期会基于明确的项目开始日和节假日计算。</span></div></div></aside>
+              <aside class="schedule-summary-panel" aria-labelledby="scheduleSummaryTitle">
+                <div class="panel-heading"><div><span class="console-label">SCHEDULE SNAPSHOT</span><h3 id="scheduleSummaryTitle">排期摘要</h3></div><span>服务端事实</span></div>
+                <div class="schedule-summary" id="scheduleSummary"><div class="schedule-empty"><strong>等待排期快照</strong><span>排期会基于明确的项目开始日和节假日计算。</span></div></div>
+                <section class="plan-approval" id="planApproval" aria-labelledby="planApprovalTitle">
+                  <div class="plan-approval-head"><div><span class="console-label">HUMAN APPROVAL</span><h3 id="planApprovalTitle">计划确认</h3></div><span class="status-badge" id="planApprovalState">WAITING</span></div>
+                  <div class="plan-approval-record" id="planApprovalRecord">生成可执行的排期快照后可进行确认。</div>
+                  <label for="planApprovalReason">确认原因<textarea id="planApprovalReason" maxlength="1000" rows="3" placeholder="记录为什么此版本可以进入执行"></textarea></label>
+                  <button class="button button-primary plan-approval-action" type="button" id="approveWbsPlan" disabled><i data-lucide="badge-check"></i>确认此版本</button>
+                </section>
+              </aside>
             </div>
-            <p class="claim-boundary"><i data-lucide="shield-check"></i>排期结果只提供可追溯的计算快照；计划执行前仍需人工确认，当前未接入模型 API、外部连接器或导出。</p>
+            <p class="claim-boundary"><i data-lucide="shield-check"></i>排期结果只提供可追溯的计算快照；计划执行前仍需人工确认，当前未接入模型 API 或外部连接器。</p>
+          </section>
+          <section class="execution-workbench" id="executionWorkbench" aria-labelledby="executionTitle" data-state="empty" hidden>
+            <header class="console-header execution-header">
+              <div><h2 id="executionTitle"><span class="console-label">APPROVED PLAN / LIVE EXECUTION</span>执行状态与导出</h2><p class="schedule-subtitle" id="executionPlanMeta">尚未载入批准计划</p></div>
+              <div class="console-actions"><button class="button button-quiet" type="button" id="syncExecution" disabled><i data-lucide="refresh-cw"></i>同步状态</button><button class="button button-quiet" type="button" id="exportExecutionCsv" disabled><i data-lucide="download"></i>CSV</button><button class="button button-primary" type="button" id="exportExecutionXlsx" disabled><i data-lucide="file-spreadsheet"></i>XLSX</button></div>
+            </header>
+            <div class="review-status" id="executionStatus" role="status" aria-live="polite"><span class="review-status-dot"></span><span id="executionStatusText">批准当前 WBS 后，可在这里记录执行状态。</span></div>
+            <div class="execution-summary-bar"><div><span class="console-label">COMPLETED</span><strong id="executionProgress">0 / 0</strong></div><p>每次保存都会追加执行记录和审计事件；冲突时页面先同步服务器事实。</p></div>
+            <div class="execution-task-list" id="executionTaskList"><div class="execution-empty"><i data-lucide="activity"></i><strong>等待执行计划</strong><span>批准当前 WBS 后，可在这里记录执行状态。</span></div></div>
+            <p class="claim-boundary"><i data-lucide="shield-check"></i>导出只包含当前批准版本及最新执行状态；浏览器不持有作用域、操作者或计划版本 UUID。</p>
           </section>
           <p class="claim-boundary"><i data-lucide="info"></i>当前工程证据仅证明合成数据上的审阅行为，不代表真实需求、ROI、节省时间或生产容量。</p>
         </div>
@@ -149,6 +168,7 @@
     <script src="project-import.js"></script>
     <script src="review-workbench.js"></script>
     <script src="schedule-workbench.js"></script>
+    <script src="execution-workbench.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

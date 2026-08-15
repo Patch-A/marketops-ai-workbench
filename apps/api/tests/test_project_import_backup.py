@@ -20,6 +20,9 @@ from apps.api.marketops_import.backup import (
     REVIEW_BUSINESS_TABLES,
     REVIEW_MIGRATION_SET,
     REVIEW_SCHEMA_VERSION,
+    SCHEDULE_BUSINESS_TABLES,
+    SCHEDULE_MIGRATION_SET,
+    SCHEDULE_SCHEMA_VERSION,
     SCHEMA_VERSION,
     canonical_archive_path,
     create_backup_bundle,
@@ -322,6 +325,33 @@ class BackupBundleTests(unittest.TestCase):
         self.assertEqual(
             loaded.manifest["database"]["tableData"],
             list(IDEMPOTENCY_BUSINESS_TABLES),
+        )
+
+    def test_schedule_v4_manifest_remains_readable_after_v5_upgrade(self):
+        bundle = self.create()
+        manifest = dict(bundle.manifest)
+        manifest["schemaVersion"] = SCHEDULE_SCHEMA_VERSION
+        manifest["taskId"] = "M1-03"
+        manifest["migrations"] = list(SCHEDULE_MIGRATION_SET)
+        manifest["database"] = {
+            **manifest["database"],
+            "tableData": list(SCHEDULE_BUSINESS_TABLES),
+        }
+        manifest["snapshot"] = {
+            table: manifest["snapshot"][table]
+            for table in SCHEDULE_BUSINESS_TABLES
+        }
+        (bundle.root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_backup_bundle(bundle.root)
+
+        self.assertEqual(loaded.manifest["schemaVersion"], SCHEDULE_SCHEMA_VERSION)
+        self.assertEqual(
+            loaded.manifest["database"]["tableData"],
+            list(SCHEDULE_BUSINESS_TABLES),
         )
 
 

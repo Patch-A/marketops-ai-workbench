@@ -7,6 +7,7 @@ const {
 } = window.MarketOpsProjectImport;
 
 const iconGlyphs = {
+  activity: '⌁', download: '↓', 'file-spreadsheet': '▦', save: '□', play: '▶', 'badge-check': '✓',
   'arrow-right': '>', 'check': '✓', 'chevron-right': '›', 'file-check': '✓',
   'git-branch': '⑂', history: '↶', info: 'i', library: '▤',
   'mouse-pointer-2': '↖', pencil: '✎', plus: '+', 'refresh-cw': '↻',
@@ -79,6 +80,10 @@ const scheduleWorkbench = window.MarketOpsScheduleWorkbench.createScheduleWorkbe
   api, root: document, onToast: showToast, onIcons: refreshIcons,
   getReviewDetail() { return reviewWorkbench.snapshot().detail; },
 });
+const executionWorkbench = window.MarketOpsExecutionWorkbench.createExecutionWorkbench({
+  api, root: document, onToast: showToast, onIcons: refreshIcons,
+  getScheduleState() { return scheduleWorkbench.snapshot(); },
+});
 
 function setServerStatus(message, state = 'idle') {
   serverStatusText.textContent = message;
@@ -104,6 +109,7 @@ function setEmptyState() {
   setServerStatus('Server API 已连接，当前工作区尚无项目。', 'empty');
   reviewWorkbench.clearProject();
   scheduleWorkbench.clearProject();
+  executionWorkbench.clearProject();
 }
 
 async function renderImportedProject(detail, badge = '服务器已保留') {
@@ -120,6 +126,7 @@ async function renderImportedProject(detail, badge = '服务器已保留') {
   refreshIcons();
   await reviewWorkbench.setProject(detail);
   scheduleWorkbench.setProject(detail);
+  executionWorkbench.setProject(detail);
 }
 
 function projectIdFromUrl() { return new URLSearchParams(globalThis.location.search).get('projectId'); }
@@ -208,6 +215,7 @@ async function restoreProject() {
     setServerStatus(message, 'error');
     reviewWorkbench.clearProject();
     scheduleWorkbench.clearProject();
+    executionWorkbench.clearProject();
   }
 }
 
@@ -224,7 +232,10 @@ function applyTheme(theme) {
 applyTheme(matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
 themeToggle.addEventListener('click', () => {
   const next = document.documentElement.dataset.theme === 'dark' ? 'light' : 'dark';
-  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) document.startViewTransition(() => applyTheme(next));
+  if (document.startViewTransition && !matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    document.documentElement.dataset.theme = next;
+    document.startViewTransition(() => applyTheme(next));
+  }
   else applyTheme(next);
 });
 
@@ -251,10 +262,12 @@ const scheduleNav = document.querySelector('#scheduleNav');
 const reviewNav = document.querySelector('.nav-item.is-active');
 const reviewConsole = document.querySelector('#reviewConsole');
 const scheduleConsole = document.querySelector('#scheduleWorkbench');
+const executionConsole = document.querySelector('#executionWorkbench');
 function showWorkspace(view) {
   const schedule = view === 'schedule';
   reviewConsole.hidden = schedule;
   scheduleConsole.hidden = !schedule;
+  executionConsole.hidden = !schedule;
   scheduleNav.classList.toggle('is-active', schedule);
   reviewNav.classList.toggle('is-active', !schedule);
   document.querySelector('.page-heading h1').lastChild.textContent = schedule ? '执行排期工作台' : '交付物审阅台';

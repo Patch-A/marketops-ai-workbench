@@ -109,6 +109,26 @@ class CreateScheduleResult:
 
 
 @dataclass(frozen=True)
+class PlanApproval:
+    approval_id: str
+    plan_id: str
+    plan_version_id: str
+    plan_version: int
+    schedule_snapshot_id: str
+    plan_digest: str
+    schedule_digest: str
+    reason: str
+    approved_by: str
+    approved_at: datetime
+
+
+@dataclass(frozen=True)
+class CreateApprovalResult:
+    approval: PlanApproval
+    replayed: bool = False
+
+
+@dataclass(frozen=True)
 class ScheduleAuditEvent:
     event_id: str
     project_id: str
@@ -141,7 +161,17 @@ class ScheduleTransaction(Protocol):
         self, plan_version_id: str, schedule_digest: str
     ) -> ScheduleSnapshot | None: ...
 
+    async def get_schedule_for_update(
+        self, schedule_snapshot_id: str
+    ) -> ScheduleSnapshot | None: ...
+
+    async def get_approval_by_plan_version(
+        self, plan_version_id: str
+    ) -> PlanApproval | None: ...
+
     async def insert_schedule(self, snapshot: ScheduleSnapshot) -> None: ...
+
+    async def insert_approval(self, approval: PlanApproval) -> None: ...
 
     async def append_audit_event(self, event: ScheduleAuditEvent) -> None: ...
 
@@ -158,6 +188,14 @@ class ScheduleRepository(Protocol):
         plan_id: str,
         plan_version: int | None,
     ) -> PlanReadModel | None: ...
+
+    async def get_plan_approval(
+        self,
+        scope: ScheduleScopeContext,
+        project_id: str,
+        plan_id: str,
+        plan_version_id: str,
+    ) -> PlanApproval | None: ...
 
 
 class ScheduleService:
@@ -435,6 +473,137 @@ class ScheduleService:
                 "REPOSITORY_FAILURE", "schedule repository operation failed"
             ) from None
 
+    async def approve_plan(
+        self,
+        project_id: str,
+        plan_id: str,
+        expected_plan_version: int,
+        schedule_snapshot_id: str,
+        reason: str,
+        scope: ScheduleScopeContext,
+    ) -> CreateApprovalResult:
+        self._validate_scope(scope)
+        canonical_project = self._uuid(project_id, "project id")
+        canonical_plan = self._uuid(plan_id, "plan id")
+        expected = self._positive_int(expected_plan_version, "expected plan version")
+        canonical_snapshot = self._uuid(schedule_snapshot_id, "schedule snapshot id")
+        canonical_reason = self._approval_reason(reason)
+        try:
+            async with self.repository.transaction(scope, canonical_project) as transaction:
+                current = await transaction.get_plan_for_update(canonical_plan)
+                if current is None:
+                    raise ScheduleServiceFailure(
+                        "PLAN_NOT_FOUND", "WBS plan is not available"
+                    )
+                self._validate_plan_model(current, canonical_project, scope)
+                if current.version.version != expected:
+                    raise ScheduleServiceFailure(
+                        "PLAN_CONFLICT", "the WBS plan changed before approval"
+                    )
+                existing = await transaction.get_approval_by_plan_version(
+                    current.version.version_id
+                )
+                if existing is not None:
+                    self._validate_approval(existing, current, scope)
+                    if existing.schedule_snapshot_id != canonical_snapshot:
+                        raise ScheduleServiceFailure(
+                            "PLAN_ALREADY_APPROVED",
+                            "the WBS version already has an approval",
+                        )
+                    return CreateApprovalResult(existing, replayed=True)
+                snapshot = await transaction.get_schedule_for_update(canonical_snapshot)
+                if snapshot is None:
+                    raise ScheduleServiceFailure(
+                        "SCHEDULE_NOT_FOUND", "schedule snapshot is not available"
+                    )
+                if (
+                    snapshot.plan_id != current.plan.plan_id
+                    or snapshot.plan_version_id != current.version.version_id
+                    or snapshot.plan_version != current.version.version
+                    or snapshot.plan_digest != current.version.digest
+                ):
+                    raise ScheduleServiceFailure(
+                        "SCHEDULE_CONFLICT",
+                        "schedule snapshot does not match the current WBS version",
+                    )
+                self._validate_schedule(snapshot, current, scope)
+                if snapshot.status != "ready":
+                    raise ScheduleServiceFailure(
+                        "SCHEDULE_NOT_READY",
+                        "schedule risks must be resolved before approval",
+                    )
+                approval_id, audit_id = self._new_ids(2)
+                approved_at = self._now()
+                approval = PlanApproval(
+                    approval_id,
+                    canonical_plan,
+                    current.version.version_id,
+                    expected,
+                    canonical_snapshot,
+                    current.version.digest,
+                    snapshot.schedule_digest,
+                    canonical_reason,
+                    scope.actor_id,
+                    approved_at,
+                )
+                await transaction.insert_approval(approval)
+                await transaction.append_audit_event(
+                    ScheduleAuditEvent(
+                        audit_id,
+                        canonical_project,
+                        scope.actor_id,
+                        "wbs_plan_approved",
+                        "wbs_plan_approval",
+                        approval_id,
+                        {
+                            "planId": canonical_plan,
+                            "planVersion": expected,
+                            "scheduleSnapshotId": canonical_snapshot,
+                            "planDigest": approval.plan_digest,
+                            "scheduleDigest": approval.schedule_digest,
+                            "reason": canonical_reason,
+                        },
+                        approved_at,
+                    )
+                )
+                return CreateApprovalResult(approval)
+        except ScheduleServiceFailure:
+            raise
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise ScheduleServiceFailure(
+                "REPOSITORY_FAILURE", "schedule repository operation failed"
+            ) from None
+
+    async def read_plan_approval(
+        self,
+        project_id: str,
+        plan_id: str,
+        scope: ScheduleScopeContext,
+        *,
+        plan_version: int | None = None,
+    ) -> PlanApproval | None:
+        plan = await self.read_plan(
+            project_id, plan_id, scope, plan_version=plan_version
+        )
+        try:
+            approval = await self.repository.get_plan_approval(
+                scope,
+                plan.plan.project_id,
+                plan.plan.plan_id,
+                plan.version.version_id,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise ScheduleServiceFailure(
+                "REPOSITORY_FAILURE", "schedule repository operation failed"
+            ) from None
+        if approval is not None:
+            self._validate_approval(approval, plan, scope)
+        return approval
+
     async def _read_review(
         self,
         project_id: str,
@@ -524,12 +693,46 @@ class ScheduleService:
     ) -> None:
         if (
             not isinstance(snapshot, ScheduleSnapshot)
+            or not ScheduleService._valid_uuid(snapshot.snapshot_id)
             or snapshot.plan_id != plan.plan.plan_id
             or snapshot.plan_version_id != plan.version.version_id
             or snapshot.plan_version != plan.version.version
             or snapshot.plan_digest != plan.version.digest
             or snapshot.created_by != scope.actor_id
             or snapshot.payload.get("scheduleDigest") != snapshot.schedule_digest
+            or snapshot.payload.get("planDigest") != snapshot.plan_digest
+            or snapshot.payload.get("status") != snapshot.status
+            or snapshot.status not in {"ready", "needs_review"}
+            or not ScheduleService._valid_sha256(snapshot.schedule_digest)
+            or not isinstance(snapshot.created_at, datetime)
+            or snapshot.created_at.tzinfo is None
+        ):
+            raise ScheduleServiceFailure(
+                "REPOSITORY_FAILURE", "schedule repository state is incomplete"
+            )
+
+    @staticmethod
+    def _validate_approval(
+        approval: PlanApproval,
+        plan: PlanReadModel,
+        scope: ScheduleScopeContext,
+    ) -> None:
+        if (
+            not isinstance(approval, PlanApproval)
+            or not ScheduleService._valid_uuid(approval.approval_id)
+            or approval.plan_id != plan.plan.plan_id
+            or approval.plan_version_id != plan.version.version_id
+            or approval.plan_version != plan.version.version
+            or approval.plan_digest != plan.version.digest
+            or not ScheduleService._valid_uuid(approval.schedule_snapshot_id)
+            or not ScheduleService._valid_sha256(approval.schedule_digest)
+            or approval.approved_by != scope.actor_id
+            or not isinstance(approval.reason, str)
+            or approval.reason != approval.reason.strip()
+            or not approval.reason
+            or len(approval.reason) > 1000
+            or not isinstance(approval.approved_at, datetime)
+            or approval.approved_at.tzinfo is None
         ):
             raise ScheduleServiceFailure(
                 "REPOSITORY_FAILURE", "schedule repository state is incomplete"
@@ -565,6 +768,36 @@ class ScheduleService:
                 "INVALID_INPUT", f"{label} must be a positive integer"
             )
         return value
+
+    @staticmethod
+    def _approval_reason(value: Any) -> str:
+        if not isinstance(value, str):
+            raise ScheduleServiceFailure(
+                "INVALID_INPUT", "approval reason must be text"
+            )
+        normalized = value.strip()
+        if not normalized or len(normalized) > 1000:
+            raise ScheduleServiceFailure(
+                "INVALID_INPUT", "approval reason must contain 1 to 1000 characters"
+            )
+        return normalized
+
+    @staticmethod
+    def _valid_uuid(value: Any) -> bool:
+        if not isinstance(value, str):
+            return False
+        try:
+            return str(UUID(value)) == value
+        except ValueError:
+            return False
+
+    @staticmethod
+    def _valid_sha256(value: Any) -> bool:
+        return (
+            isinstance(value, str)
+            and len(value) == 64
+            and all(character in "0123456789abcdef" for character in value)
+        )
 
     def _new_ids(self, count: int) -> tuple[str, ...]:
         values = tuple(self._uuid(self.id_factory(), "generated id") for _ in range(count))

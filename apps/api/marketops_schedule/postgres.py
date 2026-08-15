@@ -12,6 +12,7 @@ from uuid import UUID
 from apps.api.marketops_review.service import ApprovedProposal
 
 from .service import (
+    PlanApproval,
     PlanReadModel,
     ScheduleAuditEvent,
     ScheduleRepository,
@@ -143,6 +144,42 @@ WHERE plan_version_id = $1 AND schedule_digest = $2
   AND created_by = $3
 """
 
+_SCHEDULE_BY_ID_FOR_UPDATE_SQL = """
+SELECT id, plan_id, plan_version_id, plan_version, project_start, holidays,
+       status, plan_digest, schedule_digest, schedule_payload, created_by, created_at
+FROM marketops.schedule_snapshots
+WHERE organization_id = $1 AND workspace_id = $2 AND client_id = $3
+  AND project_id = $4 AND id = $5 AND created_by = $6
+"""
+
+_APPROVAL_BY_PLAN_VERSION_SQL = """
+SELECT id, plan_id, plan_version_id, plan_version, schedule_snapshot_id,
+       plan_digest, schedule_digest, reason, approved_by, approved_at
+FROM marketops.wbs_plan_approvals
+WHERE organization_id = $1 AND workspace_id = $2 AND client_id = $3
+  AND project_id = $4 AND plan_id = $5 AND plan_version_id = $6
+  AND approved_by = $7
+"""
+
+_APPROVAL_BY_VERSION_FOR_UPDATE_SQL = """
+SELECT id, plan_id, plan_version_id, plan_version, schedule_snapshot_id,
+       plan_digest, schedule_digest, reason, approved_by, approved_at
+FROM marketops.wbs_plan_approvals
+WHERE organization_id = $1 AND workspace_id = $2 AND client_id = $3
+  AND project_id = $4 AND plan_version_id = $5 AND approved_by = $6
+"""
+
+_INSERT_APPROVAL_SQL = """
+INSERT INTO marketops.wbs_plan_approvals (
+    id, organization_id, workspace_id, client_id, project_id, plan_id,
+    plan_version_id, plan_version, schedule_snapshot_id, plan_digest,
+    schedule_digest, reason, approved_by, approved_at
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14
+)
+"""
+
 _INSERT_SCHEDULE_SQL = """
 INSERT INTO marketops.schedule_snapshots (
     id, organization_id, workspace_id, client_id, project_id,
@@ -193,6 +230,33 @@ class AsyncpgScheduleRepository(ScheduleRepository):
         except asyncio.CancelledError:
             raise
         except (SchedulePostgresError, ScheduleServiceFailure):
+            raise
+        except Exception:
+            raise SchedulePostgresError("schedule database read failed") from None
+
+    async def get_plan_approval(
+        self,
+        scope: ScheduleScopeContext,
+        project_id: str,
+        plan_id: str,
+        plan_version_id: str,
+    ) -> PlanApproval | None:
+        try:
+            async with self._read_connection(scope, project_id) as connection:
+                row = await connection.fetchrow(
+                    _APPROVAL_BY_PLAN_VERSION_SQL,
+                    scope.organization_id,
+                    scope.workspace_id,
+                    scope.client_id,
+                    project_id,
+                    plan_id,
+                    plan_version_id,
+                    scope.actor_id,
+                )
+                return None if row is None else _map_approval(row)
+        except asyncio.CancelledError:
+            raise
+        except SchedulePostgresError:
             raise
         except Exception:
             raise SchedulePostgresError("schedule database read failed") from None
@@ -393,6 +457,34 @@ class AsyncpgScheduleTransaction(ScheduleTransaction):
         )
         return None if row is None else _map_schedule(row)
 
+    async def get_schedule_for_update(
+        self, schedule_snapshot_id: str
+    ) -> ScheduleSnapshot | None:
+        row = await self._fetchrow(
+            _SCHEDULE_BY_ID_FOR_UPDATE_SQL,
+            self._scope.organization_id,
+            self._scope.workspace_id,
+            self._scope.client_id,
+            self._project_id,
+            schedule_snapshot_id,
+            self._scope.actor_id,
+        )
+        return None if row is None else _map_schedule(row)
+
+    async def get_approval_by_plan_version(
+        self, plan_version_id: str
+    ) -> PlanApproval | None:
+        row = await self._fetchrow(
+            _APPROVAL_BY_VERSION_FOR_UPDATE_SQL,
+            self._scope.organization_id,
+            self._scope.workspace_id,
+            self._scope.client_id,
+            self._project_id,
+            plan_version_id,
+            self._scope.actor_id,
+        )
+        return None if row is None else _map_approval(row)
+
     async def insert_schedule(self, snapshot: ScheduleSnapshot) -> None:
         plan = self._known_plan(snapshot.plan_id)
         if snapshot.created_by != self._scope.actor_id:
@@ -415,6 +507,28 @@ class AsyncpgScheduleTransaction(ScheduleTransaction):
             _json(snapshot.payload),
             snapshot.created_by,
             snapshot.created_at,
+        )
+
+    async def insert_approval(self, approval: PlanApproval) -> None:
+        plan = self._known_plan(approval.plan_id)
+        if approval.approved_by != self._scope.actor_id:
+            raise SchedulePostgresError("plan approval does not match transaction scope")
+        await self._execute(
+            _INSERT_APPROVAL_SQL,
+            approval.approval_id,
+            plan.organization_id,
+            plan.workspace_id,
+            plan.client_id,
+            plan.project_id,
+            approval.plan_id,
+            approval.plan_version_id,
+            approval.plan_version,
+            approval.schedule_snapshot_id,
+            bytes.fromhex(approval.plan_digest),
+            bytes.fromhex(approval.schedule_digest),
+            approval.reason,
+            approval.approved_by,
+            approval.approved_at,
         )
 
     async def append_audit_event(self, event: ScheduleAuditEvent) -> None:
@@ -583,6 +697,32 @@ def _map_schedule(row: Any) -> ScheduleSnapshot:
         )
     except (KeyError, TypeError, ValueError):
         raise SchedulePostgresError("schedule snapshot row is invalid") from None
+
+
+def _map_approval(row: Any) -> PlanApproval:
+    try:
+        reason = row["reason"]
+        if (
+            not isinstance(reason, str)
+            or reason != reason.strip()
+            or not reason
+            or len(reason) > 1000
+        ):
+            raise ValueError("approval reason is invalid")
+        return PlanApproval(
+            approval_id=_uuid(row["id"]),
+            plan_id=_uuid(row["plan_id"]),
+            plan_version_id=_uuid(row["plan_version_id"]),
+            plan_version=_positive_int(row["plan_version"]),
+            schedule_snapshot_id=_uuid(row["schedule_snapshot_id"]),
+            plan_digest=_hex(row["plan_digest"]),
+            schedule_digest=_hex(row["schedule_digest"]),
+            reason=reason,
+            approved_by=_uuid(row["approved_by"]),
+            approved_at=_datetime(row["approved_at"]),
+        )
+    except (KeyError, TypeError, ValueError):
+        raise SchedulePostgresError("plan approval row is invalid") from None
 
 
 def _uuid(value: Any) -> str:

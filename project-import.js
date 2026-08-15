@@ -320,8 +320,8 @@
       async createScheduleSnapshot(projectId, planId, input, request = {}) {
         if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')
           || !isPlainObject(input) || !positiveInteger(input.expectedPlanVersion)
-          || !isIsoDate(input.projectStart) || !Array.isArray(input.holidays)
-          || input.holidays.some((day) => !isIsoDate(day))) {
+          || !isCalendarDate(input.projectStart) || !Array.isArray(input.holidays)
+          || input.holidays.some((day) => !isCalendarDate(day))) {
           throw new ProjectApiError('INVALID_INPUT', 'The schedule request is incomplete.');
         }
         const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}/schedule-snapshots`, {
@@ -337,6 +337,104 @@
           throw new ProjectApiError('MALFORMED_RESPONSE', 'The schedule response did not match the requested plan.', { uncertain: true });
         }
         return { snapshot, replayed: payload.replayed };
+      },
+
+      async approveWbsPlan(projectId, planId, input, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')
+          || !isPlainObject(input) || !positiveInteger(input.expectedPlanVersion)
+          || !UUID_PATTERN.test(input.scheduleSnapshotId || '') || !boundedText(input.reason, 1000)) {
+          throw new ProjectApiError('INVALID_INPUT', 'The plan approval request is incomplete.');
+        }
+        const body = {
+          expectedPlanVersion: input.expectedPlanVersion,
+          scheduleSnapshotId: input.scheduleSnapshotId,
+          reason: input.reason.trim(),
+        };
+        const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}/approvals`, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(body), signal: request.signal,
+        }, true);
+        const result = validatePlanApprovalCreateResult(payload);
+        if (result.approval.planId !== planId
+          || result.approval.planVersion !== input.expectedPlanVersion
+          || result.approval.scheduleSnapshotId !== input.scheduleSnapshotId) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The plan approval did not match the requested target.', { uncertain: true });
+        }
+        return result;
+      },
+
+      async getWbsPlanApproval(projectId, planId, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')) {
+          throw new ProjectApiError('INVALID_PROJECT_ID', 'The plan approval URL is invalid.');
+        }
+        let query = '';
+        if (request.planVersion !== undefined) {
+          if (!positiveInteger(request.planVersion)) throw new ProjectApiError('INVALID_INPUT', 'The plan approval version is invalid.');
+          query = `?planVersion=${request.planVersion}`;
+        }
+        const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}/approvals${query}`, {
+          method: 'GET', credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: request.signal,
+        });
+        if (!isPlainObject(payload) || !hasExactKeys(payload, ['approval'])
+          || (payload.approval !== null && !isPlainObject(payload.approval))) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The plan approval response violated its contract.');
+        }
+        const approval = payload.approval === null ? null : validatePlanApproval(payload.approval);
+        if (approval && (approval.planId !== planId
+          || (request.planVersion !== undefined && approval.planVersion !== request.planVersion))) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The plan approval did not match the requested resource.');
+        }
+        return { approval };
+      },
+
+      async getExecutionState(projectId, planId, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')
+          || !positiveInteger(request.planVersion)) {
+          throw new ProjectApiError('INVALID_INPUT', 'The execution state URL is invalid.');
+        }
+        const query = `?planVersion=${request.planVersion}`;
+        const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}/execution${query}`, {
+          method: 'GET', credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: request.signal,
+        });
+        const result = validateExecutionReadResult(payload);
+        if (result.projectId !== projectId || result.planId !== planId
+          || result.planVersion !== request.planVersion) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The execution state did not match the requested plan.');
+        }
+        return result;
+      },
+
+      async updateExecutionTask(projectId, planId, input, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')
+          || !validateExecutionUpdateInput(input)) {
+          throw new ProjectApiError('INVALID_INPUT', 'The execution update is incomplete.');
+        }
+        const payload = await requestJson(fetchImpl, `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}/execution-updates`, {
+          method: 'POST', credentials: 'same-origin',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify(input), signal: request.signal,
+        }, true);
+        const result = validateExecutionUpdateResult(payload);
+        if (result.update.taskId !== input.taskId
+          || result.update.sequenceNo !== input.expectedExecutionSequence + 1
+          || result.update.status !== input.status) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The execution update did not match the submitted task.', { uncertain: true });
+        }
+        return result;
+      },
+
+      async downloadExecutionExport(projectId, planId, format, request = {}) {
+        if (!UUID_PATTERN.test(projectId || '') || !UUID_PATTERN.test(planId || '')
+          || !['csv', 'xlsx'].includes(format) || !positiveInteger(request.planVersion)) {
+          throw new ProjectApiError('INVALID_INPUT', 'The execution export URL is invalid.');
+        }
+        const url = `/v1/projects/${encodeURIComponent(projectId)}/wbs-plans/${encodeURIComponent(planId)}/exports/execution.${format}?planVersion=${request.planVersion}`;
+        return requestDownload(fetchImpl, url, {
+          method: 'GET', credentials: 'same-origin',
+          headers: { Accept: format === 'csv' ? 'text/csv' : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' },
+          signal: request.signal,
+        }, format);
       },
     };
   }
@@ -403,6 +501,37 @@
       });
     }
     return payload;
+  }
+
+  async function requestDownload(fetchImpl, url, options, format) {
+    let response;
+    try {
+      response = await fetchImpl(url, options);
+    } catch (error) {
+      if (error?.name === 'AbortError') {
+        throw new ProjectApiError('REQUEST_CANCELLED', 'The export request was cancelled.', { retryable: true });
+      }
+      throw new ProjectApiError('NETWORK_ERROR', 'The execution export could not be reached.', { retryable: true });
+    }
+    if (!response.ok) {
+      let payload;
+      try { payload = await response.json(); } catch { payload = null; }
+      throw responseError(response.status, payload);
+    }
+    const expectedType = format === 'csv'
+      ? 'text/csv'
+      : 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+    const contentType = response.headers?.get?.('content-type') || '';
+    const disposition = response.headers?.get?.('content-disposition') || '';
+    const match = /^attachment; filename="([a-zA-Z0-9._-]+)"$/.exec(disposition);
+    if (!contentType.toLowerCase().startsWith(expectedType) || !match || !match[1].endsWith(`.${format}`)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The execution export response violated its contract.');
+    }
+    let blob;
+    try { blob = await response.blob(); } catch {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The execution export body was unreadable.');
+    }
+    return { blob, filename: match[1], format };
   }
 
   function responseError(status, payload) {
@@ -832,6 +961,97 @@
       throw new ProjectApiError('MALFORMED_RESPONSE', 'The schedule snapshot violated its contract.', { uncertain: true });
     }
     return { ...value };
+  }
+
+  function validatePlanApprovalCreateResult(value) {
+    if (!isPlainObject(value) || !hasExactKeys(value, ['approval', 'replayed'])
+      || typeof value.replayed !== 'boolean') {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The plan approval response violated its contract.', { uncertain: true });
+    }
+    return { approval: validatePlanApproval(value.approval), replayed: value.replayed };
+  }
+
+  function validatePlanApproval(value) {
+    const required = ['approvalId', 'planId', 'planVersion', 'scheduleSnapshotId', 'planDigest', 'scheduleDigest', 'reason', 'approvedAt'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required)
+      || !UUID_PATTERN.test(value.approvalId || '') || !UUID_PATTERN.test(value.planId || '')
+      || !positiveInteger(value.planVersion) || !UUID_PATTERN.test(value.scheduleSnapshotId || '')
+      || !SHA256_PATTERN.test(value.planDigest || '') || !SHA256_PATTERN.test(value.scheduleDigest || '')
+      || !boundedText(value.reason, 1000) || value.reason !== value.reason.trim()
+      || !isIsoDate(value.approvedAt)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The plan approval violated its contract.', { uncertain: true });
+    }
+    return { ...value };
+  }
+
+  const EXECUTION_STATUSES = new Set(['not_started', 'in_progress', 'blocked', 'completed', 'cancelled']);
+
+  function validateExecutionReadResult(value) {
+    const required = ['projectId', 'planId', 'planVersion', 'editable', 'tasks'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required)
+      || !UUID_PATTERN.test(value.projectId || '') || !UUID_PATTERN.test(value.planId || '')
+      || !positiveInteger(value.planVersion) || typeof value.editable !== 'boolean'
+      || !Array.isArray(value.tasks) || value.tasks.length < 1 || value.tasks.length > 1000) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The execution state violated its contract.');
+    }
+    return { ...value, tasks: value.tasks.map(validateExecutionTask) };
+  }
+
+  function validateExecutionTask(value) {
+    const required = ['taskId', 'title', 'ownerRole', 'plannedStart', 'plannedFinish', 'status',
+      'blockerReason', 'actualStart', 'actualFinish', 'note', 'sequenceNo', 'updatedAt'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required)
+      || !nonEmptyText(value.taskId) || !boundedText(value.title, 300) || !boundedText(value.ownerRole, 200)
+      || !nullableCalendarDate(value.plannedStart) || !nullableCalendarDate(value.plannedFinish)
+      || !EXECUTION_STATUSES.has(value.status) || !nullableBoundedText(value.blockerReason, 2000)
+      || !nullableCalendarDate(value.actualStart) || !nullableCalendarDate(value.actualFinish)
+      || !nullableBoundedText(value.note, 4000) || !Number.isInteger(value.sequenceNo) || value.sequenceNo < 0
+      || (value.updatedAt !== null && !isIsoDate(value.updatedAt))) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'An execution task violated its contract.');
+    }
+    return { ...value };
+  }
+
+  function validateExecutionUpdateInput(value) {
+    const required = ['expectedPlanVersion', 'taskId', 'expectedExecutionSequence', 'status'];
+    const optional = ['blockerReason', 'actualStart', 'actualFinish', 'note'];
+    if (!isPlainObject(value) || required.some((key) => !(key in value))
+      || Object.keys(value).some((key) => !required.includes(key) && !optional.includes(key))
+      || !positiveInteger(value.expectedPlanVersion) || !nonEmptyText(value.taskId)
+      || !Number.isInteger(value.expectedExecutionSequence) || value.expectedExecutionSequence < 0
+      || !EXECUTION_STATUSES.has(value.status) || !nullableBoundedText(value.blockerReason, 2000)
+      || !nullableCalendarDate(value.actualStart) || !nullableCalendarDate(value.actualFinish)
+      || !nullableBoundedText(value.note, 4000)) return false;
+    if (value.status === 'blocked' && !boundedText(value.blockerReason, 2000)) return false;
+    if (value.status !== 'blocked' && value.blockerReason !== undefined && value.blockerReason !== null) return false;
+    if (value.status === 'in_progress' && !isCalendarDate(value.actualStart)) return false;
+    if (value.status === 'completed' && (!isCalendarDate(value.actualStart) || !isCalendarDate(value.actualFinish))) return false;
+    return !(value.actualStart && value.actualFinish && value.actualFinish < value.actualStart);
+  }
+
+  function validateExecutionUpdateResult(value) {
+    if (!isPlainObject(value) || !hasExactKeys(value, ['update', 'replayed'])
+      || typeof value.replayed !== 'boolean') {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The execution update response violated its contract.', { uncertain: true });
+    }
+    const update = value.update;
+    const required = ['taskId', 'sequenceNo', 'status', 'blockerReason', 'actualStart', 'actualFinish', 'note', 'updatedAt'];
+    if (!isPlainObject(update) || !hasExactKeys(update, required)
+      || !nonEmptyText(update.taskId) || !positiveInteger(update.sequenceNo)
+      || !EXECUTION_STATUSES.has(update.status) || !nullableBoundedText(update.blockerReason, 2000)
+      || !nullableCalendarDate(update.actualStart) || !nullableCalendarDate(update.actualFinish)
+      || !nullableBoundedText(update.note, 4000) || !isIsoDate(update.updatedAt)) {
+      throw new ProjectApiError('MALFORMED_RESPONSE', 'The execution update response violated its contract.', { uncertain: true });
+    }
+    return { update: { ...update }, replayed: value.replayed };
+  }
+
+  function nullableBoundedText(value, maximum) {
+    return value === undefined || value === null || (typeof value === 'string' && value.length <= maximum);
+  }
+
+  function nullableCalendarDate(value) {
+    return value === undefined || value === null || isCalendarDate(value);
   }
 
   function nonEmptyText(value) {

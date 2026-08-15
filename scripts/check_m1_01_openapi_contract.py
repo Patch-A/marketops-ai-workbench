@@ -23,6 +23,11 @@ WBS_COLLECTION_ROUTE = "/v1/projects/{projectId}/wbs-plans"
 WBS_DETAIL_ROUTE = WBS_COLLECTION_ROUTE + "/{planId}"
 WBS_REVISION_ROUTE = WBS_DETAIL_ROUTE + "/revisions"
 SCHEDULE_ROUTE = WBS_DETAIL_ROUTE + "/schedule-snapshots"
+APPROVAL_ROUTE = WBS_DETAIL_ROUTE + "/approvals"
+EXECUTION_ROUTE = WBS_DETAIL_ROUTE + "/execution"
+EXECUTION_UPDATE_ROUTE = WBS_DETAIL_ROUTE + "/execution-updates"
+EXECUTION_CSV_ROUTE = WBS_DETAIL_ROUTE + "/exports/execution.csv"
+EXECUTION_XLSX_ROUTE = WBS_DETAIL_ROUTE + "/exports/execution.xlsx"
 FORBIDDEN_SCOPE_FIELDS = {"organizationId", "workspaceId", "clientId", "actorId"}
 REQUIRED_RESPONSES = {
     "201",
@@ -83,9 +88,18 @@ REQUIRED_ERROR_CODES = frozenset(
         "REVIEW_INCOMPLETE",
         "PLAN_NOT_FOUND",
         "PLAN_CONFLICT",
+        "PLAN_ALREADY_APPROVED",
+        "SCHEDULE_NOT_FOUND",
+        "SCHEDULE_CONFLICT",
+        "SCHEDULE_NOT_READY",
         "APPROVED_PROPOSAL_NOT_FOUND",
         "SOURCE_CONFLICT",
         "WBS_VALIDATION_FAILED",
+        "EXECUTION_CONFLICT",
+        "PLAN_NOT_APPROVED",
+        "TASK_NOT_FOUND",
+        "EXECUTION_WRITE_FAILED",
+        "EXECUTION_READ_FAILED",
         "INTERNAL_FAILURE",
     }
 )
@@ -143,6 +157,30 @@ def schedule_operation(document):
     return document.get("paths", {}).get(SCHEDULE_ROUTE, {}).get("post", {})
 
 
+def approval_create_operation(document):
+    return document.get("paths", {}).get(APPROVAL_ROUTE, {}).get("post", {})
+
+
+def approval_read_operation(document):
+    return document.get("paths", {}).get(APPROVAL_ROUTE, {}).get("get", {})
+
+
+def execution_read_operation(document):
+    return document.get("paths", {}).get(EXECUTION_ROUTE, {}).get("get", {})
+
+
+def execution_update_operation(document):
+    return document.get("paths", {}).get(EXECUTION_UPDATE_ROUTE, {}).get("post", {})
+
+
+def execution_csv_operation(document):
+    return document.get("paths", {}).get(EXECUTION_CSV_ROUTE, {}).get("get", {})
+
+
+def execution_xlsx_operation(document):
+    return document.get("paths", {}).get(EXECUTION_XLSX_ROUTE, {}).get("get", {})
+
+
 def wbs_request_schema(document, operation_value):
     schema = json_request_schema(operation_value)
     if "$ref" not in schema:
@@ -158,6 +196,12 @@ def wbs_operations(document):
         wbs_read_operation(document),
         wbs_revision_operation(document),
         schedule_operation(document),
+        approval_create_operation(document),
+        approval_read_operation(document),
+        execution_read_operation(document),
+        execution_update_operation(document),
+        execution_csv_operation(document),
+        execution_xlsx_operation(document),
     )
 
 
@@ -767,6 +811,11 @@ GUARDS = (
                 WBS_DETAIL_ROUTE,
                 WBS_REVISION_ROUTE,
                 SCHEDULE_ROUTE,
+                APPROVAL_ROUTE,
+                EXECUTION_ROUTE,
+                EXECUTION_UPDATE_ROUTE,
+                EXECUTION_CSV_ROUTE,
+                EXECUTION_XLSX_ROUTE,
             )
         ).issubset(d.get("paths", {}))
         and all(
@@ -924,6 +973,138 @@ GUARDS = (
         lambda d: wbs_request_schema(d, schedule_operation(d)).update(
             additionalProperties=True
         ),
+    ),
+    Guard(
+        "closed plan approval request",
+        lambda d: approval_create_operation(d).get("security") == security_options(d)
+        and wbs_request_schema(d, approval_create_operation(d)).get("type") == "object"
+        and wbs_request_schema(d, approval_create_operation(d)).get("additionalProperties")
+        is False
+        and set(
+            wbs_request_schema(d, approval_create_operation(d)).get("required", [])
+        )
+        == {"expectedPlanVersion", "scheduleSnapshotId", "reason"}
+        and set(
+            wbs_request_schema(d, approval_create_operation(d)).get("properties", {})
+        )
+        == {"expectedPlanVersion", "scheduleSnapshotId", "reason"}
+        and FORBIDDEN_SCOPE_FIELDS.isdisjoint(
+            wbs_request_schema(d, approval_create_operation(d)).get("properties", {})
+        )
+        and {
+            "planDigest",
+            "scheduleDigest",
+            "approvedAt",
+            "approvedBy",
+        }.isdisjoint(
+            wbs_request_schema(d, approval_create_operation(d)).get("properties", {})
+        ),
+        lambda d: wbs_request_schema(d, approval_create_operation(d))
+        .setdefault("properties", {})
+        .update(planDigest={"type": "string"}),
+    ),
+    Guard(
+        "plan approval response and cache contract",
+        lambda d: set(approval_create_operation(d).get("responses", {}))
+        == {"201", "400", "401", "403", "404", "409", "413", "422", "500", "503"}
+        and set(approval_read_operation(d).get("responses", {}))
+        == {"200", "400", "401", "403", "404", "503"}
+        and no_store_header(
+            approval_create_operation(d).get("responses", {}).get("201", {})
+        )
+        and no_store_header(
+            approval_read_operation(d).get("responses", {}).get("200", {})
+        )
+        and approval_create_operation(d)
+        .get("responses", {})
+        .get("201", {})
+        .get("headers", {})
+        .get("Location", {})
+        .get("required")
+        is True,
+        lambda d: approval_create_operation(d).get("responses", {}).pop("409", None),
+    ),
+    Guard(
+        "closed public plan approval schemas",
+        lambda d: all(
+            component_schema(d, name).get("additionalProperties") is False
+            for name in (
+                "PlanApprovalRequest",
+                "PlanApproval",
+                "PlanApprovalCreateResult",
+                "PlanApprovalReadResult",
+            )
+        )
+        and set(component_schema(d, "PlanApproval").get("required", []))
+        == {
+            "approvalId",
+            "planId",
+            "planVersion",
+            "scheduleSnapshotId",
+            "planDigest",
+            "scheduleDigest",
+            "reason",
+            "approvedAt",
+        }
+        and {
+            "organizationId",
+            "workspaceId",
+            "clientId",
+            "actorId",
+            "approvedBy",
+            "credential",
+        }.isdisjoint(component_schema(d, "PlanApproval").get("properties", {}))
+        and approval_create_operation(d)
+        .get("responses", {})
+        .get("201", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema")
+        == {"$ref": "#/components/schemas/PlanApprovalCreateResult"}
+        and approval_read_operation(d)
+        .get("responses", {})
+        .get("200", {})
+        .get("content", {})
+        .get("application/json", {})
+        .get("schema")
+        == {"$ref": "#/components/schemas/PlanApprovalReadResult"},
+        lambda d: component_schema(d, "PlanApproval").setdefault(
+            "properties", {}
+        ).update(approvedBy={"type": "string"}),
+    ),
+    Guard(
+        "closed execution request and response schemas",
+        lambda d: execution_update_operation(d).get("security") == security_options(d)
+        and wbs_request_schema(d, execution_update_operation(d)).get("additionalProperties") is False
+        and set(wbs_request_schema(d, execution_update_operation(d)).get("required", []))
+        == {"expectedPlanVersion", "taskId", "expectedExecutionSequence", "status"}
+        and set(wbs_request_schema(d, execution_update_operation(d)).get("properties", {}))
+        == {"expectedPlanVersion", "taskId", "expectedExecutionSequence", "status", "blockerReason", "actualStart", "actualFinish", "note"}
+        and FORBIDDEN_SCOPE_FIELDS.isdisjoint(
+            wbs_request_schema(d, execution_update_operation(d)).get("properties", {})
+        )
+        and all(
+            component_schema(d, name).get("additionalProperties") is False
+            for name in ("ExecutionTask", "ExecutionReadResult", "ExecutionUpdateRequest", "ExecutionUpdate", "ExecutionUpdateResult")
+        )
+        and execution_read_operation(d).get("responses", {}).get("200", {}).get("content", {}).get("application/json", {}).get("schema")
+        == {"$ref": "#/components/schemas/ExecutionReadResult"}
+        and execution_update_operation(d).get("responses", {}).get("201", {}).get("content", {}).get("application/json", {}).get("schema")
+        == {"$ref": "#/components/schemas/ExecutionUpdateResult"},
+        lambda d: component_schema(d, "ExecutionUpdateRequest").update(additionalProperties=True),
+    ),
+    Guard(
+        "execution route status and download contract",
+        lambda d: set(execution_read_operation(d).get("responses", {}))
+        == {"200", "400", "401", "403", "404", "422", "503"}
+        and set(execution_update_operation(d).get("responses", {}))
+        == {"201", "400", "401", "403", "404", "409", "413", "422", "503"}
+        and no_store_header(execution_read_operation(d).get("responses", {}).get("200", {}))
+        and no_store_header(execution_update_operation(d).get("responses", {}).get("201", {}))
+        and execution_update_operation(d).get("responses", {}).get("201", {}).get("headers", {}).get("Location", {}).get("required") is True
+        and "text/csv" in execution_csv_operation(d).get("responses", {}).get("200", {}).get("content", {})
+        and "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" in execution_xlsx_operation(d).get("responses", {}).get("200", {}).get("content", {}),
+        lambda d: execution_update_operation(d).get("responses", {}).pop("409", None),
     ),
     Guard(
         "WBS and schedule response status and cache contract",

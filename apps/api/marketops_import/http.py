@@ -12,12 +12,13 @@ import json
 import re
 import tempfile
 from contextlib import AbstractAsyncContextManager
+from datetime import date
 from pathlib import Path
 from typing import Any, AsyncIterator, Awaitable, Callable, Mapping
 from uuid import UUID, uuid4
 
 from fastapi import FastAPI, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.datastructures import FormData, UploadFile
 from starlette.formparsers import MultiPartException, MultiPartParser
 
@@ -40,6 +41,11 @@ from ..marketops_schedule import (
     CreatePlanRequest,
     ScheduleScopeContext,
     ScheduleServiceFailure,
+)
+from ..marketops_execution import (
+    ExecutionFailure,
+    ExecutionScopeContext,
+    ExecutionUpdateRequest,
 )
 
 
@@ -66,6 +72,15 @@ _CREATE_PLAN_FIELDS = frozenset({"reviewRunId", "reviewVersion"})
 _REVISE_PLAN_FIELDS = frozenset({"expectedPlanVersion", "taskUpdates"})
 _CREATE_SCHEDULE_FIELDS = frozenset(
     {"expectedPlanVersion", "projectStart", "holidays"}
+)
+_APPROVE_PLAN_FIELDS = frozenset(
+    {"expectedPlanVersion", "scheduleSnapshotId", "reason"}
+)
+_EXECUTION_REQUIRED_FIELDS = frozenset(
+    {"expectedPlanVersion", "taskId", "expectedExecutionSequence", "status"}
+)
+_EXECUTION_OPTIONAL_FIELDS = frozenset(
+    {"blockerReason", "actualStart", "actualFinish", "note"}
 )
 _TASK_UPDATE_FIELDS = frozenset({"taskId", "changes"})
 _EDITABLE_TASK_FIELDS = frozenset(
@@ -117,9 +132,18 @@ _STATUS_BY_CODE = {
     "REVIEW_INCOMPLETE": 422,
     "PLAN_NOT_FOUND": 404,
     "PLAN_CONFLICT": 409,
+    "PLAN_ALREADY_APPROVED": 409,
+    "SCHEDULE_NOT_FOUND": 404,
+    "SCHEDULE_CONFLICT": 409,
+    "SCHEDULE_NOT_READY": 422,
     "APPROVED_PROPOSAL_NOT_FOUND": 422,
     "SOURCE_CONFLICT": 409,
     "WBS_VALIDATION_FAILED": 422,
+    "EXECUTION_CONFLICT": 409,
+    "PLAN_NOT_APPROVED": 422,
+    "TASK_NOT_FOUND": 404,
+    "EXECUTION_WRITE_FAILED": 503,
+    "EXECUTION_READ_FAILED": 503,
     "INTERNAL_FAILURE": 500,
 }
 _PUBLIC_MESSAGES = {
@@ -155,9 +179,18 @@ _PUBLIC_MESSAGES = {
     "REVIEW_INCOMPLETE": "Every extracted candidate needs a human review decision.",
     "PLAN_NOT_FOUND": "The requested WBS plan was not found.",
     "PLAN_CONFLICT": "The WBS plan changed and must be refreshed.",
+    "PLAN_ALREADY_APPROVED": "The WBS version already has a different approval.",
+    "SCHEDULE_NOT_FOUND": "The requested schedule snapshot was not found.",
+    "SCHEDULE_CONFLICT": "The schedule snapshot does not match the current WBS version.",
+    "SCHEDULE_NOT_READY": "Schedule risks must be resolved before approval.",
     "APPROVED_PROPOSAL_NOT_FOUND": "The approved proposal is not available.",
     "SOURCE_CONFLICT": "The review source no longer matches the approved proposal.",
     "WBS_VALIDATION_FAILED": "The WBS or schedule request is invalid.",
+    "EXECUTION_CONFLICT": "The task execution state changed and must be refreshed.",
+    "PLAN_NOT_APPROVED": "The selected WBS version is not approved for execution.",
+    "TASK_NOT_FOUND": "The requested WBS task was not found.",
+    "EXECUTION_WRITE_FAILED": "The execution update could not be persisted.",
+    "EXECUTION_READ_FAILED": "The execution state is temporarily unavailable.",
     "INTERNAL_FAILURE": "The server could not allocate schedule state.",
 }
 
@@ -168,6 +201,7 @@ _STATIC_FILES = {
     "/project-import.js": "project-import.js",
     "/review-workbench.js": "review-workbench.js",
     "/schedule-workbench.js": "schedule-workbench.js",
+    "/execution-workbench.js": "execution-workbench.js",
     "/styles.css": "styles.css",
 }
 
@@ -227,6 +261,7 @@ def create_app(
     review_preparation: Any | None = None,
     review_service: Any | None = None,
     schedule_service: Any | None = None,
+    execution_service: Any | None = None,
     static_root: Path | None = None,
     request_id_factory: Callable[[], Any] = uuid4,
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[Any]] | None = None,
@@ -251,6 +286,8 @@ def create_app(
         app.state.review_service = review_service
     if schedule_service is not None:
         app.state.schedule_service = schedule_service
+    if execution_service is not None:
+        app.state.execution_service = execution_service
 
     @app.post("/v1/project-imports", status_code=201)
     async def import_project(request: Request) -> JSONResponse:
@@ -862,6 +899,311 @@ def create_app(
                 "REPOSITORY_FAILURE", request_id, status=503, retryable=True
             )
 
+    @app.post(
+        "/v1/projects/{project_id}/wbs-plans/{plan_id}/approvals",
+        status_code=201,
+    )
+    async def approve_wbs_plan(
+        project_id: str, plan_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_plan = _canonical_review_uuid(plan_id)
+        if canonical_project is None or canonical_plan is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(
+                request, max_bytes=_MAX_SCHEDULE_JSON_BYTES
+            )
+            _require_exact_fields(body, _APPROVE_PLAN_FIELDS)
+            expected = _positive_json_integer(body.get("expectedPlanVersion"))
+            snapshot_id = _canonical_review_uuid(body.get("scheduleSnapshotId"))
+            reason = body.get("reason")
+            if (
+                snapshot_id is None
+                or not isinstance(reason, str)
+                or not reason.strip()
+                or len(reason.strip()) > 1000
+            ):
+                raise _MalformedRequest
+            service = getattr(request.app.state, "schedule_service", None)
+            if service is None:
+                return _failure(
+                    "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+                )
+            result = await service.approve_plan(
+                canonical_project,
+                canonical_plan,
+                expected,
+                snapshot_id,
+                reason,
+                _schedule_scope(scope_or_error),
+            )
+            response = _json_no_store(
+                {
+                    "approval": _plan_approval_json(result.approval),
+                    "replayed": bool(result.replayed),
+                },
+                status_code=201,
+            )
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_project}/wbs-plans/{canonical_plan}"
+                f"/approvals?planVersion={result.approval.plan_version}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/wbs-plans/{plan_id}/approvals")
+    async def get_wbs_plan_approval(
+        project_id: str, plan_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_plan = _canonical_review_uuid(plan_id)
+        if canonical_project is None or canonical_plan is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            plan_version = _plan_version_query(request)
+            service = getattr(request.app.state, "schedule_service", None)
+            if service is None:
+                return _failure(
+                    "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+                )
+            approval = await service.read_plan_approval(
+                canonical_project,
+                canonical_plan,
+                _schedule_scope(scope_or_error),
+                plan_version=plan_version,
+            )
+            return _json_no_store(
+                {
+                    "approval": (
+                        _plan_approval_json(approval)
+                        if approval is not None
+                        else None
+                    )
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "REPOSITORY_FAILURE", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/wbs-plans/{plan_id}/execution")
+    async def get_execution_state(
+        project_id: str, plan_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_plan = _canonical_review_uuid(plan_id)
+        if canonical_project is None or canonical_plan is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            plan_version = _plan_version_query(request)
+            plan, states = await _read_execution_rows(
+                request,
+                canonical_project,
+                canonical_plan,
+                plan_version,
+                scope_or_error,
+            )
+            return _json_no_store(_execution_read_json(plan, states))
+        except asyncio.CancelledError:
+            raise
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except ExecutionFailure as error:
+            return _execution_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "EXECUTION_READ_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.post(
+        "/v1/projects/{project_id}/wbs-plans/{plan_id}/execution-updates",
+        status_code=201,
+    )
+    async def update_execution_state(
+        project_id: str, plan_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_plan = _canonical_review_uuid(plan_id)
+        if canonical_project is None or canonical_plan is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(
+                request, max_bytes=_MAX_SCHEDULE_JSON_BYTES
+            )
+            _require_execution_fields(body)
+            expected_plan_version = _positive_json_integer(
+                body.get("expectedPlanVersion")
+            )
+            expected_sequence = _nonnegative_json_integer(
+                body.get("expectedExecutionSequence")
+            )
+            schedule_service = getattr(request.app.state, "schedule_service", None)
+            execution_service = getattr(request.app.state, "execution_service", None)
+            if schedule_service is None or execution_service is None:
+                return _failure(
+                    "EXECUTION_WRITE_FAILED", request_id, status=503, retryable=True
+                )
+            plan = await schedule_service.read_plan(
+                canonical_project,
+                canonical_plan,
+                _schedule_scope(scope_or_error),
+                plan_version=expected_plan_version,
+            )
+            if plan.version.version != max(plan.available_versions):
+                raise ExecutionFailure(
+                    "EXECUTION_CONFLICT", "historical WBS versions are read-only"
+                )
+            approval = await schedule_service.read_plan_approval(
+                canonical_project,
+                canonical_plan,
+                _schedule_scope(scope_or_error),
+                plan_version=expected_plan_version,
+            )
+            if approval is None:
+                raise ExecutionFailure(
+                    "PLAN_NOT_APPROVED", "WBS plan version is not approved"
+                )
+            result = await execution_service.update_task(
+                ExecutionUpdateRequest(
+                    project_id=canonical_project,
+                    plan_id=canonical_plan,
+                    plan_version_id=plan.version.version_id,
+                    task_id=body["taskId"],
+                    expected_sequence=expected_sequence,
+                    status=body["status"],
+                    blocker_reason=body.get("blockerReason"),
+                    actual_start=body.get("actualStart"),
+                    actual_finish=body.get("actualFinish"),
+                    note=body.get("note"),
+                ),
+                _execution_scope(scope_or_error),
+            )
+            response = _json_no_store(
+                {
+                    "update": _execution_state_json(result.update),
+                    "replayed": bool(result.replayed),
+                },
+                status_code=201,
+            )
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_project}/wbs-plans/{canonical_plan}"
+                f"/execution?planVersion={expected_plan_version}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except ExecutionFailure as error:
+            return _execution_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "EXECUTION_WRITE_FAILED", request_id, status=503, retryable=True
+            )
+
+    async def download_execution_export(
+        project_id: str, plan_id: str, request: Request, export_format: str
+    ) -> Response:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_plan = _canonical_review_uuid(plan_id)
+        if canonical_project is None or canonical_plan is None:
+            return _failure("PLAN_NOT_FOUND", request_id, status=404)
+        try:
+            plan_version = _required_plan_version_query(request)
+            plan, states = await _read_execution_rows(
+                request,
+                canonical_project,
+                canonical_plan,
+                plan_version,
+                scope_or_error,
+            )
+            execution_service = request.app.state.execution_service
+            rows = _execution_export_rows(plan, states)
+            if export_format == "csv":
+                content = execution_service.export_csv(rows)
+                media_type = "text/csv; charset=utf-8"
+            else:
+                content = execution_service.export_xlsx(rows)
+                media_type = (
+                    "application/vnd.openxmlformats-officedocument."
+                    "spreadsheetml.sheet"
+                )
+            response = Response(content=content, media_type=media_type)
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["Content-Disposition"] = (
+                f'attachment; filename="marketops-execution-v{plan.version.version}.{export_format}"'
+            )
+            response.headers["X-Content-Type-Options"] = "nosniff"
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ScheduleServiceFailure as error:
+            return _schedule_failure(error, request_id)
+        except ExecutionFailure as error:
+            return _execution_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "EXECUTION_READ_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/wbs-plans/{plan_id}/exports/execution.csv")
+    async def download_execution_csv(
+        project_id: str, plan_id: str, request: Request
+    ) -> Response:
+        return await download_execution_export(project_id, plan_id, request, "csv")
+
+    @app.get("/v1/projects/{project_id}/wbs-plans/{plan_id}/exports/execution.xlsx")
+    async def download_execution_xlsx(
+        project_id: str, plan_id: str, request: Request
+    ) -> Response:
+        return await download_execution_export(project_id, plan_id, request, "xlsx")
+
     if static_root is not None:
         root = static_root.resolve(strict=True)
 
@@ -1115,6 +1457,48 @@ def _schedule_scope(scope: ScopeContext) -> ScheduleScopeContext:
     )
 
 
+def _execution_scope(scope: ScopeContext) -> ExecutionScopeContext:
+    return ExecutionScopeContext(
+        scope.organization_id,
+        scope.workspace_id,
+        scope.client_id,
+        scope.actor_id,
+    )
+
+
+async def _read_execution_rows(
+    request: Request,
+    project_id: str,
+    plan_id: str,
+    plan_version: int | None,
+    scope: ScopeContext,
+) -> tuple[Any, Mapping[str, Any]]:
+    schedule_service = getattr(request.app.state, "schedule_service", None)
+    execution_service = getattr(request.app.state, "execution_service", None)
+    if schedule_service is None or execution_service is None:
+        raise ExecutionFailure(
+            "EXECUTION_READ_FAILED", "execution services are unavailable"
+        )
+    schedule_scope = _schedule_scope(scope)
+    plan = await schedule_service.read_plan(
+        project_id, plan_id, schedule_scope, plan_version=plan_version
+    )
+    approval = await schedule_service.read_plan_approval(
+        project_id,
+        plan_id,
+        schedule_scope,
+        plan_version=plan.version.version,
+    )
+    if approval is None:
+        raise ExecutionFailure(
+            "PLAN_NOT_APPROVED", "WBS plan version is not approved"
+        )
+    states = await execution_service.read_states(
+        project_id, plan.version.version_id, _execution_scope(scope)
+    )
+    return plan, states
+
+
 async def _read_strict_json(
     request: Request, *, max_bytes: int = _MAX_REVIEW_JSON_BYTES
 ) -> dict[str, Any]:
@@ -1164,6 +1548,46 @@ def _positive_json_integer(value: Any) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 1:
         raise _MalformedRequest
     return value
+
+
+def _nonnegative_json_integer(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise _MalformedRequest
+    return value
+
+
+def _require_execution_fields(value: dict[str, Any]) -> None:
+    keys = frozenset(value)
+    if not _EXECUTION_REQUIRED_FIELDS.issubset(keys) or not keys.issubset(
+        _EXECUTION_REQUIRED_FIELDS | _EXECUTION_OPTIONAL_FIELDS
+    ):
+        raise _MalformedRequest
+    if (
+        not isinstance(value.get("taskId"), str)
+        or not value["taskId"]
+        or len(value["taskId"]) > 300
+        or not isinstance(value.get("status"), str)
+        or any(
+            key in value and value[key] is not None and not isinstance(value[key], str)
+            for key in _EXECUTION_OPTIONAL_FIELDS
+        )
+        or any(
+            key in value
+            and value[key] is not None
+            and not _is_full_date(value[key])
+            for key in ("actualStart", "actualFinish")
+        )
+    ):
+        raise _MalformedRequest
+
+
+def _is_full_date(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return date.fromisoformat(value).isoformat() == value
+    except ValueError:
+        return False
 
 
 def _task_updates(value: Any) -> tuple[dict[str, Any], ...]:
@@ -1239,6 +1663,13 @@ def _plan_version_query(request: Request) -> int | None:
     if set(values) != {"planVersion"} or len(values["planVersion"]) != 1:
         raise _MalformedRequest
     return _positive_integer(values["planVersion"][0])
+
+
+def _required_plan_version_query(request: Request) -> int:
+    version = _plan_version_query(request)
+    if version is None:
+        raise _MalformedRequest
+    return version
 
 
 def _review_summary_json(summary: Any) -> dict[str, Any]:
@@ -1396,6 +1827,97 @@ def _schedule_snapshot_json(snapshot: Any) -> dict[str, Any]:
         "deadlineMisses": list(payload["deadlineMisses"]),
         "sourceDateDrift": list(payload["sourceDateDrift"]),
     }
+
+
+def _plan_approval_json(approval: Any) -> dict[str, Any]:
+    return {
+        "approvalId": approval.approval_id,
+        "planId": approval.plan_id,
+        "planVersion": approval.plan_version,
+        "scheduleSnapshotId": approval.schedule_snapshot_id,
+        "planDigest": approval.plan_digest,
+        "scheduleDigest": approval.schedule_digest,
+        "reason": approval.reason,
+        "approvedAt": approval.approved_at.isoformat(),
+    }
+
+
+def _execution_state_json(state: Any) -> dict[str, Any]:
+    return {
+        "taskId": state.task_id,
+        "sequenceNo": state.sequence_no,
+        "status": state.status,
+        "blockerReason": state.blocker_reason,
+        "actualStart": state.actual_start,
+        "actualFinish": state.actual_finish,
+        "note": state.note,
+        "updatedAt": state.updated_at.isoformat(),
+    }
+
+
+def _execution_task_json(task: Mapping[str, Any], state: Any | None) -> dict[str, Any]:
+    return {
+        "taskId": task["taskId"],
+        "title": task["title"],
+        "ownerRole": task["ownerRole"],
+        "plannedStart": task["plannedStart"],
+        "plannedFinish": task["plannedFinish"],
+        "status": state.status if state is not None else task["status"],
+        "blockerReason": state.blocker_reason if state is not None else None,
+        "actualStart": state.actual_start if state is not None else None,
+        "actualFinish": state.actual_finish if state is not None else None,
+        "note": state.note if state is not None else None,
+        "sequenceNo": state.sequence_no if state is not None else 0,
+        "updatedAt": state.updated_at.isoformat() if state is not None else None,
+    }
+
+
+def _execution_read_json(plan: Any, states: Mapping[str, Any]) -> dict[str, Any]:
+    tasks = plan.version.payload["tasks"]
+    return {
+        "projectId": plan.plan.project_id,
+        "planId": plan.plan.plan_id,
+        "planVersion": plan.version.version,
+        "editable": plan.version.version == max(plan.available_versions),
+        "tasks": [
+            _execution_task_json(task, states.get(task["taskId"])) for task in tasks
+        ],
+    }
+
+
+def _execution_export_rows(
+    plan: Any, states: Mapping[str, Any]
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    for task in plan.version.payload["tasks"]:
+        state = states.get(task["taskId"])
+        rows.append(
+            {
+                "taskId": task["taskId"],
+                "title": task["title"],
+                "status": state.status if state is not None else task["status"],
+                "blockerReason": (
+                    state.blocker_reason if state is not None else None
+                ),
+                "plannedStart": task["plannedStart"],
+                "plannedFinish": task["plannedFinish"],
+                "actualStart": state.actual_start if state is not None else None,
+                "actualFinish": state.actual_finish if state is not None else None,
+                "ownerRole": task["ownerRole"],
+                "sourceCandidateId": task["candidateId"],
+            }
+        )
+    return rows
+
+
+def _execution_failure(error: ExecutionFailure, request_id: str) -> JSONResponse:
+    code = error.code if error.code in _PUBLIC_MESSAGES else "INTERNAL_FAILURE"
+    return _failure(
+        code,
+        request_id,
+        status=_STATUS_BY_CODE.get(code, 500),
+        retryable=code in {"EXECUTION_WRITE_FAILED", "EXECUTION_READ_FAILED"},
+    )
 
 
 def _schedule_failure(

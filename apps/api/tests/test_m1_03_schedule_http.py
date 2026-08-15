@@ -19,8 +19,10 @@ if HTTP_DEPENDENCIES_AVAILABLE:
     from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
     from apps.api.marketops_import.service import ScopeContext
     from apps.api.marketops_schedule import (
+        CreateApprovalResult,
         CreatePlanResult,
         CreateScheduleResult,
+        PlanApproval,
         PlanReadModel,
         ScheduleScopeContext,
         ScheduleServiceFailure,
@@ -43,6 +45,7 @@ PLAN_ID = "00000000-0000-4000-8000-000000000010"
 PLAN_VERSION_ID = "00000000-0000-4000-8000-000000000011"
 SCHEDULE_ID = "00000000-0000-4000-8000-000000000012"
 CANDIDATE_ID = "00000000-0000-4000-8000-000000000013"
+APPROVAL_ID = "00000000-0000-4000-8000-000000000014"
 TASK_ID = f"candidate:{CANDIDATE_ID}"
 SOURCE_HASH = "a" * 64
 PLAN_HASH = "b" * 64
@@ -122,7 +125,7 @@ class M103ScheduleHttpTests(unittest.TestCase):
         )
         self.model = self._model()
         self.service = FakeScheduleService(
-            self.model, self._model(version=2), self._schedule()
+            self.model, self._model(version=2), self._schedule(), self._approval()
         )
         self.app = create_app(
             authenticator=StaticBearerAuthenticator("test-token", self.scope),
@@ -231,6 +234,20 @@ class M103ScheduleHttpTests(unittest.TestCase):
             NOW,
         )
 
+    def _approval(self):
+        return PlanApproval(
+            APPROVAL_ID,
+            PLAN_ID,
+            PLAN_VERSION_ID,
+            1,
+            SCHEDULE_ID,
+            PLAN_HASH,
+            SCHEDULE_HASH,
+            "Ready for execution",
+            ACTOR_ID,
+            NOW,
+        )
+
     def request(self, method, target, body=None, *, raw=None, headers=None):
         request_headers = [("Authorization", "Bearer test-token")]
         payload = raw
@@ -295,6 +312,41 @@ class M103ScheduleHttpTests(unittest.TestCase):
             ),
         )
 
+    def test_approval_create_and_read_exclude_actor_and_scope(self):
+        created = self.request(
+            "POST",
+            f"/v1/projects/{PROJECT_ID}/wbs-plans/{PLAN_ID}/approvals",
+            {
+                "expectedPlanVersion": 1,
+                "scheduleSnapshotId": SCHEDULE_ID,
+                "reason": "Ready for execution",
+            },
+        )
+        self.assertEqual(created.status_code, 201)
+        self.assertEqual(created.headers["cache-control"], "no-store")
+        self.assertIn("planVersion=1", created.headers["location"])
+        self.assertTrue(created.json()["replayed"])
+        approval = created.json()["approval"]
+        self.assertEqual(approval["approvalId"], APPROVAL_ID)
+        self.assertEqual(approval["scheduleSnapshotId"], SCHEDULE_ID)
+        serialized = json.dumps(approval)
+        for forbidden in (
+            "organizationId",
+            "workspaceId",
+            "clientId",
+            "actorId",
+            "approvedBy",
+            "credential",
+        ):
+            self.assertNotIn(forbidden, serialized)
+
+        read = self.request(
+            "GET",
+            f"/v1/projects/{PROJECT_ID}/wbs-plans/{PLAN_ID}/approvals?planVersion=1",
+        )
+        self.assertEqual(read.status_code, 200)
+        self.assertEqual(read.json()["approval"]["approvalId"], APPROVAL_ID)
+
     def test_requests_fail_closed_for_client_facts_duplicates_and_size(self):
         cases = (
             (
@@ -327,6 +379,17 @@ class M103ScheduleHttpTests(unittest.TestCase):
                     "expectedPlanVersion": 1,
                     "projectStart": "2026-08-17",
                     "holidays": ["2026-08-20", "2026-08-20"],
+                },
+                None,
+                400,
+            ),
+            (
+                f"/v1/projects/{PROJECT_ID}/wbs-plans/{PLAN_ID}/approvals",
+                {
+                    "expectedPlanVersion": 1,
+                    "scheduleSnapshotId": SCHEDULE_ID,
+                    "reason": "Ready",
+                    "planDigest": PLAN_HASH,
                 },
                 None,
                 400,
@@ -394,6 +457,22 @@ class M103ScheduleHttpTests(unittest.TestCase):
         self.assertEqual(invalid.json()["code"], "WBS_VALIDATION_FAILED")
         self.assertNotIn("customer", invalid.body.decode().lower())
 
+        self.service.failure = ScheduleServiceFailure(
+            "SCHEDULE_NOT_READY", "customer conflict details"
+        )
+        blocked = self.request(
+            "POST",
+            f"/v1/projects/{PROJECT_ID}/wbs-plans/{PLAN_ID}/approvals",
+            {
+                "expectedPlanVersion": 1,
+                "scheduleSnapshotId": SCHEDULE_ID,
+                "reason": "Ready",
+            },
+        )
+        self.assertEqual(blocked.status_code, 422)
+        self.assertEqual(blocked.json()["code"], "SCHEDULE_NOT_READY")
+        self.assertNotIn("customer", blocked.body.decode().lower())
+
         unavailable_app = create_app(
             authenticator=StaticBearerAuthenticator("test-token", self.scope),
             request_id_factory=lambda: "request-id",
@@ -440,6 +519,7 @@ class M103ScheduleHttpTests(unittest.TestCase):
             "/v1/projects/{projectId}/wbs-plans/{planId}",
             "/v1/projects/{projectId}/wbs-plans/{planId}/revisions",
             "/v1/projects/{projectId}/wbs-plans/{planId}/schedule-snapshots",
+            "/v1/projects/{projectId}/wbs-plans/{planId}/approvals",
         }
         self.assertTrue(expected.issubset(paths))
         create_schema = paths["/v1/projects/{projectId}/wbs-plans"]["post"]["requestBody"]["content"]["application/json"]["schema"]
@@ -455,6 +535,7 @@ class M103ScheduleHttpTests(unittest.TestCase):
                 revision,
                 document["components"]["schemas"]["WbsTaskChanges"],
                 document["components"]["schemas"]["ScheduleRequest"],
+                document["components"]["schemas"]["PlanApprovalRequest"],
             ]
         )
         for forbidden in ("organizationId", "workspaceId", "clientId", "actorId"):
@@ -463,10 +544,11 @@ class M103ScheduleHttpTests(unittest.TestCase):
 
 if HTTP_DEPENDENCIES_AVAILABLE:
     class FakeScheduleService:
-        def __init__(self, model, revised, snapshot):
+        def __init__(self, model, revised, snapshot, approval):
             self.model = model
             self.revised = revised
             self.snapshot = snapshot
+            self.approval = approval
             self.calls = []
             self.scope = None
             self.failure = None
@@ -502,6 +584,24 @@ if HTTP_DEPENDENCIES_AVAILABLE:
                 ("schedule", project_id, plan_id, expected, project_start, holidays)
             )
             return CreateScheduleResult(self.snapshot, True)
+
+        async def approve_plan(
+            self, project_id, plan_id, expected, snapshot_id, reason, scope
+        ):
+            self.maybe_fail()
+            self.scope = scope
+            self.calls.append(
+                ("approve", project_id, plan_id, expected, snapshot_id, reason)
+            )
+            return CreateApprovalResult(self.approval, True)
+
+        async def read_plan_approval(
+            self, project_id, plan_id, scope, *, plan_version=None
+        ):
+            self.maybe_fail()
+            self.scope = scope
+            self.calls.append(("read-approval", project_id, plan_id, plan_version))
+            return self.approval
 
 
 if __name__ == "__main__":

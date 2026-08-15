@@ -44,6 +44,7 @@ class MemoryScheduleRepository:
         self.versions = {}
         self.sources = {}
         self.schedules = {}
+        self.approvals = {}
         self.audits = []
         self.tasks = []
 
@@ -60,6 +61,11 @@ class MemoryScheduleRepository:
         history = self.versions[plan_id]
         version = history[-1] if plan_version is None else history[plan_version - 1]
         return PlanReadModel(plan, version, tuple(item.version for item in history))
+
+    async def get_plan_approval(
+        self, scope, project_id, plan_id, plan_version_id
+    ):
+        return self.approvals.get(plan_version_id)
 
     async def get_approved_proposal_for_update(self, project_id):
         return self.approved
@@ -87,8 +93,24 @@ class MemoryScheduleRepository:
     async def get_schedule_by_digest(self, plan_version_id, schedule_digest):
         return self.schedules.get((plan_version_id, schedule_digest))
 
+    async def get_schedule_for_update(self, schedule_snapshot_id):
+        return next(
+            (
+                snapshot
+                for snapshot in self.schedules.values()
+                if snapshot.snapshot_id == schedule_snapshot_id
+            ),
+            None,
+        )
+
+    async def get_approval_by_plan_version(self, plan_version_id):
+        return self.approvals.get(plan_version_id)
+
     async def insert_schedule(self, snapshot):
         self.schedules[(snapshot.plan_version_id, snapshot.schedule_digest)] = snapshot
+
+    async def insert_approval(self, approval):
+        self.approvals[approval.plan_version_id] = approval
 
     async def append_audit_event(self, event):
         self.audits.append(event)
@@ -344,6 +366,160 @@ class M103ScheduleServiceTests(unittest.IsolatedAsyncioTestCase):
                 self.scope,
             )
         self.assertEqual(raised.exception.code, "PLAN_CONFLICT")
+
+    async def test_ready_schedule_approval_is_append_only_and_replays(self):
+        created = await self._create()
+        scheduled = await self.service.calculate_plan_schedule(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            "2026-08-17",
+            (),
+            self.scope,
+        )
+        approved = await self.service.approve_plan(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            scheduled.snapshot.snapshot_id,
+            "  Ready for execution  ",
+            self.scope,
+        )
+        def reject_new_id():
+            raise RuntimeError("replay must not allocate")
+
+        self.service.id_factory = reject_new_id
+        replay = await self.service.approve_plan(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            scheduled.snapshot.snapshot_id,
+            "A later retry cannot rewrite the original reason",
+            self.scope,
+        )
+        self.assertFalse(approved.replayed)
+        self.assertTrue(replay.replayed)
+        self.assertEqual(replay.approval.approval_id, approved.approval.approval_id)
+        self.assertEqual(replay.approval.reason, "Ready for execution")
+        self.assertEqual(replay.approval.plan_digest, created.plan.version.digest)
+        self.assertEqual(
+            replay.approval.schedule_digest, scheduled.snapshot.schedule_digest
+        )
+        self.assertEqual(self.repository.audits[-1].action, "wbs_plan_approved")
+
+    async def test_needs_review_schedule_cannot_be_approved(self):
+        created = await self._create()
+        scheduled = await self.service.calculate_plan_schedule(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            "2026-08-17",
+            (),
+            self.scope,
+        )
+        blocked_payload = dict(scheduled.snapshot.payload)
+        blocked_payload["status"] = "needs_review"
+        blocked = replace(
+            scheduled.snapshot, status="needs_review", payload=blocked_payload
+        )
+        self.repository.schedules[
+            (blocked.plan_version_id, blocked.schedule_digest)
+        ] = blocked
+
+        with self.assertRaises(ScheduleServiceFailure) as raised:
+            await self.service.approve_plan(
+                self.project_id,
+                created.plan.plan.plan_id,
+                1,
+                blocked.snapshot_id,
+                "Approve despite risk",
+                self.scope,
+            )
+        self.assertEqual(raised.exception.code, "SCHEDULE_NOT_READY")
+        self.assertEqual(self.repository.approvals, {})
+
+    async def test_revision_preserves_historical_approval_and_new_version_is_unapproved(self):
+        created = await self._create()
+        scheduled = await self.service.calculate_plan_schedule(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            "2026-08-17",
+            (),
+            self.scope,
+        )
+        approval = await self.service.approve_plan(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            scheduled.snapshot.snapshot_id,
+            "Version one accepted",
+            self.scope,
+        )
+        task_id = created.plan.version.payload["tasks"][0]["taskId"]
+        await self.service.revise_plan(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            ({"taskId": task_id, "changes": {"durationWorkdays": 2}},),
+            self.scope,
+        )
+
+        historical = await self.service.read_plan_approval(
+            self.project_id,
+            created.plan.plan.plan_id,
+            self.scope,
+            plan_version=1,
+        )
+        current = await self.service.read_plan_approval(
+            self.project_id, created.plan.plan.plan_id, self.scope
+        )
+        self.assertEqual(historical, approval.approval)
+        self.assertIsNone(current)
+
+        self.repository.approvals[created.plan.version.version_id] = replace(
+            approval.approval, schedule_digest="not-a-digest"
+        )
+        with self.assertRaises(ScheduleServiceFailure) as raised:
+            await self.service.read_plan_approval(
+                self.project_id,
+                created.plan.plan.plan_id,
+                self.scope,
+                plan_version=1,
+            )
+        self.assertEqual(raised.exception.code, "REPOSITORY_FAILURE")
+
+    async def test_approval_rejects_stale_version_wrong_snapshot_and_empty_reason(self):
+        created = await self._create()
+        scheduled = await self.service.calculate_plan_schedule(
+            self.project_id,
+            created.plan.plan.plan_id,
+            1,
+            "2026-08-17",
+            (),
+            self.scope,
+        )
+        with self.assertRaises(ScheduleServiceFailure) as raised:
+            await self.service.approve_plan(
+                self.project_id,
+                created.plan.plan.plan_id,
+                1,
+                str(uuid4()),
+                "Ready",
+                self.scope,
+            )
+        self.assertEqual(raised.exception.code, "SCHEDULE_NOT_FOUND")
+
+        with self.assertRaises(ScheduleServiceFailure) as raised:
+            await self.service.approve_plan(
+                self.project_id,
+                created.plan.plan.plan_id,
+                1,
+                scheduled.snapshot.snapshot_id,
+                "   ",
+                self.scope,
+            )
+        self.assertEqual(raised.exception.code, "INVALID_INPUT")
 
 
 if __name__ == "__main__":

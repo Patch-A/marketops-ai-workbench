@@ -17,7 +17,7 @@
 }
 * { box-sizing: border-box; }
 html, body { min-width: 320px; margin: 0; overflow-x: clip; }
-body { min-height: 100vh; background: var(--canvas); color: var(--ink); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; letter-spacing: 0; }
+body { min-height: 100vh; background: var(--canvas); color: var(--ink); font-family: "Segoe UI Variable", "Segoe UI", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, sans-serif; letter-spacing: 0; }
 button, input, textarea, select { font: inherit; letter-spacing: 0; }
 button, select { cursor: pointer; }
 button:disabled, select:disabled { cursor: not-allowed; opacity: .46; }
@@ -103,7 +103,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .schedule-subtitle { margin: 6px 0 0; color: var(--muted); font: 9px ui-monospace, Consolas, monospace; }
 .schedule-toolbar { display: grid; grid-template-columns: 150px 170px minmax(180px, 1fr) auto; align-items: end; gap: 10px; padding: 13px 15px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
 .schedule-toolbar label { display: grid; gap: 6px; color: var(--muted); font-size: 9px; }
-.schedule-toolbar input, .schedule-toolbar select, .wbs-task-row input, .wbs-task-row select { min-width: 0; min-height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--ink); font-size: 10px; }
+.schedule-toolbar input, .schedule-toolbar select, .wbs-task-row input:not([type='checkbox']), .wbs-task-row select { min-width: 0; min-height: 36px; padding: 0 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); color: var(--ink); font-size: 10px; }
 .schedule-toolbar-actions { display: flex; gap: 7px; }
 .schedule-grid { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(290px, .65fr); min-height: 510px; }
 .wbs-panel { min-width: 0; border-right: 1px solid var(--line); }
@@ -120,6 +120,19 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .lock-badge { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 45%, var(--line)); }
 .wbs-task-date { min-width: 0; display: grid; gap: 5px; align-self: center; color: var(--muted); font-size: 8px; }
 .wbs-task-date strong { overflow: hidden; color: var(--ink-2); font: 8px ui-monospace, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.wbs-task-advanced { grid-column: 2 / -1; margin-top: 3px; border-top: 1px solid var(--line); }
+.wbs-task-advanced summary { min-height: 38px; display: flex; align-items: center; gap: 8px; color: var(--ink-2); cursor: pointer; font-size: 9px; }
+.wbs-task-advanced summary::marker { color: var(--purple-strong); }
+.wbs-task-advanced summary small { margin-left: auto; color: var(--muted); font: 8px ui-monospace, Consolas, monospace; }
+.wbs-task-advanced-grid { display: grid; grid-template-columns: minmax(220px, 1.3fr) repeat(4, minmax(120px, .55fr)) minmax(130px, .5fr); gap: 9px; align-items: end; padding: 4px 0 2px; }
+.wbs-task-advanced-grid > label, .wbs-task-advanced-grid fieldset { min-width: 0; display: grid; gap: 5px; margin: 0; padding: 0; border: 0; color: var(--muted); font-size: 8px; }
+.wbs-task-advanced-grid legend { margin-bottom: 5px; padding: 0; color: var(--muted); font-size: 8px; }
+.predecessor-options { max-height: 92px; overflow: auto; display: grid; gap: 4px; padding: 6px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
+.predecessor-options > label { min-width: 0; min-height: 30px; display: grid; grid-template-columns: 14px minmax(0, 1fr); align-items: center; gap: 6px; color: var(--ink-2); cursor: pointer; }
+.predecessor-options input, .lock-control input { width: 14px; height: 14px; margin: 0; accent-color: var(--purple); }
+.predecessor-options span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 8px; }
+.predecessor-options small { grid-column: 2; overflow: hidden; color: var(--muted); font: 7px ui-monospace, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.lock-control { min-height: 36px; grid-template-columns: 16px minmax(0, 1fr) !important; align-items: center; padding: 0 9px !important; border: 1px solid var(--line) !important; border-radius: 5px; background: var(--surface); color: var(--ink-2) !important; cursor: pointer; }
 .schedule-summary-panel { min-width: 0; background: var(--surface-2); }
 .schedule-summary { min-height: 260px; padding: 15px; }
 .schedule-result-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
@@ -128,7 +141,47 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .schedule-metrics div { display: grid; gap: 7px; padding: 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface); }
 .schedule-metrics span { color: var(--muted); font-size: 8px; }.schedule-metrics strong { font: 18px ui-monospace, Consolas, monospace; }.schedule-metrics .has-risk { color: var(--danger); }
 .schedule-result-note { margin-top: 14px; padding: 11px; border: 1px solid color-mix(in srgb, var(--purple) 35%, var(--line)); border-radius: 5px; background: var(--purple-soft); color: var(--ink-2); font: 9px/1.6 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; }
+.plan-approval { display: grid; gap: 11px; padding: 15px; border-top: 1px solid var(--line); background: var(--surface); }
+.plan-approval-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.plan-approval-head h3 { margin: 4px 0 0; color: var(--ink); font-size: 12px; }
+.plan-approval-record { min-height: 42px; display: grid; align-content: center; gap: 4px; padding: 9px 10px; border-left: 2px solid var(--line); color: var(--muted); font-size: 9px; line-height: 1.5; }
+.plan-approval-record strong { color: var(--ink); font-size: 10px; }.plan-approval-record span { overflow-wrap: anywhere; }
+.plan-approval[data-state='ready'] .plan-approval-record, .plan-approval[data-state='approved'] .plan-approval-record { border-left-color: var(--purple-strong); background: var(--purple-soft); }
+.plan-approval > label { display: grid; gap: 6px; color: var(--muted); font-size: 9px; }
+.plan-approval textarea { width: 100%; min-height: 76px; resize: vertical; padding: 9px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); color: var(--ink); font: 10px/1.45 inherit; }
+.plan-approval textarea:focus-visible { outline: 2px solid var(--purple); outline-offset: 1px; }
+.plan-approval-action { width: 100%; min-height: 42px; }
 .schedule-empty { min-height: 250px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; color: var(--muted); text-align: center; }.schedule-empty i { color: var(--purple-strong); font-style: normal; font-size: 20px; }.schedule-empty strong { color: var(--ink); font-size: 11px; }.schedule-empty span { max-width: 32ch; font-size: 9px; line-height: 1.55; }
+.execution-workbench { display: none; margin-top: 14px; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+.execution-workbench:not([hidden]) { display: block; }
+.execution-header { align-items: flex-start; }
+.execution-header h2 { display: grid; gap: 7px; }
+.execution-summary-bar { min-height: 62px; display: flex; align-items: center; gap: 16px; padding: 10px 15px; border-bottom: 1px solid var(--line); background: var(--surface-2); }
+.execution-summary-bar > div { min-width: 92px; display: grid; gap: 4px; }
+.execution-summary-bar strong { font: 18px ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.execution-summary-bar p { margin: 0; color: var(--muted); font-size: 9px; line-height: 1.5; }
+.execution-task-list { min-width: 0; display: grid; }
+.execution-row { min-width: 0; display: grid; grid-template-columns: 28px minmax(190px, 1.35fr) minmax(105px, .55fr) minmax(150px, .8fr) 118px 118px minmax(145px, .8fr) 54px; align-items: end; gap: 8px; padding: 12px 15px; border-bottom: 1px solid var(--line); transition: background 180ms ease, box-shadow 180ms ease; }
+.execution-row:hover, .execution-row:focus-within { background: color-mix(in srgb, var(--purple-soft) 45%, var(--surface)); box-shadow: inset 2px 0 var(--purple); }
+.execution-row.is-submitting { background: var(--purple-soft); }
+.execution-index { align-self: center; color: var(--muted); font: 9px ui-monospace, Consolas, monospace; font-variant-numeric: tabular-nums; }
+.execution-task-copy { min-width: 0; align-self: center; display: grid; gap: 5px; }
+.execution-task-copy strong { overflow: hidden; color: var(--ink); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.execution-task-copy span { overflow: hidden; color: var(--muted); font-size: 8px; line-height: 1.4; text-overflow: ellipsis; white-space: nowrap; }
+.execution-row > label { min-width: 0; display: grid; gap: 5px; color: var(--muted); font-size: 8px; }
+.execution-row input, .execution-row select { width: 100%; min-width: 0; min-height: 36px; padding: 0 8px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); color: var(--ink); font-size: 10px; }
+.execution-row input:required, .execution-blocker input { border-left-color: var(--purple-strong); }
+.execution-blocker[hidden] { display: none; }
+.execution-note { min-width: 130px; }
+.execution-commit { min-height: 36px; display: flex; align-items: center; justify-content: flex-end; gap: 5px; }
+.execution-commit > span { color: var(--muted); font: 7px ui-monospace, Consolas, monospace; }
+.execution-commit > span strong { color: var(--purple-strong); font-size: 9px; font-variant-numeric: tabular-nums; }
+.execution-save { min-height: 36px; width: 36px; }
+.execution-empty { min-height: 220px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 20px; color: var(--muted); text-align: center; }
+.execution-empty i { color: var(--purple-strong); font-style: normal; font-size: 20px; }
+.execution-empty strong { color: var(--ink); font-size: 11px; }
+.execution-empty span { max-width: 36ch; font-size: 9px; line-height: 1.55; }
 @media (max-width: 1180px) { .schedule-grid { grid-template-columns: 1fr; }.wbs-panel { border-right: 0; border-bottom: 1px solid var(--line); }.schedule-summary-panel { min-height: 250px; } }
-@media (max-width: 760px) { .schedule-toolbar { grid-template-columns: 1fr 1fr; }.schedule-holidays { grid-column: 1 / -1; }.schedule-toolbar-actions { grid-column: 1 / -1; }.schedule-toolbar-actions .button { flex: 1; }.wbs-task-list { overflow-x: auto; }.wbs-task-row { min-width: 760px; }.schedule-summary-panel { min-height: 0; }.schedule-header .console-actions { width: 100%; }.schedule-header .console-actions .button { flex: 1; } }
-@media (prefers-reduced-motion: reduce) { .wbs-task-row { transition: none; } }
+@media (max-width: 1180px) { .wbs-task-advanced-grid { grid-template-columns: repeat(3, minmax(140px, 1fr)); }.wbs-task-advanced-grid fieldset { grid-column: span 2; } }
+@media (max-width: 760px) { .schedule-toolbar { grid-template-columns: 1fr 1fr; }.schedule-holidays { grid-column: 1 / -1; }.schedule-toolbar-actions { grid-column: 1 / -1; }.schedule-toolbar-actions .button { flex: 1; }.wbs-task-list, .execution-task-list { overflow-x: auto; }.wbs-task-row { min-width: 900px; }.execution-row { min-width: 1040px; }.execution-row input, .execution-row select, .execution-save { min-height: 44px; }.execution-save { width: 44px; }.execution-summary-bar { align-items: flex-start; }.execution-header .console-actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }.execution-header .console-actions .button { width: 100%; }.predecessor-options > label, .lock-control { min-height: 44px; }.schedule-summary-panel { min-height: 0; }.schedule-header .console-actions { width: 100%; }.schedule-header .console-actions .button { flex: 1; }.plan-approval-action { min-height: 44px; } }
+@media (prefers-reduced-motion: reduce) { .wbs-task-row, .execution-row { transition: none; } }

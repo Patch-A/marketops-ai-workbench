@@ -29,6 +29,12 @@ IDEMPOTENCY_MIGRATION = (
 SCHEDULE_MIGRATION = (
     ROOT / "apps" / "api" / "migrations" / "0004_wbs_schedule.sql"
 )
+APPROVAL_MIGRATION = (
+    ROOT / "apps" / "api" / "migrations" / "0005_wbs_plan_approval.sql"
+)
+EXECUTION_MIGRATION = (
+    ROOT / "apps" / "api" / "migrations" / "0006_task_execution.sql"
+)
 MIGRATOR_ROLE = "marketops_migrator"
 APPLICATION_ROLE = "marketops_app"
 DATABASE_NAME = "marketops_test"
@@ -83,6 +89,10 @@ EXPECTED_RELATION_PRIVILEGES = frozenset(
         ("wbs_tasks", "INSERT"),
         ("schedule_snapshots", "SELECT"),
         ("schedule_snapshots", "INSERT"),
+        ("wbs_plan_approvals", "SELECT"),
+        ("wbs_plan_approvals", "INSERT"),
+        ("wbs_task_execution_updates", "SELECT"),
+        ("wbs_task_execution_updates", "INSERT"),
     }
 )
 EXPECTED_FUNCTION_EXECUTE = frozenset(
@@ -251,6 +261,30 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
                 raise RuntimeError(
                     f"WBS schedule migration contract failed: {fourth!r}"
                 )
+            (migration_directory / APPROVAL_MIGRATION.name).write_bytes(
+                APPROVAL_MIGRATION.read_bytes()
+            )
+            fifth = await run_migrations(
+                connection,
+                migration_directory,
+                allowed_schema_usage_roles=(APPLICATION_ROLE,),
+            )
+            if fifth != (APPROVAL_MIGRATION.name,):
+                raise RuntimeError(
+                    f"WBS approval migration contract failed: {fifth!r}"
+                )
+            (migration_directory / EXECUTION_MIGRATION.name).write_bytes(
+                EXECUTION_MIGRATION.read_bytes()
+            )
+            sixth = await run_migrations(
+                connection,
+                migration_directory,
+                allowed_schema_usage_roles=(APPLICATION_ROLE,),
+            )
+            if sixth != (EXECUTION_MIGRATION.name,):
+                raise RuntimeError(
+                    f"task execution migration contract failed: {sixth!r}"
+                )
         await connection.execute(
             f"""
             GRANT SELECT, INSERT ON
@@ -263,7 +297,9 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
                 marketops.wbs_plans,
                 marketops.wbs_plan_versions,
                 marketops.wbs_tasks,
-                marketops.schedule_snapshots
+                marketops.schedule_snapshots,
+                marketops.wbs_plan_approvals,
+                marketops.wbs_task_execution_updates
             TO {APPLICATION_ROLE};
             GRANT UPDATE (created_by) ON marketops.projects TO {APPLICATION_ROLE};
             GRANT UPDATE (created_by) ON marketops.extraction_runs TO {APPLICATION_ROLE};
@@ -286,6 +322,12 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
             SCHEDULE_MIGRATION.name: hashlib.sha256(
                 SCHEDULE_MIGRATION.read_bytes()
             ).digest(),
+            APPROVAL_MIGRATION.name: hashlib.sha256(
+                APPROVAL_MIGRATION.read_bytes()
+            ).digest(),
+            EXECUTION_MIGRATION.name: hashlib.sha256(
+                EXECUTION_MIGRATION.read_bytes()
+            ).digest(),
         }
         recorded = await connection.fetch(
             """
@@ -304,6 +346,8 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
             REVIEW_MIGRATION.name,
             IDEMPOTENCY_MIGRATION.name,
             SCHEDULE_MIGRATION.name,
+            APPROVAL_MIGRATION.name,
+            EXECUTION_MIGRATION.name,
         )
     finally:
         await connection.close()
@@ -641,6 +685,8 @@ async def run(output: Path | None) -> None:
                     REVIEW_MIGRATION,
                     IDEMPOTENCY_MIGRATION,
                     SCHEDULE_MIGRATION,
+                    APPROVAL_MIGRATION,
+                    EXECUTION_MIGRATION,
                 )
             ],
             "replayApplied": [],

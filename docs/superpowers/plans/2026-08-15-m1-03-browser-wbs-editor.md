@@ -1,6 +1,6 @@
 # M1-03 Browser WBS Editor Work Package
 
-Status: `in progress; registry unchanged`
+Status: `reviewed package accepted as part of completed M1-03`
 
 Date: `2026-08-15`
 
@@ -36,10 +36,17 @@ This package adds the browser-facing WBS editor and deterministic schedule surfa
 
 ## 5. Current Evidence
 
-- Node schedule/review unit tests: `9/9` passed.
+- Node schedule/review unit tests: `15/15` passed, including `9/9` focused schedule tests.
 - Existing M1-02 browser contract tests and self-test: passed.
 - Static asset protection test: `27/27` passed after adding `schedule-workbench.js` to the server allowlist.
 - M1-03 focused service/HTTP tests: `13/13` passed in the temporary Python runtime.
 - Compile, docs, progress, and diff checks: passed.
 
-The package still needs an independent browser review and a rendered desktop/mobile run before it can be treated as accepted. M1-03 remains `pending` until browser editing, approval, export, and authorized real-proposal validation are complete.
+Additional browser/API synthesis evidence:
+
+- `node scripts/run_m1_03_browser_wbs_gate.mjs --browser "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe" --profile ".tmp\\m1-03-browser-p2-profile"` -> 20/20 checks passed: WBS creation and replay, task edit request, optimistic conflict refresh, historical read-only state, schedule calculation and replay, approval states and reconciliation, different-snapshot conflict rejection, approval-read failure preservation, chronological version labels, request boundaries, responsive layout, no console failures, and no external HTTP requests.
+- The browser gate exposed and closed two cross-layer defects: historical plan selection now sets the workbench read-only state, and the schedule client validates browser/server calendar dates as `YYYY-MM-DD`.
+- The browser editor now covers the full frozen task-field set: title, duration, predecessors, owner role, planned start/finish, hard deadline, approved buffer, lock flag, and execution status. Advanced schedule controls remain inline and collapse per task without changing the approved black/white/purple design direction.
+- Focused frontend tests now pass `9/9` in `tests/schedule-workbench.test.mjs`; the browser gate contract test passes `3/3`.
+
+An independent non-implementer review found and then verified closure of exact-snapshot reconciliation, atomic version-switch failure handling, and current/history label defects, returning `CLEAN APPROVE`. This accepts the local browser preparation package only. Real PostgreSQL 18.4 runtime evidence and authorized real-proposal validation remain unavailable, so M1-03 stays `pending` while M1-02 is the registry's only `in_progress` task. Export belongs to M1-04 and is not a blocker for this package.

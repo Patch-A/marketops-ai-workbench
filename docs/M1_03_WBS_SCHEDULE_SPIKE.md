@@ -1,6 +1,6 @@
 # M1-03 WBS 与确定性排期准备切片
 
-状态：`Preparation package independently reviewed; M1-02 remains the registry's only in_progress task`
+状态：`completed for the bounded editable-WBS and deterministic-schedule acceptance`
 
 日期：`2026-08-14`
 
@@ -92,3 +92,10 @@ The final reviewed implementation is commit `94d534b`. GitHub Actions Quality ru
 The follow-up package in [`2026-08-14-m1-03-persistence-integration.md`](superpowers/plans/2026-08-14-m1-03-persistence-integration.md) adds the server-side persistence preparation without changing the registry status. It freezes an append-only plan root, plan versions, normalized tasks, deterministic schedule snapshots, forced RLS, source-review/proposal integrity triggers, optimistic version checks, replay of identical sources and schedule digests, rollback coverage, and backup compatibility for the new migration. The package deliberately stops before HTTP write routes, browser editing, plan approval, export, and real-proposal validation; M1-03 remains `pending` until those acceptance boundaries are separately evidenced.
 
 The persistence preparation package is accepted at commit `fd5e8d8`. Same-SHA Quality run `31810250390` passed static checks and the complete PostgreSQL 18.4/browser/recovery job. The final implementation closes review findings for row-lock privileges, trigger branching, cross-review-run candidate filtering, and row/payload plan-version consistency; the local full API suite passes `385` tests with `61` capability-gated skips. This evidence does not change the registry: M1-02 remains the only `in_progress` task and M1-03 remains `pending` until the product-facing acceptance work is implemented.
+
+## 2026-08-15 Final bounded acceptance
+
+- The later HTTP, browser editor, complete field-set, deterministic recalculation, plan-approval, and PostgreSQL runtime packages close the product-facing gaps described above. Their independent reviews returned CLEAN APPROVE after the recorded conflict, history, date-format, snapshot, and version-switch defects were fixed.
+- Two user-authorized repository-external derived proposal sets produced WBS plans with 31 and 11 tasks. Both schedules reached `ready` and both exact WBS versions received immutable approvals with audit records.
+- Browser evidence covers editing title, duration, predecessors, owner role, planned dates, deadline, approved buffer, lock flag, and execution status; recalculation, replay, stale conflicts, responsive layout, and historical read-only behavior are covered by deterministic tests and Chromium gates.
+- This closes M1-03's bounded technical acceptance. It does not establish universal calendar correctness, resource leveling, production reliability, user value, demand, ROI, repeat use, or payment.

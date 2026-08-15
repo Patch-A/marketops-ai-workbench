@@ -1,6 +1,6 @@
 # M1-02 交付物提取与人工审核切片
 
-状态：`WP1/WP2A/WP2B-0/WP2B-1/WP2B-2 engineering passed; authorized usability validation pending`
+状态：`completed for the bounded technical acceptance; market-value validation remains deferred`
 
 日期：`2026-08-13`
 
@@ -350,4 +350,11 @@ WP2B 分为两个顺序包。WP2B-0 先完成 `approved proposal object -> verif
 - 首轮独立复审发现两个 P1：浏览器 `localStorage` 持久化幂等键违反冻结边界；新 run 详情 GET 失败时旧 detail 可能被误判为成功对账并清除稳定 key。最终实现改用页面内 `Map` 保存未决 key，并要求详情 GET 成功且返回目标 run ID 才算对账；单元与 Chromium 门禁分别固定无持久浏览器存储和旧 detail 失败路径。
 - 同一非实现者对修复 tree `834c23128aecd16b9a059d0c85eb829b0b607230` 增量复审后返回 `CLEAN APPROVE`，未发现新增 P0/P1/P2。确认同一页面内不确定 create 仍以同 key 重放，历史、冲突和不确定 decision 对账没有回归。
 - 残余限制：刷新页面后，现有协议不能跨会话精确重放一个仍未决的随机 create key；页面只能从服务器 run 列表恢复已经提交的事实。若以后要求跨刷新精确重放，需要服务端可恢复 operation identity 或按 proposal 查询待决操作，不能用浏览器持久存储补洞。
-- WP2B-2 工程门禁已经通过，但当前没有获授权/脱敏真实方案可用性实验，仍不能证明需求、审核节省时间、漏项改善、重复使用、生产容量、ROI 或付费意愿。因此 `M1-02` 继续保持 `in_progress`，不得标记 `completed`。
+- WP2B-2 工程门禁在当时已通过；后续授权验证结果见下方最终验收记录。
+
+## 2026-08-15 Final bounded acceptance
+
+- The previous statement that no authorized proposal evidence was available is superseded. Two user-authorized, repository-external derived proposal sets entered the isolated HTTP/PostgreSQL review flow.
+- The latest immutable snapshots contain 58 cited candidates and 58 explicit decisions: 20 approve, 22 modify, and 16 reject. No item remains pending; every candidate retains a source location and source quote.
+- Existing extraction, persistence, HTTP, browser, isolation, recovery, and failure-path packages had already passed independent non-implementer review. The later authorized run exercised the accepted workflow without adding source files or source text to the repository.
+- This closes M1-02's bounded technical acceptance. It does not establish demand, time savings, omission reduction, repeat use, production capacity, ROI, or willingness to pay; those remain later market-validation questions.

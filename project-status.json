@@ -3,7 +3,7 @@
   "project": {
     "name": "MarketOps AI Workbench",
     "repository": "https://github.com/Patch-A/marketops-ai-workbench",
-    "updatedAt": "2026-08-10",
+    "updatedAt": "2026-08-15",
     "statusPolicy": "A task is completed only after its acceptance check passes and completion evidence is recorded. The generated status report is not a substitute for product or market validation."
   },
   "milestones": [
@@ -260,10 +260,68 @@
           ],
           "selfCheck": { "status": "passed", "method": "Local focused checks passed; same-SHA GitHub CI passed; a non-implementer final review returned CLEAN APPROVE with no P0/P1/P2 findings. Evidence proves only the documented synthetic single-user private-deployment path." }
         },
-        { "id": "M1-02", "title": "Deliverable extraction and review", "owner": "Engineering", "status": "in_progress", "dependsOn": ["M1-01"], "acceptance": "Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval." },
-        { "id": "M1-03", "title": "Editable WBS and deterministic schedule", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-02"], "acceptance": "A user can edit WBS, dependencies, dates, and buffers; schedule changes recalculate deterministically." },
-        { "id": "M1-04", "title": "Execution state, export, and audit", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-03"], "acceptance": "Task status, blockers, actual dates, CSV/XLSX export, audit entries, and error recovery work for the validation project." },
-        { "id": "M1-05", "title": "M1 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M1-04"], "acceptance": "One anonymized project moves from approved proposal to an accepted executable schedule without critical dependency omissions." }
+        {
+          "id": "M1-02",
+          "title": "Deliverable extraction and review",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["M1-01"],
+          "acceptance": "Extracted deliverables, milestones, constraints, and assumptions retain source citations and require user approval.",
+          "completedAt": "2026-08-15",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M1_02_DELIVERABLE_REVIEW_SPIKE.md", "note": "Records the cited extraction, immutable human-review, authenticated HTTP, PostgreSQL, browser, and authorized local-evaluation evidence and its claim boundaries." },
+            { "kind": "file", "ref": "docs/superpowers/plans/2026-08-15-m1-03-plan-approval.md", "note": "Records the approved-candidate handoff into the downstream WBS acceptance path without copying source proposal material into the repository." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Independent package reviews returned CLEAN APPROVE; isolated PostgreSQL evidence confirmed 58/58 cited candidates received explicit approve, modify, or reject decisions with no pending item in the latest snapshots. This establishes the technical review workflow only, not demand, ROI, time savings, repeat use, or payment." }
+        },
+        {
+          "id": "M1-03",
+          "title": "Editable WBS and deterministic schedule",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["M1-02"],
+          "acceptance": "A user can edit WBS, dependencies, dates, and buffers; schedule changes recalculate deterministically.",
+          "completedAt": "2026-08-15",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M1_03_WBS_SCHEDULE_SPIKE.md", "note": "Records deterministic WBS generation, revision, scheduling, persistence, runtime, and failure-path evidence." },
+            { "kind": "file", "ref": "docs/superpowers/plans/2026-08-15-m1-03-browser-wbs-editor.md", "note": "Records the independently reviewed browser editing, complete field set, conflict reconciliation, history, and responsive acceptance evidence." },
+            { "kind": "file", "ref": "docs/superpowers/plans/2026-08-15-m1-03-plan-approval.md", "note": "Records exact-version ready-schedule approval, audit, replay, PostgreSQL, OpenAPI, and browser approval evidence." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Independent reviews returned CLEAN APPROVE for the domain, persistence, HTTP, browser, and approval packages; isolated PostgreSQL evidence confirmed two authorized local-derived plans with 31 and 11 tasks, ready deterministic schedules, and immutable approvals. This does not establish universal schedule correctness, production reliability, demand, ROI, repeat use, or payment." }
+        },
+        {
+          "id": "M1-04",
+          "title": "Execution state, export, and audit",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["M1-03"],
+          "acceptance": "Task status, blockers, actual dates, CSV/XLSX export, audit entries, and error recovery work for the validation project.",
+          "completedAt": "2026-08-15",
+          "evidence": [
+            { "kind": "file", "ref": "docs/superpowers/plans/2026-08-15-m1-04-execution-core.md", "note": "Records append-only execution state, plan-version gating, strict date input, audit atomicity, exports, RLS, runtime evidence, limitations, and independent review." },
+            { "kind": "file", "ref": "apps/api/tests/postgres/test_m1_04_execution_runtime.py", "note": "Real PostgreSQL tests cover append/replay/conflict, same-sequence concurrency, revision-before-execution conflict, audit-failure rollback, append-only, and RLS." },
+            { "kind": "file", "ref": "scripts/run_m1_04_browser_execution_gate.mjs", "note": "Synthetic Chromium execution/export gate passed 10/10, including conflict reconciliation, CSV/XLSX export, request boundaries, responsive layout, themes, and no console or external-request failures." },
+            { "kind": "file", "ref": "scripts/check_m1_01_openapi_contract.py", "note": "The static OpenAPI contract gate passed 45 guards and 90 mutations." }
+          ],
+          "selfCheck": {
+            "status": "passed",
+            "method": "Focused service/HTTP tests passed 11/11; real PostgreSQL execution tests passed 5/5; real FastAPI/PostgreSQL passed 1/1; Chromium execution/export passed 10/10; OpenAPI passed 45 guards and 90 mutations; compilation and diff checks passed. Evidence is bounded to the controlled single-user private PostgreSQL runtime and does not establish production reliability, demand, ROI, repeat use, or payment."
+          }
+        },
+        {
+          "id": "M1-05",
+          "title": "M1 review gate",
+          "owner": "Product",
+          "status": "completed",
+          "dependsOn": ["M1-04"],
+          "acceptance": "One anonymized project moves from approved proposal to an accepted executable schedule without critical dependency omissions.",
+          "completedAt": "2026-08-15",
+          "evidence": [
+            { "kind": "file", "ref": "docs/M1_REVIEW_GATE.md", "note": "Records the bounded end-to-end acceptance decision, latest authorized derived-plan counts, exact-version approvals, ready schedules, zero missing predecessor references, reproducible checks, and explicit semantic-completeness limits." },
+            { "kind": "file", "ref": "docs/M1_03_WBS_SCHEDULE_SPIKE.md", "note": "Records two authorized local-derived plans with 31 and 11 tasks, ready schedules, immutable approvals, and the source/candidate boundary." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Latest isolated database facts matched 31 validation-project-A tasks and 11 validation-project-B tasks to all approved or modified candidates, both schedules were ready and approved against their exact snapshots, and a predecessor-integrity query found zero missing references. Chromium, PostgreSQL/FastAPI, OpenAPI, frontend, compilation, and progress checks passed. This closes only the bounded engineering gate; semantic completeness, demand, ROI, repeat use, and payment remain unverified." }
+        }
       ]
     },
     {

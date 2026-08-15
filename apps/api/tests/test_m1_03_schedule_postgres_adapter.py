@@ -13,6 +13,7 @@ from apps.api.marketops_schedule.postgres import (
     SchedulePostgresError,
 )
 from apps.api.marketops_schedule.service import (
+    PlanApproval,
     ScheduleAuditEvent,
     ScheduleScopeContext,
     ScheduleSnapshot,
@@ -23,6 +24,7 @@ from apps.api.marketops_schedule.service import (
 
 ROOT = Path(__file__).resolve().parents[3]
 MIGRATION = ROOT / "apps/api/migrations/0004_wbs_schedule.sql"
+APPROVAL_MIGRATION = ROOT / "apps/api/migrations/0005_wbs_plan_approval.sql"
 
 
 class FakeConnection:
@@ -201,6 +203,37 @@ class M103SchedulePostgresAdapterTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("password", str(raised.exception))
         self.assertNotIn("task source", str(raised.exception))
 
+    async def test_approval_write_contains_only_server_bound_values(self):
+        connection = FakeConnection()
+        transaction = AsyncpgScheduleTransaction(
+            connection, self.scope, self.project_id
+        )
+        await transaction.insert_plan(self.plan)
+        approval_id = str(uuid4())
+        schedule_id = str(uuid4())
+        await transaction.insert_approval(
+            PlanApproval(
+                approval_id,
+                self.plan_id,
+                self.plan_version_id,
+                1,
+                schedule_id,
+                self.digest,
+                "b" * 64,
+                "Ready for execution",
+                self.actor_id,
+                self.created,
+            )
+        )
+        query, args = connection.executed[-1]
+        self.assertIn("INSERT INTO marketops.wbs_plan_approvals", query)
+        self.assertEqual(args[0], approval_id)
+        self.assertEqual(args[8], schedule_id)
+        self.assertEqual(args[9], bytes.fromhex(self.digest))
+        self.assertEqual(args[10], bytes.fromhex("b" * 64))
+        self.assertEqual(args[11], "Ready for execution")
+        self.assertEqual(args[12], self.actor_id)
+
     def test_migration_freezes_append_only_forced_rls_contract(self):
         sql = MIGRATION.read_text(encoding="utf-8")
         validate_no_transaction_control(sql, MIGRATION.name)
@@ -246,6 +279,25 @@ class M103SchedulePostgresAdapterTests(unittest.IsolatedAsyncioTestCase):
             r"version_record\.id\s+AND \([\s\S]+?OR NOT EXISTS \(\s+SELECT 1\s+"
             r"FROM marketops\.extraction_candidates AS candidate",
         )
+        self.assertNotRegex(sql.lower(), r"\bgrant\b")
+
+    def test_approval_migration_is_ready_only_append_only_and_scoped(self):
+        sql = APPROVAL_MIGRATION.read_text(encoding="utf-8")
+        validate_no_transaction_control(sql, APPROVAL_MIGRATION.name)
+        for invariant in (
+            "CREATE TABLE marketops.wbs_plan_approvals",
+            "UNIQUE (plan_version_id)",
+            "UNIQUE (plan_version_id, schedule_snapshot_id)",
+            "schedule_record.status IS DISTINCT FROM 'ready'",
+            "version_record.plan_digest IS DISTINCT FROM NEW.plan_digest",
+            "schedule_record.schedule_digest IS DISTINCT FROM NEW.schedule_digest",
+            "CREATE TRIGGER wbs_plan_approvals_immutable",
+            "CREATE TRIGGER wbs_plan_approvals_truncate_immutable",
+            "ALTER TABLE marketops.wbs_plan_approvals FORCE ROW LEVEL SECURITY",
+            "approved_by = marketops.current_actor_id()",
+            "REVOKE ALL ON marketops.wbs_plan_approvals FROM PUBLIC",
+        ):
+            self.assertIn(invariant, sql)
         self.assertNotRegex(sql.lower(), r"\bgrant\b")
 
 
