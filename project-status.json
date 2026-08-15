@@ -3,7 +3,7 @@
   "project": {
     "name": "MarketOps AI Workbench",
     "repository": "https://github.com/Patch-A/marketops-ai-workbench",
-    "updatedAt": "2026-08-15",
+    "updatedAt": "2026-08-16",
     "statusPolicy": "A task is completed only after its acceptance check passes and completion evidence is recorded. The generated status report is not a substitute for product or market validation."
   },
   "milestones": [
@@ -329,7 +329,7 @@
       "name": "M2: Knowledge base and project learning",
       "goal": "Make approved historical knowledge reusable without leaking customer material.",
       "tasks": [
-        { "id": "M2-01", "title": "Workspace-scoped document ingestion and hybrid retrieval", "owner": "Engineering", "status": "pending", "dependsOn": ["M1-05"], "acceptance": "Documents are indexed with citations and retrieval respects project, client, and workspace boundaries." },
+        { "id": "M2-01", "title": "Workspace-scoped document ingestion and hybrid retrieval", "owner": "Engineering", "status": "in_progress", "dependsOn": ["M1-05"], "acceptance": "Documents are indexed with citations and retrieval respects project, client, and workspace boundaries." },
         { "id": "M2-02", "title": "Project capsule, feedback, and candidate knowledge", "owner": "Engineering", "status": "pending", "dependsOn": ["M2-01"], "acceptance": "A completed project produces traceable candidate knowledge with outcome feedback and version history." },
         { "id": "M2-03", "title": "Knowledge approval and reuse evaluation", "owner": "Engineering", "status": "pending", "dependsOn": ["M2-02"], "acceptance": "A user approves, scopes, rejects, or revokes knowledge; project B can cite approved knowledge from project A." },
         { "id": "M2-04", "title": "M2 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M2-03"], "acceptance": "An isolation test and a usefulness evaluation pass with no unapproved cross-project reuse." }
