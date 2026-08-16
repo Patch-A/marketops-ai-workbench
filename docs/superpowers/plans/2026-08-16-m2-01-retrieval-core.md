@@ -61,7 +61,8 @@ Unknowns:
   `apps/api/tests/**`, the retrieval routes in
   `apps/api/marketops_import/http.py`, runtime assembly in `apps/api/main.py`,
   the retrieval portion of `apps/api/openapi/project-import.openapi.yaml`,
-  `scripts/check_m2_01_openapi_contract.py`, and this plan.
+  `scripts/check_m2_01_openapi_contract.py`,
+  `scripts/run_m2_01_postgres_gate.py`, and this plan.
 - Integrator-only paths: `project-status.json`, generated
   `docs/PROJECT_STATUS.md`, and final commits. The top-level CI workflow remains
   unchanged until a reviewed runtime package needs a dedicated gate.
@@ -209,6 +210,39 @@ This evidence does not include PostgreSQL persistence, RLS execution, HTTP or
 OpenAPI behavior, atomic withdrawal/audit, original-file deletion, a non-
 implementer review, real-document recall, or M2-01 completion. The registry must
 remain `in_progress`.
+
+## PostgreSQL persistence evidence
+
+Migration `0007_source_retrieval.sql`, the asyncpg repository, and a reproducible
+PostgreSQL gate are implemented. The dependency-neutral and static retrieval
+suite passes 11/11 checks. A dedicated PostgreSQL 18.4 container applied and
+recorded migrations 0001 through 0007, then the replay-safe runtime gate passed
+3/3 checks:
+
+- two concurrent identical index writes serialized on the deterministic index ID
+  and produced one fact plus one replay;
+- near-identical sources in a second workspace/client/project remained visible
+  only under their own RLS scope;
+- the application role had no table-wide index update, index delete, chunk update,
+  or truncate privilege; withdrawal used only three column updates and controlled
+  chunk delete;
+- withdrawal removed all derived chunk text, appended one redacted audit event,
+  and replayed without adding another event;
+- a forced withdrawal-audit failure rolled back the status change, withdrawal
+  fields, chunk deletion, and audit insert together;
+- container logging used `terse/panic`; 59 captured lines had zero matches for
+  DSNs, passwords, synthetic source text, index markers, or UUIDs.
+
+The M0-04 gate still passes 16 oracle cases plus scope-order, freshness, and CLI
+checks. Existing backup bundle unit tests pass 12/12, but the current backup
+manifest is schema v5 and does not include either the 0006 execution table or the
+0007 retrieval tables. Those tests are regression evidence only, not M2 recovery
+evidence. Backup schema expansion and real restore must pass before M2-01 can make
+a recovery claim.
+
+HTTP/OpenAPI behavior, source-object loading and parser orchestration, backup and
+restore, original-file deletion, and independent review remain unfinished. The
+task stays `in_progress`.
 
 ## Acceptance commands
 

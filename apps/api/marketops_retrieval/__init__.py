@@ -15,6 +15,11 @@ from .service import (
     validate_citation,
     withdraw_source_index,
 )
+from .postgres import (
+    AsyncpgRetrievalRepository,
+    PersistIndexResult,
+    WithdrawIndexResult,
+)
 
 __all__ = [
     "Citation",
@@ -30,4 +35,7 @@ __all__ = [
     "search_source_indexes",
     "validate_citation",
     "withdraw_source_index",
+    "AsyncpgRetrievalRepository",
+    "PersistIndexResult",
+    "WithdrawIndexResult",
 ]
