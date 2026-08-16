@@ -329,7 +329,24 @@
       "name": "M2: Knowledge base and project learning",
       "goal": "Make approved historical knowledge reusable without leaking customer material.",
       "tasks": [
-        { "id": "M2-01", "title": "Workspace-scoped document ingestion and hybrid retrieval", "owner": "Engineering", "status": "in_progress", "dependsOn": ["M1-05"], "acceptance": "Documents are indexed with citations and retrieval respects project, client, and workspace boundaries." },
+        {
+          "id": "M2-01",
+          "title": "Workspace-scoped document ingestion and hybrid retrieval",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["M1-05"],
+          "acceptance": "Documents are indexed with citations and retrieval respects project, client, and workspace boundaries.",
+          "completedAt": "2026-08-16",
+          "evidence": [
+            { "kind": "file", "ref": "docs/superpowers/plans/2026-08-16-m2-01-retrieval-core.md", "note": "Records the authenticated project-scoped retrieval contract, deterministic cited search, withdrawal boundaries, real PostgreSQL behavior, recovery evidence, limitations, and independent review result." },
+            { "kind": "file", "ref": "apps/api/tests/postgres/test_m2_01_retrieval_runtime.py", "note": "Five real PostgreSQL 18.4 tests cover scope isolation, minimum privileges, authenticated HTTP, verified source-object loading, atomic withdrawal, audit rollback, and derived-text removal." },
+            { "kind": "file", "ref": "scripts/run_m1_01_backup_restore_gate.py", "note": "The clean-container gate restored 21 non-empty business-table row sets through migration 0007 and verified fresh execution reads plus retrieval replay and search." }
+          ],
+          "selfCheck": {
+            "status": "passed",
+            "method": "Focused backup/retrieval tests passed 67/67; full API discovery passed 453 tests with 36 capability skips; real M2 PostgreSQL tests passed 5/5; M2 and combined OpenAPI passed 11/11 and 45/104 guards/mutations; M0-04 passed 16 oracle cases; a clean PostgreSQL 18.4 container passed seven migrations, restart, 21-table non-empty restore, row-set hashes, and fresh execution/retrieval reads. Independent read-only review found no P0/P1/P2; its Docker rerun condition was satisfied by the primary integrator on the same working tree. This does not establish original-file deletion, real-document recall, production reliability, demand, ROI, repeat use, or payment."
+          }
+        },
         { "id": "M2-02", "title": "Project capsule, feedback, and candidate knowledge", "owner": "Engineering", "status": "pending", "dependsOn": ["M2-01"], "acceptance": "A completed project produces traceable candidate knowledge with outcome feedback and version history." },
         { "id": "M2-03", "title": "Knowledge approval and reuse evaluation", "owner": "Engineering", "status": "pending", "dependsOn": ["M2-02"], "acceptance": "A user approves, scopes, rejects, or revokes knowledge; project B can cite approved knowledge from project A." },
         { "id": "M2-04", "title": "M2 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M2-03"], "acceptance": "An isolation test and a usefulness evaluation pass with no unapproved cross-project reuse." }

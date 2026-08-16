@@ -1,6 +1,6 @@
 # M2-01 Workspace-Scoped Retrieval Core
 
-Status: active work-package contract
+Status: completed bounded engineering work package
 
 Task ID: `M2-01`
 
@@ -61,7 +61,11 @@ Unknowns:
   `apps/api/tests/**`, the retrieval routes in
   `apps/api/marketops_import/http.py`, runtime assembly in `apps/api/main.py`,
   the retrieval portion of `apps/api/openapi/project-import.openapi.yaml`,
+  backup manifest compatibility in `apps/api/marketops_import/backup.py`,
+  current-schema provisioning in `scripts/run_m1_01_postgres_gate.py`,
+  recovery coverage in `scripts/run_m1_01_backup_restore_gate.py`,
   `scripts/check_m2_01_openapi_contract.py`,
+  the retrieval additions in `scripts/check_m1_01_openapi_contract.py`,
   `scripts/run_m2_01_postgres_gate.py`, and this plan.
 - Integrator-only paths: `project-status.json`, generated
   `docs/PROJECT_STATUS.md`, and final commits. The top-level CI workflow remains
@@ -145,8 +149,9 @@ Explicit non-goals:
 
 ## States, data, and safety boundaries
 
-Index states: `indexing -> ready | failed`, and `ready -> withdrawn`. A failed or
-withdrawn index is never searchable. Replay of an identical ready index is safe;
+Index creation is persisted only after it reaches `ready`; indexing failures do not
+publish a source-index row. Persisted indexes transition only `ready -> withdrawn`.
+A withdrawn index is never searchable. Replay of an identical ready index is safe;
 a pipeline-version change creates a new immutable index rather than mixing chunks.
 
 Search states: `loading`, `empty`, `ready`, `stale`, `unauthorized/not_found`,
@@ -191,9 +196,12 @@ Deletion and audit boundaries:
    mutation checker. Keep server scope and pipeline facts out of request bodies.
 6. Rerun M0-04 as regression evidence, then run M1 focused regression, compilation,
    docs, progress, OpenAPI, PostgreSQL, and diff checks.
-7. Obtain non-implementer review. Only after fixes and reproducible evidence may
+7. Upgrade the logical backup manifest through migrations 0006 and 0007, retain
+   v1-v5 read compatibility, and restore non-empty execution and retrieval rows
+   into an isolated PostgreSQL 18.4 database before making a recovery claim.
+8. Obtain non-implementer review. Only after fixes and reproducible evidence may
    the primary integrator add completion evidence and mark M2-01 complete.
-8. Evaluate a separate pgvector/embedding slice only after provider/model/version/
+9. Evaluate a separate pgvector/embedding slice only after provider/model/version/
    license, deletion, rebuild, exact authorized-candidate scoring, and lexical
    fallback contracts are frozen.
 
@@ -241,23 +249,38 @@ recorded migrations 0001 through 0007, then the replay-safe runtime gate passed
   DSNs, passwords, synthetic source text, index markers, or UUIDs.
 
 The M0-04 gate still passes 16 oracle cases plus scope-order, freshness, and CLI
-checks. Existing backup and restore contract tests pass 33/33, but the current backup
-manifest is schema v5 and does not include either the 0006 execution table or the
-0007 retrieval tables. Those tests are regression evidence only, not M2 recovery
-evidence. Backup schema expansion and real restore must pass before M2-01 can make
-a recovery claim.
+checks. The logical backup manifest is now schema v7 while retaining v1-v6 read
+compatibility. A clean PostgreSQL 18.4 `linux/amd64` container applied and reviewed
+migrations 0001 through 0007, then the restart and isolated restore gate passed
+with non-empty execution, source-index, and source-chunk rows. The restore compared
+row-set hashes for all 21 business tables, replayed the restored source index, found
+one cited result through a fresh retrieval service, and read the restored execution
+state through a fresh execution service. Legacy v1 and v2 bundles upgraded into the
+seven-migration schema, and the v3 persisted idempotency request replayed through a
+fresh review service.
+
+This establishes the bounded application-level logical backup and restore path. It
+does not establish physical crash consistency, WAL/PITR, encryption, off-site
+retention, production cutover, RPO/RTO, cross-host or cross-version recovery, or
+original-source deletion.
 
 The M2 OpenAPI checker passes 11 guards and 11 mutations; the existing combined
 contract checker passes 45 guards and 104 mutations. Full API discovery passes
-450 tests with 36 capability-gated skips, while the five M2 PostgreSQL tests run
+453 tests with 36 capability-gated skips, while the five M2 PostgreSQL tests run
 separately against the dedicated container. Search rechecks source hashes and
 chunk-content hashes before scoring, and returns bounded cited excerpts through a
-JSON POST body rather than a query URL.
+JSON POST body rather than a query URL. Runtime location validation now also
+enforces the OpenAPI citation bound of at most 16 properties after generated chunk
+coordinates are added.
 
 CSV remains an import-only format: the runtime retrieval parser supports Markdown,
 TXT, and basic DOCX, and rejects CSV explicitly instead of overstating support.
-Backup and restore expansion through 0007, original-file deletion, independent
-review, and real-document recall remain unfinished. The task stays `in_progress`.
+The independent read-only final review found no P0/P1/P2. It returned conditional
+approval only because its own sandbox could not run Docker; the primary integrator
+ran the stated PostgreSQL 18.4 migration, runtime, restart, and restore checks on
+the same working tree, satisfying that condition. Four non-blocking P3 observations
+remain recorded for later hardening. Original-file deletion and real-document recall
+remain outside this completed engineering boundary.
 
 ## Acceptance commands
 
@@ -267,6 +290,11 @@ python -m unittest apps.api.tests.test_m2_01_retrieval_service `
   apps.api.tests.test_m2_01_retrieval_indexing `
   apps.api.tests.test_m2_01_retrieval_http -v
 python -m unittest apps.api.tests.postgres.test_m2_01_retrieval_runtime -v
+python -m unittest apps.api.tests.test_project_import_backup `
+  apps.api.tests.test_m1_01_backup_restore_gate -v
+python scripts/run_m1_01_backup_restore_gate.py `
+  --work-root <isolated-work-root> --state <prepared-state> `
+  --output <evidence-json>
 python scripts/check_m2_01_openapi_contract.py
 python scripts/check_hybrid_retrieval.py --check
 python -m compileall -q apps/api

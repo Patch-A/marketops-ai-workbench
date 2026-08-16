@@ -34,6 +34,7 @@ MAX_BLOCK_CHARACTERS = 100_000
 MAX_INDEX_CHARACTERS = 2_000_000
 MAX_CHUNK_CHARACTERS = 2000
 MAX_LOCATION_BYTES = 4000
+MAX_LOCATION_PROPERTIES = 16
 MAX_QUERY_CHARACTERS = 1000
 MAX_RESULTS = 20
 MAX_EXCERPT_CHARACTERS = 600
@@ -188,6 +189,7 @@ def build_source_index(
                     "characterEnd": end,
                 }
             )
+            chunk_location = dict(_validate_location(chunk_location))
             chunks.append(
                 SourceChunk(
                     chunk_id=chunk_id,
@@ -474,6 +476,8 @@ def _validate_index_integrity(index: SourceIndex) -> None:
 def _validate_location(value: Mapping[str, Any]) -> Mapping[str, Any]:
     if not isinstance(value, Mapping) or not value:
         raise RetrievalFailure("INVALID_SOURCE", "source location is invalid")
+    if len(value) > MAX_LOCATION_PROPERTIES:
+        raise RetrievalFailure("INVALID_SOURCE", "source location has too many fields")
     try:
         encoded = json.dumps(
             value, ensure_ascii=False, sort_keys=True, separators=(",", ":")

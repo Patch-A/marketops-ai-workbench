@@ -9,8 +9,14 @@ from pathlib import Path
 from uuid import UUID
 
 from apps.api.marketops_import.backup import (
+    APPROVAL_BUSINESS_TABLES,
+    APPROVAL_MIGRATION_SET,
+    APPROVAL_SCHEMA_VERSION,
     BUSINESS_TABLES,
     BackupBundleError,
+    EXECUTION_BUSINESS_TABLES,
+    EXECUTION_MIGRATION_SET,
+    EXECUTION_SCHEMA_VERSION,
     IDEMPOTENCY_BUSINESS_TABLES,
     IDEMPOTENCY_MIGRATION_SET,
     IDEMPOTENCY_SCHEMA_VERSION,
@@ -352,6 +358,60 @@ class BackupBundleTests(unittest.TestCase):
         self.assertEqual(
             loaded.manifest["database"]["tableData"],
             list(SCHEDULE_BUSINESS_TABLES),
+        )
+
+    def test_approval_v5_manifest_remains_readable_after_v7_upgrade(self):
+        bundle = self.create()
+        manifest = dict(bundle.manifest)
+        manifest["schemaVersion"] = APPROVAL_SCHEMA_VERSION
+        manifest["taskId"] = "M1-03"
+        manifest["migrations"] = list(APPROVAL_MIGRATION_SET)
+        manifest["database"] = {
+            **manifest["database"],
+            "tableData": list(APPROVAL_BUSINESS_TABLES),
+        }
+        manifest["snapshot"] = {
+            table: manifest["snapshot"][table]
+            for table in APPROVAL_BUSINESS_TABLES
+        }
+        (bundle.root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_backup_bundle(bundle.root)
+
+        self.assertEqual(loaded.manifest["schemaVersion"], APPROVAL_SCHEMA_VERSION)
+        self.assertEqual(
+            loaded.manifest["database"]["tableData"],
+            list(APPROVAL_BUSINESS_TABLES),
+        )
+
+    def test_execution_v6_manifest_remains_readable_after_v7_upgrade(self):
+        bundle = self.create()
+        manifest = dict(bundle.manifest)
+        manifest["schemaVersion"] = EXECUTION_SCHEMA_VERSION
+        manifest["taskId"] = "M1-04"
+        manifest["migrations"] = list(EXECUTION_MIGRATION_SET)
+        manifest["database"] = {
+            **manifest["database"],
+            "tableData": list(EXECUTION_BUSINESS_TABLES),
+        }
+        manifest["snapshot"] = {
+            table: manifest["snapshot"][table]
+            for table in EXECUTION_BUSINESS_TABLES
+        }
+        (bundle.root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_backup_bundle(bundle.root)
+
+        self.assertEqual(loaded.manifest["schemaVersion"], EXECUTION_SCHEMA_VERSION)
+        self.assertEqual(
+            loaded.manifest["database"]["tableData"],
+            list(EXECUTION_BUSINESS_TABLES),
         )
 
 

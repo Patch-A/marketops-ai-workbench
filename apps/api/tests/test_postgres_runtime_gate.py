@@ -176,9 +176,8 @@ class RuntimeGatePrivilegeAttestationTests(unittest.TestCase):
         self.assertEqual(
             evidence["columnUpdatePrivileges"],
             [
-                "marketops.extraction_runs.created_by",
-                "marketops.projects.created_by",
-                "marketops.wbs_plans.created_by",
+                f"marketops.{table}.{column}"
+                for table, column in sorted(EXPECTED_COLUMN_UPDATE_PRIVILEGES)
             ],
         )
 

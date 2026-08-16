@@ -73,6 +73,19 @@ class RetrievalServiceTests(unittest.TestCase):
             index.chunks[0].location["characterEnd"],
         )
 
+    def test_generated_location_respects_openapi_property_bound(self):
+        location = {f"field{index}": index for index in range(14)}
+
+        with self.assertRaises(RetrievalFailure) as raised:
+            build_source_index(
+                self.source,
+                (ParsedBlock("bounded source location", location),),
+                self.scope,
+            )
+
+        self.assertEqual(raised.exception.code, "INVALID_SOURCE")
+        self.assertNotIn("bounded source location", str(raised.exception))
+
     def test_english_and_chinese_search_are_deterministic_and_cited(self):
         index = self.build_index()
         hashes = {self.version_id: self.source_sha}

@@ -13,8 +13,8 @@ from pathlib import Path, PurePosixPath
 from typing import Any, Iterable, Mapping
 
 
-SCHEMA_VERSION = 5
-TASK_ID = "M1-03"
+SCHEMA_VERSION = 7
+TASK_ID = "M2-01"
 LEGACY_SCHEMA_VERSION = 1
 LEGACY_TASK_ID = "M1-01"
 REVIEW_SCHEMA_VERSION = 2
@@ -23,6 +23,10 @@ IDEMPOTENCY_SCHEMA_VERSION = 3
 IDEMPOTENCY_TASK_ID = "M1-02"
 SCHEDULE_SCHEMA_VERSION = 4
 SCHEDULE_TASK_ID = "M1-03"
+APPROVAL_SCHEMA_VERSION = 5
+APPROVAL_TASK_ID = "M1-03"
+EXECUTION_SCHEMA_VERSION = 6
+EXECUTION_TASK_ID = "M1-04"
 MIGRATION_NAME = "0001_project_import.sql"
 MIGRATION_PATH = Path(__file__).resolve().parents[1] / "migrations" / MIGRATION_NAME
 MIGRATION_SHA256 = hashlib.sha256(MIGRATION_PATH.read_bytes()).hexdigest()
@@ -50,6 +54,20 @@ APPROVAL_MIGRATION_PATH = (
 APPROVAL_MIGRATION_SHA256 = hashlib.sha256(
     APPROVAL_MIGRATION_PATH.read_bytes()
 ).hexdigest()
+EXECUTION_MIGRATION_NAME = "0006_task_execution.sql"
+EXECUTION_MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1] / "migrations" / EXECUTION_MIGRATION_NAME
+)
+EXECUTION_MIGRATION_SHA256 = hashlib.sha256(
+    EXECUTION_MIGRATION_PATH.read_bytes()
+).hexdigest()
+RETRIEVAL_MIGRATION_NAME = "0007_source_retrieval.sql"
+RETRIEVAL_MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1] / "migrations" / RETRIEVAL_MIGRATION_NAME
+)
+RETRIEVAL_MIGRATION_SHA256 = hashlib.sha256(
+    RETRIEVAL_MIGRATION_PATH.read_bytes()
+).hexdigest()
 REVIEW_MIGRATION_SET = (
     {"name": MIGRATION_NAME, "sha256": MIGRATION_SHA256},
     {"name": REVIEW_MIGRATION_NAME, "sha256": REVIEW_MIGRATION_SHA256},
@@ -68,11 +86,25 @@ SCHEDULE_MIGRATION_SET = (
         "sha256": SCHEDULE_MIGRATION_SHA256,
     },
 )
-MIGRATION_SET = (
+APPROVAL_MIGRATION_SET = (
     *SCHEDULE_MIGRATION_SET,
     {
         "name": APPROVAL_MIGRATION_NAME,
         "sha256": APPROVAL_MIGRATION_SHA256,
+    },
+)
+EXECUTION_MIGRATION_SET = (
+    *APPROVAL_MIGRATION_SET,
+    {
+        "name": EXECUTION_MIGRATION_NAME,
+        "sha256": EXECUTION_MIGRATION_SHA256,
+    },
+)
+MIGRATION_SET = (
+    *EXECUTION_MIGRATION_SET,
+    {
+        "name": RETRIEVAL_MIGRATION_NAME,
+        "sha256": RETRIEVAL_MIGRATION_SHA256,
     },
 )
 DATABASE_ARCHIVE_PATH = "database.dump"
@@ -102,7 +134,16 @@ SCHEDULE_BUSINESS_TABLES = (
     "wbs_tasks",
     "schedule_snapshots",
 )
-BUSINESS_TABLES = (*SCHEDULE_BUSINESS_TABLES, "wbs_plan_approvals")
+APPROVAL_BUSINESS_TABLES = (*SCHEDULE_BUSINESS_TABLES, "wbs_plan_approvals")
+EXECUTION_BUSINESS_TABLES = (
+    *APPROVAL_BUSINESS_TABLES,
+    "wbs_task_execution_updates",
+)
+BUSINESS_TABLES = (
+    *EXECUTION_BUSINESS_TABLES,
+    "source_indexes",
+    "source_chunks",
+)
 _SHA256 = re.compile(r"[0-9a-f]{64}")
 _ARCHIVE_PATH = re.compile(r"objects/[0-9a-f]{2}/[0-9a-f]{62}")
 _STORAGE_KEY = re.compile(
@@ -206,6 +247,14 @@ def validate_manifest(value: Any) -> dict[str, Any]:
         root = _exact_keys(value, _ROOT_KEYS, "manifest")
         expected_task = SCHEDULE_TASK_ID
         tables = SCHEDULE_BUSINESS_TABLES
+    elif version == APPROVAL_SCHEMA_VERSION:
+        root = _exact_keys(value, _ROOT_KEYS, "manifest")
+        expected_task = APPROVAL_TASK_ID
+        tables = APPROVAL_BUSINESS_TABLES
+    elif version == EXECUTION_SCHEMA_VERSION:
+        root = _exact_keys(value, _ROOT_KEYS, "manifest")
+        expected_task = EXECUTION_TASK_ID
+        tables = EXECUTION_BUSINESS_TABLES
     elif version == SCHEMA_VERSION:
         root = _exact_keys(value, _ROOT_KEYS, "manifest")
         expected_task = TASK_ID
@@ -234,6 +283,10 @@ def validate_manifest(value: Any) -> dict[str, Any]:
             if version == IDEMPOTENCY_SCHEMA_VERSION
             else SCHEDULE_MIGRATION_SET
             if version == SCHEDULE_SCHEMA_VERSION
+            else APPROVAL_MIGRATION_SET
+            if version == APPROVAL_SCHEMA_VERSION
+            else EXECUTION_MIGRATION_SET
+            if version == EXECUTION_SCHEMA_VERSION
             else MIGRATION_SET
         )
         migrations = root["migrations"]

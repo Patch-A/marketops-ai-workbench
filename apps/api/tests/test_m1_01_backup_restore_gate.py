@@ -262,7 +262,7 @@ class BackupRestoreWorkflowContractTests(unittest.TestCase):
                 positions.append(workflow.index(marker))
         self.assertEqual(positions, sorted(positions))
 
-    def test_runtime_gate_exercises_v1_v2_and_nonempty_v3_review_request(self):
+    def test_runtime_gate_exercises_legacy_review_execution_and_retrieval_recovery(self):
         root = Path(__file__).resolve().parents[3]
         source = (root / "scripts" / "run_m1_01_backup_restore_gate.py").read_text(
             encoding="utf-8"
@@ -276,10 +276,16 @@ class BackupRestoreWorkflowContractTests(unittest.TestCase):
             '"persistentIdempotencyRequestRestored"',
             "fresh_review_replay(",
             '"freshReviewReplay"',
-            '"workPackage": "WP2B-1-review-backup-restore"',
+            "seed_execution_history(",
+            "seed_retrieval_history(",
+            "fresh_execution_read(",
+            "fresh_retrieval_replay(",
+            "search.results",
+            '"workPackage": "M2-01-backup-restore"',
             "a twelve-table v2 review bundle",
             "a non-empty v3 persistent review idempotency request replayed through",
-            "WP2B-1 backup/restore cleanup also failed",
+            "non-empty WBS, schedule, execution, source-index, and source-chunk rows",
+            "M2-01 backup/restore cleanup also failed",
             "*(work_root / label for label in NEGATIVE_BUNDLE_LABELS)",
         ):
             with self.subTest(marker=marker):

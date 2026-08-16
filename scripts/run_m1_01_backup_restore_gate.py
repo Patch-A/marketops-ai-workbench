@@ -40,6 +40,12 @@ from apps.api.marketops_import.backup import (  # noqa: E402
     sha256_file,
 )
 from apps.api.marketops_extract import Candidate, SourceCitation, SourceLocation  # noqa: E402
+from apps.api.marketops_execution import (  # noqa: E402
+    AsyncpgExecutionRepository,
+    ExecutionScopeContext,
+    ExecutionService,
+    ExecutionUpdateRequest,
+)
 from apps.api.marketops_review import (  # noqa: E402
     AsyncpgReviewRepository,
     CreateReviewRunRequest,
@@ -55,6 +61,14 @@ from apps.api.marketops_schedule import (  # noqa: E402
     CreatePlanRequest,
     ScheduleScopeContext,
     ScheduleService,
+)
+from apps.api.marketops_retrieval import (  # noqa: E402
+    AsyncpgArtifactVersionSourceReader,
+    AsyncpgRetrievalRepository,
+    IndexSourceRequest,
+    RetrievalApplicationService,
+    RetrievalScopeContext,
+    SourceIndexingService,
 )
 from scripts.run_m1_01_postgres_gate import (  # noqa: E402
     APPLICATION_ROLE,
@@ -986,15 +1000,210 @@ async def seed_schedule_history(
             ("2026-08-20",),
             schedule_scope,
         )
+        approved = await schedule_service.approve_plan(
+            committed["projectId"],
+            created.plan.plan.plan_id,
+            created.plan.version.version,
+            scheduled.snapshot.snapshot_id,
+            "Synthetic recovery approval",
+            schedule_scope,
+        )
+        tasks = created.plan.version.payload.get("tasks")
+        if not isinstance(tasks, list) or not tasks:
+            raise RuntimeError("recovery schedule produced no executable task")
+        task_id = tasks[0].get("taskId")
+        if not isinstance(task_id, str) or not task_id:
+            raise RuntimeError("recovery schedule task identity is missing")
         return {
             "planId": created.plan.plan.plan_id,
             "planVersion": created.plan.version.version,
+            "planVersionId": created.plan.version.version_id,
             "scheduleSnapshotId": scheduled.snapshot.snapshot_id,
             "scheduleDigest": scheduled.snapshot.schedule_digest,
             "status": scheduled.snapshot.status,
+            "approvalId": approved.approval.approval_id,
+            "taskId": task_id,
         }
     finally:
         await pool.close()
+
+
+async def seed_execution_history(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    schedule_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=2)
+    try:
+        execution_scope = ExecutionScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        result = await ExecutionService(
+            AsyncpgExecutionRepository(pool),
+            clock=lambda: datetime.now(timezone.utc),
+        ).update_task(
+            ExecutionUpdateRequest(
+                project_id=committed["projectId"],
+                plan_id=schedule_history["planId"],
+                plan_version_id=schedule_history["planVersionId"],
+                task_id=schedule_history["taskId"],
+                expected_sequence=0,
+                status="in_progress",
+                actual_start="2026-08-18",
+                note="Synthetic recovery execution update",
+            ),
+            execution_scope,
+        )
+        return {
+            "taskId": result.update.task_id,
+            "sequence": result.update.sequence_no,
+            "status": result.update.status,
+        }
+    finally:
+        await pool.close()
+
+
+async def seed_retrieval_history(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    work_root: Path,
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=2)
+    try:
+        retrieval_scope = RetrievalScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        repository = AsyncpgRetrievalRepository(
+            pool,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        result = await SourceIndexingService(
+            source_reader=AsyncpgArtifactVersionSourceReader(pool),
+            object_store=LocalObjectStore(work_root / "objects"),
+            repository=repository,
+        ).index_source(
+            IndexSourceRequest(
+                committed["projectId"], committed["proposalVersionId"]
+            ),
+            retrieval_scope,
+        )
+        if result.replayed or not result.index.chunks:
+            raise RuntimeError("recovery retrieval fixture was not indexed freshly")
+        return {
+            "indexId": result.index.index_id,
+            "artifactVersionId": committed["proposalVersionId"],
+            "chunkCount": len(result.index.chunks),
+            "indexSha256": result.index.index_sha256,
+        }
+    finally:
+        await pool.close()
+
+
+async def fresh_execution_read(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    schedule_history: Mapping[str, Any],
+    execution_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=1)
+    try:
+        states = await ExecutionService(
+            AsyncpgExecutionRepository(pool),
+            clock=lambda: datetime.now(timezone.utc),
+        ).read_states(
+            committed["projectId"],
+            schedule_history["planVersionId"],
+            ExecutionScopeContext(
+                scope.organization_id,
+                scope.workspace_id,
+                scope.client_id,
+                scope.actor_id,
+            ),
+        )
+    finally:
+        await pool.close()
+    state = states.get(execution_history["taskId"])
+    if (
+        state is None
+        or state.sequence_no != execution_history["sequence"]
+        or state.status != execution_history["status"]
+    ):
+        raise RuntimeError("restored execution state is not readable by a fresh service")
+    return {
+        "accepted": True,
+        "taskId": state.task_id,
+        "sequence": state.sequence_no,
+        "status": state.status,
+    }
+
+
+async def fresh_retrieval_replay(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    restore_work_root: Path,
+    retrieval_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=2)
+    try:
+        retrieval_scope = RetrievalScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        repository = AsyncpgRetrievalRepository(
+            pool,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        replay = await SourceIndexingService(
+            source_reader=AsyncpgArtifactVersionSourceReader(pool),
+            object_store=LocalObjectStore(restore_work_root / "objects"),
+            repository=repository,
+        ).index_source(
+            IndexSourceRequest(
+                committed["projectId"], retrieval_history["artifactVersionId"]
+            ),
+            retrieval_scope,
+        )
+        search = await RetrievalApplicationService(repository).search(
+            project_id=committed["projectId"],
+            query="approved proposal",
+            limit=5,
+            scope=retrieval_scope,
+        )
+    finally:
+        await pool.close()
+    if (
+        not replay.replayed
+        or replay.index.index_id != retrieval_history["indexId"]
+        or replay.index.index_sha256 != retrieval_history["indexSha256"]
+        or len(replay.index.chunks) != retrieval_history["chunkCount"]
+        or not search.results
+    ):
+        raise RuntimeError("restored retrieval index failed replay or search")
+    return {
+        "accepted": True,
+        "indexId": replay.index.index_id,
+        "chunkCount": len(replay.index.chunks),
+        "resultCount": len(search.results),
+        "replayed": True,
+    }
 
 
 async def verify_legacy_upgrade_restore(
@@ -1215,6 +1424,12 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         schedule_history = await seed_schedule_history(
             asyncpg, app_dsn, scope, committed, review_history
         )
+        execution_history = await seed_execution_history(
+            asyncpg, app_dsn, scope, committed, schedule_history
+        )
+        retrieval_history = await seed_retrieval_history(
+            asyncpg, app_dsn, scope, committed, work_root
+        )
         manifest, toc_tables = await export_bundle(
             asyncpg,
             admin_dsn=admin_dsn,
@@ -1280,6 +1495,13 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             await target_connection.close()
         if restored_snapshot != manifest["snapshot"]:
             raise RuntimeError("restored database row-set hashes differ from the exported snapshot")
+        for table in (
+            "wbs_task_execution_updates",
+            "source_indexes",
+            "source_chunks",
+        ):
+            if restored_snapshot[table]["count"] < 1:
+                raise RuntimeError(f"restored {table} recovery fixture is empty")
         manifest_objects = [
             {key: item[key] for key in ("storageKey", "kind", "sizeBytes", "sha256")}
             for item in manifest["objects"]
@@ -1302,6 +1524,22 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         replayed = await fresh_replay(target_app, restore_work_root, state)
         review_replayed = await fresh_review_replay(
             asyncpg, target_app, scope, committed, review_history
+        )
+        execution_read = await fresh_execution_read(
+            asyncpg,
+            target_app,
+            scope,
+            committed,
+            schedule_history,
+            execution_history,
+        )
+        retrieval_replayed = await fresh_retrieval_replay(
+            asyncpg,
+            target_app,
+            scope,
+            committed,
+            restore_work_root,
+            retrieval_history,
         )
 
         source_project_after, _ = await project_snapshot(
@@ -1332,9 +1570,9 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         negative["singleTransactionRollbackVerified"] = True
 
         evidence = {
-            "schemaVersion": 2,
-            "taskId": "M1-02",
-            "workPackage": "WP2B-1-review-backup-restore",
+            "schemaVersion": 3,
+            "taskId": "M2-01",
+            "workPackage": "M2-01-backup-restore",
             "postgresVersionNum": POSTGRES_VERSION_NUM,
             "migrations": list(MIGRATION_SET),
             "databaseTableData": list(toc_tables),
@@ -1356,6 +1594,10 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
                 "visibility": visibility,
                 "reviewHistory": review_history,
                 "scheduleHistory": schedule_history,
+                "executionHistory": execution_history,
+                "freshExecutionRead": execution_read,
+                "retrievalHistory": retrieval_history,
+                "freshRetrievalReplay": retrieval_replayed,
                 "freshReviewReplay": review_replayed,
                 "persistentIdempotencyRequestRestored": (
                     manifest["snapshot"]["extraction_run_requests"]["count"] == 1
@@ -1366,13 +1608,14 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             "negativeChecks": negative,
             "claimBoundary": (
                 "This synthetic CI experiment establishes application-level logical backup and "
-                "isolated restore for the reviewed PostgreSQL 18.4 migrations, non-empty review history, "
+                "isolated restore for seven reviewed PostgreSQL 18.4 migrations, non-empty review history, "
                 "a seven-table v1 bundle and a twelve-table v2 review bundle each upgraded into the current "
-                "four-migration schema, a non-empty v3 persistent review idempotency request replayed through "
-                "a fresh ReviewService, non-empty WBS and schedule rows restored by row-set hash, and the current immutable "
+                "seven-migration schema, a non-empty v3 persistent review idempotency request replayed through "
+                "a fresh ReviewService, non-empty WBS, schedule, execution, source-index, and source-chunk rows "
+                "restored by row-set hash, fresh execution and retrieval service reads, and the current immutable "
                 "local-object adapter. It does not establish physical crash consistency, WAL/PITR, "
                 "authenticity, encryption, off-site retention, production cutover, RPO/RTO, "
-                "cross-host or PostgreSQL-version recovery, demand, ROI, repeat use, payment, or M1-02 completion."
+                "cross-host or PostgreSQL-version recovery, demand, ROI, repeat use, payment, or M2-01 completion."
             ),
         }
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -1409,9 +1652,9 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             cleanup_failed = True
         if cleanup_failed:
             if active_error is not None:
-                active_error.add_note("WP2B-1 backup/restore cleanup also failed")
+                active_error.add_note("M2-01 backup/restore cleanup also failed")
             else:
-                raise RuntimeError("WP2B-1 backup/restore cleanup failed")
+                raise RuntimeError("M2-01 backup/restore cleanup failed")
 
 
 def main() -> int:

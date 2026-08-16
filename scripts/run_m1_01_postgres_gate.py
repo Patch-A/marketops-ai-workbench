@@ -35,6 +35,9 @@ APPROVAL_MIGRATION = (
 EXECUTION_MIGRATION = (
     ROOT / "apps" / "api" / "migrations" / "0006_task_execution.sql"
 )
+RETRIEVAL_MIGRATION = (
+    ROOT / "apps" / "api" / "migrations" / "0007_source_retrieval.sql"
+)
 MIGRATOR_ROLE = "marketops_migrator"
 APPLICATION_ROLE = "marketops_app"
 DATABASE_NAME = "marketops_test"
@@ -93,6 +96,11 @@ EXPECTED_RELATION_PRIVILEGES = frozenset(
         ("wbs_plan_approvals", "INSERT"),
         ("wbs_task_execution_updates", "SELECT"),
         ("wbs_task_execution_updates", "INSERT"),
+        ("source_indexes", "SELECT"),
+        ("source_indexes", "INSERT"),
+        ("source_chunks", "SELECT"),
+        ("source_chunks", "INSERT"),
+        ("source_chunks", "DELETE"),
     }
 )
 EXPECTED_FUNCTION_EXECUTE = frozenset(
@@ -108,6 +116,9 @@ EXPECTED_COLUMN_UPDATE_PRIVILEGES = frozenset(
         ("projects", "created_by"),
         ("extraction_runs", "created_by"),
         ("wbs_plans", "created_by"),
+        ("source_indexes", "status"),
+        ("source_indexes", "withdrawn_by"),
+        ("source_indexes", "withdrawn_at"),
     }
 )
 
@@ -285,6 +296,18 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
                 raise RuntimeError(
                     f"task execution migration contract failed: {sixth!r}"
                 )
+            (migration_directory / RETRIEVAL_MIGRATION.name).write_bytes(
+                RETRIEVAL_MIGRATION.read_bytes()
+            )
+            seventh = await run_migrations(
+                connection,
+                migration_directory,
+                allowed_schema_usage_roles=(APPLICATION_ROLE,),
+            )
+            if seventh != (RETRIEVAL_MIGRATION.name,):
+                raise RuntimeError(
+                    f"source retrieval migration contract failed: {seventh!r}"
+                )
         await connection.execute(
             f"""
             GRANT SELECT, INSERT ON
@@ -300,6 +323,12 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
                 marketops.schedule_snapshots,
                 marketops.wbs_plan_approvals,
                 marketops.wbs_task_execution_updates
+            TO {APPLICATION_ROLE};
+            GRANT SELECT, INSERT ON marketops.source_indexes
+            TO {APPLICATION_ROLE};
+            GRANT UPDATE (status, withdrawn_by, withdrawn_at)
+            ON marketops.source_indexes TO {APPLICATION_ROLE};
+            GRANT SELECT, INSERT, DELETE ON marketops.source_chunks
             TO {APPLICATION_ROLE};
             GRANT UPDATE (created_by) ON marketops.projects TO {APPLICATION_ROLE};
             GRANT UPDATE (created_by) ON marketops.extraction_runs TO {APPLICATION_ROLE};
@@ -328,6 +357,9 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
             EXECUTION_MIGRATION.name: hashlib.sha256(
                 EXECUTION_MIGRATION.read_bytes()
             ).digest(),
+            RETRIEVAL_MIGRATION.name: hashlib.sha256(
+                RETRIEVAL_MIGRATION.read_bytes()
+            ).digest(),
         }
         recorded = await connection.fetch(
             """
@@ -348,6 +380,7 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
             SCHEDULE_MIGRATION.name,
             APPROVAL_MIGRATION.name,
             EXECUTION_MIGRATION.name,
+            RETRIEVAL_MIGRATION.name,
         )
     finally:
         await connection.close()
@@ -687,6 +720,7 @@ async def run(output: Path | None) -> None:
                     SCHEDULE_MIGRATION,
                     APPROVAL_MIGRATION,
                     EXECUTION_MIGRATION,
+                    RETRIEVAL_MIGRATION,
                 )
             ],
             "replayApplied": [],
