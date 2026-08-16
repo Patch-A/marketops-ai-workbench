@@ -7,6 +7,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[3]
 MIGRATION = ROOT / "apps" / "api" / "migrations" / "0007_source_retrieval.sql"
 ADAPTER = ROOT / "apps" / "api" / "marketops_retrieval" / "postgres.py"
+INDEXING = ROOT / "apps" / "api" / "marketops_retrieval" / "indexing.py"
+GATE = ROOT / "scripts" / "run_m2_01_postgres_gate.py"
 
 
 class RetrievalPostgresContractTests(unittest.TestCase):
@@ -14,6 +16,8 @@ class RetrievalPostgresContractTests(unittest.TestCase):
     def setUpClass(cls) -> None:
         cls.migration = MIGRATION.read_text(encoding="utf-8")
         cls.adapter = ADAPTER.read_text(encoding="utf-8")
+        cls.indexing = INDEXING.read_text(encoding="utf-8")
+        cls.gate = GATE.read_text(encoding="utf-8")
 
     def test_migration_forces_scope_and_source_integrity(self):
         required = (
@@ -59,6 +63,7 @@ class RetrievalPostgresContractTests(unittest.TestCase):
             "$11::jsonb",
             "status = 'withdrawn'",
             "DELETE FROM marketops.source_chunks WHERE index_id = $1",
+            'isolation="repeatable_read"',
             '"source_index.created"',
             '"source_index.withdrawn"',
         )
@@ -67,6 +72,30 @@ class RetrievalPostgresContractTests(unittest.TestCase):
                 self.assertIn(marker, self.adapter)
         self.assertNotIn("format(", self.adapter)
         self.assertNotIn("postgresql://", self.adapter)
+
+    def test_source_loader_binds_server_scope_and_selected_version(self):
+        required = (
+            "set_config('app.workspace_id', $1, true)",
+            "set_config('app.client_id', $2, true)",
+            "set_config('app.project_id', $3, true)",
+            "set_config('app.actor_id', $4, true)",
+            "artifact.organization_id = $1",
+            "artifact.workspace_id = $2",
+            "artifact.client_id = $3",
+            "artifact.project_id = $4",
+            "version.id = $5",
+            "artifact.created_by = $6",
+            "version.created_by = $6",
+            "read_verified_immutable",
+            "RuntimeProposalParser",
+            "GRANT SELECT ON marketops.artifacts",
+            "GRANT SELECT ON marketops.artifact_versions",
+        )
+        for marker in required:
+            with self.subTest(marker=marker):
+                target = self.gate if marker.startswith("GRANT ") else self.indexing
+                self.assertIn(marker, target)
+        self.assertNotIn("postgresql://", self.indexing)
 
 
 if __name__ == "__main__":

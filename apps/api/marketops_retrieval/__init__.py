@@ -20,6 +20,15 @@ from .postgres import (
     PersistIndexResult,
     WithdrawIndexResult,
 )
+from .indexing import (
+    PARSER_VERSION,
+    ArtifactVersionSource,
+    AsyncpgArtifactVersionSourceReader,
+    IndexSourceRequest,
+    IndexSourceResult,
+    SourceIndexingService,
+)
+from .application import RetrievalApplicationService
 
 __all__ = [
     "Citation",
@@ -38,4 +47,11 @@ __all__ = [
     "AsyncpgRetrievalRepository",
     "PersistIndexResult",
     "WithdrawIndexResult",
+    "PARSER_VERSION",
+    "ArtifactVersionSource",
+    "AsyncpgArtifactVersionSourceReader",
+    "IndexSourceRequest",
+    "IndexSourceResult",
+    "SourceIndexingService",
+    "RetrievalApplicationService",
 ]

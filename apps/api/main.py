@@ -24,6 +24,12 @@ from .marketops_review import (
 from .marketops_extract import RuntimeProposalParser
 from .marketops_schedule import AsyncpgScheduleRepository, ScheduleService
 from .marketops_execution import AsyncpgExecutionRepository, ExecutionService
+from .marketops_retrieval import (
+    AsyncpgArtifactVersionSourceReader,
+    AsyncpgRetrievalRepository,
+    RetrievalApplicationService,
+    SourceIndexingService,
+)
 
 
 @dataclass(frozen=True)
@@ -91,6 +97,11 @@ async def _lifespan(application: FastAPI):
             id_factory=lambda: str(uuid4()),
             clock=lambda: datetime.now(timezone.utc),
         )
+        retrieval_repository = AsyncpgRetrievalRepository(
+            pool,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
         application.state.authenticator = StaticBearerAuthenticator(
             settings.bearer_token,
             settings.scope,
@@ -114,6 +125,15 @@ async def _lifespan(application: FastAPI):
             object_store=object_store,
             review_service=review_service,
             parser=RuntimeProposalParser(),
+        )
+        application.state.retrieval_indexing = SourceIndexingService(
+            source_reader=AsyncpgArtifactVersionSourceReader(pool),
+            object_store=object_store,
+            repository=retrieval_repository,
+            parser=RuntimeProposalParser(),
+        )
+        application.state.retrieval_service = RetrievalApplicationService(
+            retrieval_repository
         )
         yield
     finally:

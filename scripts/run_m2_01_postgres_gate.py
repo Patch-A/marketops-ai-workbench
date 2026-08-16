@@ -70,6 +70,7 @@ async def provision() -> dict[str, object]:
         await connection.execute(
             f"""
             GRANT USAGE ON SCHEMA marketops TO {APPLICATION_ROLE};
+            GRANT SELECT ON marketops.artifacts TO {APPLICATION_ROLE};
             GRANT SELECT ON marketops.artifact_versions TO {APPLICATION_ROLE};
             GRANT INSERT ON marketops.audit_events TO {APPLICATION_ROLE};
             GRANT SELECT, INSERT ON marketops.source_indexes TO {APPLICATION_ROLE};
@@ -103,6 +104,8 @@ async def provision() -> dict[str, object]:
         privileges = await app.fetchrow(
             """
             SELECT
+                has_table_privilege(current_user, 'marketops.artifacts', 'SELECT') AS artifact_select,
+                has_table_privilege(current_user, 'marketops.artifact_versions', 'SELECT') AS artifact_version_select,
                 has_table_privilege(current_user, 'marketops.source_indexes', 'SELECT') AS index_select,
                 has_table_privilege(current_user, 'marketops.source_indexes', 'INSERT') AS index_insert,
                 has_table_privilege(current_user, 'marketops.source_indexes', 'UPDATE') AS index_update,
@@ -120,6 +123,8 @@ async def provision() -> dict[str, object]:
     finally:
         await app.close()
     expected = {
+        "artifact_select": True,
+        "artifact_version_select": True,
         "index_select": True,
         "index_insert": True,
         "index_update": False,

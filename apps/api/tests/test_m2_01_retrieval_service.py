@@ -147,6 +147,13 @@ class RetrievalServiceTests(unittest.TestCase):
         with self.assertRaises(RetrievalFailure) as raised:
             validate_citation(result.results[0].citation, changed)
         self.assertEqual(raised.exception.code, "CITATION_STALE")
+        with self.assertRaises(RetrievalFailure) as search_raised:
+            search_source_indexes(
+                (changed,), project_id=self.project_id, query="legal review",
+                scope=self.scope,
+                current_source_hashes={self.version_id: self.source_sha},
+            )
+        self.assertEqual(search_raised.exception.code, "CONTENT_STALE")
 
     def test_invalid_inputs_are_sanitized(self):
         cases = (

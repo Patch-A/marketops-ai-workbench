@@ -122,8 +122,9 @@ Human-controlled boundaries:
 MVP scope:
 
 - Persistent source-index metadata and deterministic `SourceChunk` records.
-- Markdown, CSV, TXT, and basic DOCX inputs already accepted by the M1 parser
-  boundary; unsupported or partial formats continue to fail explicitly.
+- Markdown, TXT, and basic DOCX inputs accepted by the current M1 runtime parser;
+  unsupported or partial formats continue to fail explicitly. CSV import exists,
+  but CSV runtime parsing is not implemented and must not be advertised yet.
 - Authenticated index, search, status/read, and index-withdrawal operations.
 - Project/workspace/client isolation in service logic, SQL predicates, forced
   RLS, and cross-scope runtime tests.
@@ -206,18 +207,18 @@ source-hash freshness, content-drift citation invalidation, withdrawal removing
 derived chunk text, and sanitized invalid-input failures. The frozen M0-04 gate
 also still passes all 16 oracle cases plus scope-order, freshness, and CLI checks.
 
-This evidence does not include PostgreSQL persistence, RLS execution, HTTP or
-OpenAPI behavior, atomic withdrawal/audit, original-file deletion, a non-
-implementer review, real-document recall, or M2-01 completion. The registry must
-remain `in_progress`.
+This was the first dependency-neutral checkpoint. Later evidence below adds
+PostgreSQL, source-object loading, HTTP, and OpenAPI behavior; it still does not
+establish original-file deletion, independent review, real-document recall, or
+M2-01 completion. The registry must remain `in_progress`.
 
 ## PostgreSQL persistence evidence
 
 Migration `0007_source_retrieval.sql`, the asyncpg repository, and a reproducible
-PostgreSQL gate are implemented. The dependency-neutral and static retrieval
-suite passes 11/11 checks. A dedicated PostgreSQL 18.4 container applied and
+PostgreSQL gate are implemented. The focused domain, persistence, indexing, and
+HTTP suite passes 21/21 checks. A dedicated PostgreSQL 18.4 container applied and
 recorded migrations 0001 through 0007, then the replay-safe runtime gate passed
-3/3 checks:
+5/5 checks:
 
 - two concurrent identical index writes serialized on the deterministic index ID
   and produced one fact plus one replay;
@@ -230,25 +231,40 @@ recorded migrations 0001 through 0007, then the replay-safe runtime gate passed
   and replayed without adding another event;
 - a forced withdrawal-audit failure rolled back the status change, withdrawal
   fields, chunk deletion, and audit insert together;
+- the server loaded an explicitly selected same-project `ArtifactVersion`,
+  verified retained object size and SHA-256, parsed Markdown, persisted the index,
+  and replayed it without accepting storage or pipeline facts from the caller;
+- authenticated ASGI requests exercised index, search, status, and withdrawal
+  against the actual PostgreSQL application role, including an empty result after
+  withdrawal;
 - container logging used `terse/panic`; 59 captured lines had zero matches for
   DSNs, passwords, synthetic source text, index markers, or UUIDs.
 
 The M0-04 gate still passes 16 oracle cases plus scope-order, freshness, and CLI
-checks. Existing backup bundle unit tests pass 12/12, but the current backup
+checks. Existing backup and restore contract tests pass 33/33, but the current backup
 manifest is schema v5 and does not include either the 0006 execution table or the
 0007 retrieval tables. Those tests are regression evidence only, not M2 recovery
 evidence. Backup schema expansion and real restore must pass before M2-01 can make
 a recovery claim.
 
-HTTP/OpenAPI behavior, source-object loading and parser orchestration, backup and
-restore, original-file deletion, and independent review remain unfinished. The
-task stays `in_progress`.
+The M2 OpenAPI checker passes 11 guards and 11 mutations; the existing combined
+contract checker passes 45 guards and 104 mutations. Full API discovery passes
+450 tests with 36 capability-gated skips, while the five M2 PostgreSQL tests run
+separately against the dedicated container. Search rechecks source hashes and
+chunk-content hashes before scoring, and returns bounded cited excerpts through a
+JSON POST body rather than a query URL.
+
+CSV remains an import-only format: the runtime retrieval parser supports Markdown,
+TXT, and basic DOCX, and rejects CSV explicitly instead of overstating support.
+Backup and restore expansion through 0007, original-file deletion, independent
+review, and real-document recall remain unfinished. The task stays `in_progress`.
 
 ## Acceptance commands
 
 ```powershell
 python -m unittest apps.api.tests.test_m2_01_retrieval_service `
   apps.api.tests.test_m2_01_retrieval_postgres_adapter `
+  apps.api.tests.test_m2_01_retrieval_indexing `
   apps.api.tests.test_m2_01_retrieval_http -v
 python -m unittest apps.api.tests.postgres.test_m2_01_retrieval_runtime -v
 python scripts/check_m2_01_openapi_contract.py

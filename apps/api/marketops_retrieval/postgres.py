@@ -40,6 +40,17 @@ WHERE id = $1
   AND created_by = $6
 """
 
+_CURRENT_SOURCE_HASHES_SQL = """
+SELECT id, sha256
+FROM marketops.artifact_versions
+WHERE organization_id = $1
+  AND workspace_id = $2
+  AND client_id = $3
+  AND project_id = $4
+  AND created_by = $5
+ORDER BY id
+"""
+
 _INDEX_BY_ID_SQL = """
 SELECT id, organization_id, workspace_id, client_id, project_id,
        artifact_version_id, source_sha256, parser_version, chunker_version,
@@ -265,6 +276,111 @@ class AsyncpgRetrievalRepository:
         except Exception:
             raise RetrievalFailure(
                 "RETRIEVAL_READ_FAILED", "source indexes could not be read"
+            ) from None
+
+    async def get_index(
+        self,
+        scope: RetrievalScopeContext,
+        project_id: str,
+        index_id: str,
+    ) -> SourceIndex | None:
+        try:
+            async with self._read_connection(scope, project_id) as connection:
+                row = await connection.fetchrow(
+                    _INDEX_BY_ID_SQL,
+                    index_id,
+                    scope.organization_id,
+                    scope.workspace_id,
+                    scope.client_id,
+                    project_id,
+                    scope.actor_id,
+                )
+                if row is None:
+                    return None
+                return await _load_index(connection, row, scope)
+        except asyncio.CancelledError:
+            raise
+        except RetrievalFailure:
+            raise
+        except Exception:
+            raise RetrievalFailure(
+                "RETRIEVAL_READ_FAILED", "source index could not be read"
+            ) from None
+
+    async def current_source_hashes(
+        self,
+        scope: RetrievalScopeContext,
+        project_id: str,
+    ) -> dict[str, str]:
+        try:
+            async with self._read_connection(scope, project_id) as connection:
+                rows = await connection.fetch(
+                    _CURRENT_SOURCE_HASHES_SQL,
+                    scope.organization_id,
+                    scope.workspace_id,
+                    scope.client_id,
+                    project_id,
+                    scope.actor_id,
+                )
+                return {_uuid(row["id"]): _hex(row["sha256"]) for row in rows}
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            raise RetrievalFailure(
+                "RETRIEVAL_READ_FAILED", "source freshness could not be read"
+            ) from None
+
+    async def load_search_snapshot(
+        self,
+        scope: RetrievalScopeContext,
+        project_id: str,
+    ) -> tuple[tuple[SourceIndex, ...], dict[str, str]]:
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.transaction(
+                    readonly=True, isolation="repeatable_read"
+                ):
+                    await connection.fetchrow(
+                        _SET_SCOPE_SQL,
+                        scope.workspace_id,
+                        scope.client_id,
+                        project_id,
+                        scope.actor_id,
+                    )
+                    index_rows = await connection.fetch(
+                        _LIST_INDEXES_SQL,
+                        scope.organization_id,
+                        scope.workspace_id,
+                        scope.client_id,
+                        project_id,
+                        scope.actor_id,
+                    )
+                    indexes = tuple(
+                        [
+                            await _load_index(connection, row, scope)
+                            for row in index_rows
+                        ]
+                    )
+                    source_rows = await connection.fetch(
+                        _CURRENT_SOURCE_HASHES_SQL,
+                        scope.organization_id,
+                        scope.workspace_id,
+                        scope.client_id,
+                        project_id,
+                        scope.actor_id,
+                    )
+                    source_hashes = {
+                        _uuid(row["id"]): _hex(row["sha256"])
+                        for row in source_rows
+                    }
+                    return indexes, source_hashes
+        except asyncio.CancelledError:
+            raise
+        except RetrievalFailure:
+            raise
+        except Exception:
+            raise RetrievalFailure(
+                "RETRIEVAL_READ_FAILED", "retrieval snapshot could not be read"
             ) from None
 
     async def withdraw_index(

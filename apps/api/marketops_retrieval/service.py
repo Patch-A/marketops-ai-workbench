@@ -257,6 +257,7 @@ def search_source_indexes(
         current_hash = current_source_hashes.get(index.source.artifact_version_id)
         if current_hash != index.source.source_sha256:
             raise RetrievalFailure("SOURCE_STALE", "source index freshness check failed")
+        _validate_index_integrity(index)
         chunks.extend(index.chunks)
 
     query_terms = _tokens(query)
@@ -419,6 +420,55 @@ def _assert_authorized_index(
             raise RetrievalFailure(
                 "SCOPE_CONTAMINATION", "retrieval candidates violated scope boundaries"
             )
+
+
+def _validate_index_integrity(index: SourceIndex) -> None:
+    expected_index_id = str(
+        uuid5(
+            NAMESPACE_URL,
+            "marketops:source-index:"
+            f"{index.source.artifact_version_id}:{index.source.source_sha256}:"
+            f"{index.source.parser_version}:{index.chunker_version}",
+        )
+    )
+    if index.index_id != expected_index_id or not index.chunks:
+        raise RetrievalFailure("CONTENT_STALE", "source index integrity check failed")
+    for ordinal, chunk in enumerate(index.chunks):
+        expected_content_sha256 = _sha256_text(chunk.text)
+        expected_chunk_id = str(
+            uuid5(
+                NAMESPACE_URL,
+                "marketops:source-chunk:"
+                f"{index.index_id}:{ordinal}:{expected_content_sha256}",
+            )
+        )
+        if (
+            chunk.ordinal != ordinal
+            or chunk.content_sha256 != expected_content_sha256
+            or chunk.chunk_id != expected_chunk_id
+        ):
+            raise RetrievalFailure(
+                "CONTENT_STALE", "source chunk integrity check failed"
+            )
+    expected_index_sha256 = _canonical_sha256(
+        {
+            "indexId": index.index_id,
+            "sourceSha256": index.source.source_sha256,
+            "parserVersion": index.source.parser_version,
+            "chunkerVersion": index.chunker_version,
+            "chunks": [
+                {
+                    "chunkId": chunk.chunk_id,
+                    "ordinal": chunk.ordinal,
+                    "contentSha256": chunk.content_sha256,
+                    "location": chunk.location,
+                }
+                for chunk in index.chunks
+            ],
+        }
+    )
+    if index.index_sha256 != expected_index_sha256:
+        raise RetrievalFailure("CONTENT_STALE", "source index integrity check failed")
 
 
 def _validate_location(value: Mapping[str, Any]) -> Mapping[str, Any]:

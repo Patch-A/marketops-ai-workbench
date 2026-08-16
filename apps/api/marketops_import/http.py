@@ -47,6 +47,11 @@ from ..marketops_execution import (
     ExecutionScopeContext,
     ExecutionUpdateRequest,
 )
+from ..marketops_retrieval import (
+    IndexSourceRequest,
+    RetrievalFailure,
+    RetrievalScopeContext,
+)
 
 
 Authenticator = Callable[
@@ -61,6 +66,9 @@ _MAX_TEXT_FIELD_SIZE_BYTES = 4096
 _MAX_MULTIPART_REQUEST_SIZE_BYTES = 2 * MAX_FILE_SIZE_BYTES + 64 * 1024
 _MAX_REVIEW_JSON_BYTES = 16 * 1024
 _MAX_SCHEDULE_JSON_BYTES = 128 * 1024
+_INDEX_SOURCE_FIELDS = frozenset({"artifactVersionId"})
+_SEARCH_REQUIRED_FIELDS = frozenset({"query"})
+_SEARCH_OPTIONAL_FIELDS = frozenset({"limit"})
 _CREATE_REVIEW_FIELDS = frozenset(
     {"expectedProposalVersionId", "expectedProposalSha256"}
 )
@@ -117,10 +125,24 @@ _STATUS_BY_CODE = {
     "PROPOSAL_NOT_AVAILABLE": 422,
     "PROPOSAL_CHANGED": 409,
     "SOURCE_READ_FAILED": 503,
+    "SOURCE_NOT_FOUND": 404,
     "SOURCE_INTEGRITY_FAILED": 422,
     "PARSER_FAILED": 422,
     "PARSER_LIMIT_EXCEEDED": 422,
     "PARSER_WARNING": 422,
+    "SOURCE_TOO_LARGE": 422,
+    "INVALID_SOURCE": 422,
+    "INVALID_QUERY": 400,
+    "INDEX_NOT_FOUND": 404,
+    "INDEX_CONFLICT": 409,
+    "INDEX_NOT_READY": 409,
+    "SOURCE_STALE": 409,
+    "CONTENT_STALE": 409,
+    "CITATION_STALE": 409,
+    "SCOPE_CONTAMINATION": 500,
+    "INDEX_WRITE_FAILED": 503,
+    "RETRIEVAL_WRITE_FAILED": 503,
+    "RETRIEVAL_READ_FAILED": 503,
     "EXTRACTION_FAILED": 422,
     "NO_CANDIDATES": 422,
     "CANDIDATE_LIMIT_EXCEEDED": 422,
@@ -150,7 +172,7 @@ _PUBLIC_MESSAGES = {
     "INVALID_INPUT": "The import request is malformed or incomplete.",
     "AUTHORIZATION_REQUIRED": "A valid server authorization scope is required.",
     "PAYLOAD_TOO_LARGE": "The request payload exceeds its allowed size.",
-    "UNSUPPORTED_FORMAT": "An uploaded file format is unsupported.",
+    "UNSUPPORTED_FORMAT": "The selected source file format is unsupported.",
     "INVALID_MEDIA_TYPE": "An uploaded file media type is unsupported.",
     "INVALID_DOCUMENT": "An uploaded document is invalid.",
     "APPROVAL_REQUIRED": "Explicit proposal approval is required.",
@@ -163,11 +185,25 @@ _PUBLIC_MESSAGES = {
     "PROJECT_NOT_FOUND": "The requested project was not found.",
     "PROPOSAL_NOT_AVAILABLE": "The approved proposal is not available.",
     "PROPOSAL_CHANGED": "The approved proposal differs from the expected source.",
-    "SOURCE_READ_FAILED": "The approved proposal is temporarily unavailable.",
-    "SOURCE_INTEGRITY_FAILED": "The approved proposal failed integrity verification.",
-    "PARSER_FAILED": "The approved proposal could not be parsed.",
-    "PARSER_LIMIT_EXCEEDED": "The approved proposal exceeds parser limits.",
-    "PARSER_WARNING": "The approved proposal contains unsupported content.",
+    "SOURCE_READ_FAILED": "The selected source is temporarily unavailable.",
+    "SOURCE_NOT_FOUND": "The selected source version was not found.",
+    "SOURCE_INTEGRITY_FAILED": "The selected source failed integrity verification.",
+    "PARSER_FAILED": "The selected source could not be parsed.",
+    "PARSER_LIMIT_EXCEEDED": "The selected source exceeds parser limits.",
+    "PARSER_WARNING": "The selected source contains unsupported content.",
+    "SOURCE_TOO_LARGE": "The selected source exceeds index limits.",
+    "INVALID_SOURCE": "The selected source cannot be indexed.",
+    "INVALID_QUERY": "The retrieval query is invalid.",
+    "INDEX_NOT_FOUND": "The requested source index was not found.",
+    "INDEX_CONFLICT": "The source index conflicts with an existing fact.",
+    "INDEX_NOT_READY": "The source index is not available for this operation.",
+    "SOURCE_STALE": "The source index no longer matches its retained source.",
+    "CONTENT_STALE": "The source index content failed freshness validation.",
+    "CITATION_STALE": "The citation is no longer current.",
+    "SCOPE_CONTAMINATION": "The retrieval candidate scope is invalid.",
+    "INDEX_WRITE_FAILED": "The source index could not be persisted.",
+    "RETRIEVAL_WRITE_FAILED": "The retrieval change could not be persisted.",
+    "RETRIEVAL_READ_FAILED": "Project retrieval is temporarily unavailable.",
     "EXTRACTION_FAILED": "Review candidates could not be extracted.",
     "NO_CANDIDATES": "The approved proposal produced no review candidates.",
     "CANDIDATE_LIMIT_EXCEEDED": "The approved proposal produced too many candidates.",
@@ -262,6 +298,8 @@ def create_app(
     review_service: Any | None = None,
     schedule_service: Any | None = None,
     execution_service: Any | None = None,
+    retrieval_indexing: Any | None = None,
+    retrieval_service: Any | None = None,
     static_root: Path | None = None,
     request_id_factory: Callable[[], Any] = uuid4,
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[Any]] | None = None,
@@ -288,6 +326,10 @@ def create_app(
         app.state.schedule_service = schedule_service
     if execution_service is not None:
         app.state.execution_service = execution_service
+    if retrieval_indexing is not None:
+        app.state.retrieval_indexing = retrieval_indexing
+    if retrieval_service is not None:
+        app.state.retrieval_service = retrieval_service
 
     @app.post("/v1/project-imports", status_code=201)
     async def import_project(request: Request) -> JSONResponse:
@@ -469,6 +511,186 @@ def create_app(
         except Exception:
             return _failure(
                 "DATABASE_WRITE_FAILED", request_id, status=500, retryable=True
+            )
+
+    @app.post("/v1/projects/{project_id}/source-indexes", status_code=201)
+    async def create_source_index(
+        project_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        if canonical_project is None:
+            return _failure("SOURCE_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(request)
+            _require_exact_fields(body, _INDEX_SOURCE_FIELDS)
+            version_id = _canonical_review_uuid(body.get("artifactVersionId"))
+            if version_id is None:
+                raise _MalformedRequest
+            service = getattr(request.app.state, "retrieval_indexing", None)
+            if service is None:
+                return _failure(
+                    "RETRIEVAL_WRITE_FAILED", request_id, status=503, retryable=True
+                )
+            result = await service.index_source(
+                IndexSourceRequest(canonical_project, version_id),
+                _retrieval_scope(scope_or_error),
+            )
+            response = _json_no_store(
+                {**_source_index_json(result.index), "replayed": result.replayed},
+                status_code=201,
+            )
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_project}/source-indexes/"
+                f"{result.index.index_id}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except RetrievalFailure as error:
+            return _retrieval_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "RETRIEVAL_WRITE_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/source-indexes/{index_id}")
+    async def get_source_index(
+        project_id: str, index_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_index = _canonical_review_uuid(index_id)
+        if canonical_project is None or canonical_index is None:
+            return _failure("INDEX_NOT_FOUND", request_id, status=404)
+        try:
+            service = getattr(request.app.state, "retrieval_service", None)
+            if service is None:
+                return _failure(
+                    "RETRIEVAL_READ_FAILED", request_id, status=503, retryable=True
+                )
+            index = await service.read_index(
+                project_id=canonical_project,
+                index_id=canonical_index,
+                scope=_retrieval_scope(scope_or_error),
+            )
+            return _json_no_store(_source_index_json(index))
+        except asyncio.CancelledError:
+            raise
+        except RetrievalFailure as error:
+            return _retrieval_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "RETRIEVAL_READ_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.post("/v1/projects/{project_id}/retrieval-searches")
+    async def search_project_sources(
+        project_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        if canonical_project is None:
+            return _failure("SOURCE_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(request)
+            keys = frozenset(body)
+            if (
+                not _SEARCH_REQUIRED_FIELDS.issubset(keys)
+                or not keys.issubset(
+                    _SEARCH_REQUIRED_FIELDS | _SEARCH_OPTIONAL_FIELDS
+                )
+                or not isinstance(body.get("query"), str)
+                or not body["query"].strip()
+                or len(body["query"]) > 1000
+            ):
+                raise _MalformedRequest
+            limit = body.get("limit", 10)
+            if (
+                isinstance(limit, bool)
+                or not isinstance(limit, int)
+                or not 1 <= limit <= 20
+            ):
+                raise _MalformedRequest
+            service = getattr(request.app.state, "retrieval_service", None)
+            if service is None:
+                return _failure(
+                    "RETRIEVAL_READ_FAILED", request_id, status=503, retryable=True
+                )
+            result = await service.search(
+                project_id=canonical_project,
+                query=body["query"],
+                limit=limit,
+                scope=_retrieval_scope(scope_or_error),
+            )
+            return _json_no_store(_search_result_json(result))
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except RetrievalFailure as error:
+            return _retrieval_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "RETRIEVAL_READ_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.post(
+        "/v1/projects/{project_id}/source-indexes/{index_id}/withdrawal"
+    )
+    async def withdraw_source_index(
+        project_id: str, index_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_index = _canonical_review_uuid(index_id)
+        if canonical_project is None or canonical_index is None:
+            return _failure("INDEX_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(request)
+            _require_exact_fields(body, frozenset())
+            service = getattr(request.app.state, "retrieval_service", None)
+            if service is None:
+                return _failure(
+                    "RETRIEVAL_WRITE_FAILED", request_id, status=503, retryable=True
+                )
+            result = await service.withdraw(
+                project_id=canonical_project,
+                index_id=canonical_index,
+                scope=_retrieval_scope(scope_or_error),
+            )
+            return _json_no_store(
+                {**_source_index_json(result.index), "replayed": result.replayed}
+            )
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except RetrievalFailure as error:
+            return _retrieval_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "RETRIEVAL_WRITE_FAILED", request_id, status=503, retryable=True
             )
 
     @app.post("/v1/projects/{project_id}/extraction-runs", status_code=201)
@@ -1466,6 +1688,15 @@ def _execution_scope(scope: ScopeContext) -> ExecutionScopeContext:
     )
 
 
+def _retrieval_scope(scope: ScopeContext) -> RetrievalScopeContext:
+    return RetrievalScopeContext(
+        scope.organization_id,
+        scope.workspace_id,
+        scope.client_id,
+        scope.actor_id,
+    )
+
+
 async def _read_execution_rows(
     request: Request,
     project_id: str,
@@ -1676,6 +1907,51 @@ def _review_summary_json(summary: Any) -> dict[str, Any]:
     return _review_run_json(summary.run, summary.latest_review_version)
 
 
+def _source_index_json(index: Any) -> dict[str, Any]:
+    return {
+        "indexId": index.index_id,
+        "artifactVersionId": index.source.artifact_version_id,
+        "status": index.status,
+        "sourceSha256": index.source.source_sha256,
+        "parserVersion": index.source.parser_version,
+        "chunkerVersion": index.chunker_version,
+        "indexSha256": index.index_sha256,
+        "chunkCount": len(index.chunks),
+    }
+
+
+def _search_result_json(result: Any) -> dict[str, Any]:
+    return {
+        "retrievalMode": result.retrieval_mode,
+        "scoredCandidateCount": result.scored_candidate_count,
+        "resultCount": result.result_count,
+        "runSha256": result.run_sha256,
+        "results": [
+            {
+                "rank": hit.rank,
+                "lexicalRank": hit.lexical_rank,
+                "ngramRank": hit.ngram_rank,
+                "lexicalScore": hit.lexical_score,
+                "ngramScore": hit.ngram_score,
+                "combinedScore": hit.combined_score,
+                "excerpt": hit.excerpt,
+                "citation": {
+                    "indexId": hit.citation.index_id,
+                    "chunkId": hit.citation.chunk_id,
+                    "artifactVersionId": hit.citation.artifact_version_id,
+                    "sourceSha256": hit.citation.source_sha256,
+                    "contentSha256": hit.citation.content_sha256,
+                    "location": dict(hit.citation.location),
+                    "parserVersion": hit.citation.parser_version,
+                    "chunkerVersion": hit.citation.chunker_version,
+                    "freshness": hit.citation.freshness,
+                },
+            }
+            for hit in result.results
+        ],
+    }
+
+
 def _create_review_result_json(result: Any) -> dict[str, Any]:
     return {
         "runId": result.run.run_id,
@@ -1750,6 +2026,23 @@ def _review_failure(error: ReviewFailure, request_id: str) -> JSONResponse:
         request_id,
         status=_STATUS_BY_CODE.get(error.code, 500),
         retryable=error.code == "REPOSITORY_FAILURE",
+    )
+
+
+def _retrieval_failure(
+    error: RetrievalFailure, request_id: str
+) -> JSONResponse:
+    retryable = error.code in {
+        "SOURCE_READ_FAILED",
+        "INDEX_WRITE_FAILED",
+        "RETRIEVAL_WRITE_FAILED",
+        "RETRIEVAL_READ_FAILED",
+    }
+    return _failure(
+        error.code,
+        request_id,
+        status=_STATUS_BY_CODE.get(error.code, 500),
+        retryable=retryable,
     )
 
 

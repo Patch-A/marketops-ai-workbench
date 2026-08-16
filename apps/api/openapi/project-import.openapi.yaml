@@ -2,8 +2,8 @@
   "openapi": "3.1.0",
   "info": {
     "title": "MarketOps Project Import API",
-    "version": "0.3.0",
-    "description": "M1 proposal-to-schedule API contract. Authorization scope is resolved from the authenticated deployment actor and is never accepted from request bodies."
+    "version": "0.4.0",
+    "description": "M1 proposal-to-schedule and M2 project retrieval API contract. Authorization scope is resolved from the authenticated deployment actor and is never accepted from request bodies."
   },
   "paths": {
     "/v1/project-imports": {
@@ -242,6 +242,123 @@
           "403": { "$ref": "#/components/responses/ImportFailure" },
           "404": { "$ref": "#/components/responses/ImportFailure" },
           "500": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/source-indexes": {
+      "post": {
+        "operationId": "createSourceIndex",
+        "summary": "Create or replay an index for one retained artifact version",
+        "security": [ { "deploymentActor": [] }, { "browserDeploymentActor": [] } ],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/IndexSourceRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Source index created or replayed.",
+            "headers": {
+              "Location": { "required": true, "schema": { "type": "string", "pattern": "^/v1/projects/[0-9a-f-]{36}/source-indexes/[0-9a-f-]{36}$" } },
+              "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } }
+            },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SourceIndexMutationResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "415": { "$ref": "#/components/responses/ImportFailure" },
+          "422": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/source-indexes/{indexId}": {
+      "get": {
+        "operationId": "getSourceIndex",
+        "summary": "Read one source index status without returning source text",
+        "security": [ { "deploymentActor": [] }, { "browserDeploymentActor": [] } ],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "indexId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "Current source index status.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SourceIndex" } } }
+          },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/retrieval-searches": {
+      "post": {
+        "operationId": "searchProjectSources",
+        "summary": "Search ready indexes within one authenticated project",
+        "security": [ { "deploymentActor": [] }, { "browserDeploymentActor": [] } ],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RetrievalSearchRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Deterministic cited retrieval results.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RetrievalSearchResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "422": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/projects/{projectId}/source-indexes/{indexId}/withdrawal": {
+      "post": {
+        "operationId": "withdrawSourceIndex",
+        "summary": "Withdraw one index and remove its derived chunk text",
+        "security": [ { "deploymentActor": [] }, { "browserDeploymentActor": [] } ],
+        "parameters": [
+          { "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "indexId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "maxProperties": 0 } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Source index withdrawn or an identical withdrawal replayed.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SourceIndexMutationResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "403": { "$ref": "#/components/responses/ImportFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "500": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
         }
       }
     },
@@ -740,6 +857,97 @@
           "approvedAt": { "type": "string", "format": "date-time" }
         }
       },
+      "IndexSourceRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["artifactVersionId"],
+        "properties": {
+          "artifactVersionId": { "type": "string", "format": "uuid" }
+        }
+      },
+      "SourceIndex": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["indexId", "artifactVersionId", "status", "sourceSha256", "parserVersion", "chunkerVersion", "indexSha256", "chunkCount"],
+        "properties": {
+          "indexId": { "type": "string", "format": "uuid" },
+          "artifactVersionId": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["ready", "withdrawn"] },
+          "sourceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "parserVersion": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+          "chunkerVersion": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+          "indexSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "chunkCount": { "type": "integer", "minimum": 0, "maximum": 5000 }
+        }
+      },
+      "SourceIndexMutationResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["indexId", "artifactVersionId", "status", "sourceSha256", "parserVersion", "chunkerVersion", "indexSha256", "chunkCount", "replayed"],
+        "properties": {
+          "indexId": { "type": "string", "format": "uuid" },
+          "artifactVersionId": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["ready", "withdrawn"] },
+          "sourceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "parserVersion": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+          "chunkerVersion": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+          "indexSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "chunkCount": { "type": "integer", "minimum": 0, "maximum": 5000 },
+          "replayed": { "type": "boolean" }
+        }
+      },
+      "RetrievalSearchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "limit": { "type": "integer", "minimum": 1, "maximum": 20, "default": 10 }
+        }
+      },
+      "RetrievalCitation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["indexId", "chunkId", "artifactVersionId", "sourceSha256", "contentSha256", "location", "parserVersion", "chunkerVersion", "freshness"],
+        "properties": {
+          "indexId": { "type": "string", "format": "uuid" },
+          "chunkId": { "type": "string", "format": "uuid" },
+          "artifactVersionId": { "type": "string", "format": "uuid" },
+          "sourceSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "contentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "location": { "type": "object", "minProperties": 1, "maxProperties": 16 },
+          "parserVersion": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+          "chunkerVersion": { "type": "string", "pattern": "^[a-z0-9][a-z0-9._-]{0,63}$" },
+          "freshness": { "type": "string", "const": "fresh" }
+        }
+      },
+      "RetrievalSearchHit": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["rank", "lexicalRank", "ngramRank", "lexicalScore", "ngramScore", "combinedScore", "excerpt", "citation"],
+        "properties": {
+          "rank": { "type": "integer", "minimum": 1, "maximum": 20 },
+          "lexicalRank": { "type": "integer", "minimum": 1 },
+          "ngramRank": { "type": "integer", "minimum": 1 },
+          "lexicalScore": { "type": "number", "minimum": 0, "maximum": 1 },
+          "ngramScore": { "type": "number", "minimum": 0, "maximum": 1 },
+          "combinedScore": { "type": "number", "minimum": 0, "maximum": 1 },
+          "excerpt": { "type": "string", "maxLength": 600 },
+          "citation": { "$ref": "#/components/schemas/RetrievalCitation" }
+        }
+      },
+      "RetrievalSearchResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["retrievalMode", "scoredCandidateCount", "resultCount", "runSha256", "results"],
+        "properties": {
+          "retrievalMode": { "type": "string", "const": "lexical_ngram" },
+          "scoredCandidateCount": { "type": "integer", "minimum": 0 },
+          "resultCount": { "type": "integer", "minimum": 0, "maximum": 20 },
+          "runSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "results": { "type": "array", "maxItems": 20, "items": { "$ref": "#/components/schemas/RetrievalSearchHit" } }
+        }
+      },
       "ProjectDetail": {
         "type": "object",
         "additionalProperties": false,
@@ -1170,10 +1378,24 @@
               "PROPOSAL_NOT_AVAILABLE",
               "PROPOSAL_CHANGED",
               "SOURCE_READ_FAILED",
+              "SOURCE_NOT_FOUND",
               "SOURCE_INTEGRITY_FAILED",
               "PARSER_FAILED",
               "PARSER_LIMIT_EXCEEDED",
               "PARSER_WARNING",
+              "SOURCE_TOO_LARGE",
+              "INVALID_SOURCE",
+              "INVALID_QUERY",
+              "INDEX_NOT_FOUND",
+              "INDEX_CONFLICT",
+              "INDEX_NOT_READY",
+              "SOURCE_STALE",
+              "CONTENT_STALE",
+              "CITATION_STALE",
+              "SCOPE_CONTAMINATION",
+              "INDEX_WRITE_FAILED",
+              "RETRIEVAL_WRITE_FAILED",
+              "RETRIEVAL_READ_FAILED",
               "EXTRACTION_FAILED",
               "NO_CANDIDATES",
               "CANDIDATE_LIMIT_EXCEEDED",
