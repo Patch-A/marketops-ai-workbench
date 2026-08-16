@@ -2,13 +2,13 @@
 # Project Status
 
 Source registry updated: 2026-08-16
-Source hash: `e85687418a12`
+Source hash: `f0a721b69ade`
 
 ## Progress
 
 Task-count completion: **23/38 (60.5%)**. This is a count of tracked tasks, not an effort estimate, product readiness claim, or market-validation result.
 
-Current work: No task is marked in progress.
+Current work: `M2-02` Project capsule, feedback, and candidate knowledge
 
 Next action: `M2-02` Project capsule, feedback, and candidate knowledge
 
@@ -19,7 +19,7 @@ Next action: `M2-02` Project capsule, feedback, and candidate knowledge
 | Foundation | Establish the product contract, architecture, safety boundaries, and open-source baseline. | 7/7 | 0 |
 | M0: Samples and technical validation | Prove the riskiest inputs and deterministic engines before feature development. | 10/10 | 0 |
 | M1: Proposal-to-schedule vertical slice | Turn an approved proposal into a usable, reviewable execution plan. | 5/5 | 0 |
-| M2: Knowledge base and project learning | Make approved historical knowledge reusable without leaking customer material. | 1/4 | 0 |
+| M2: Knowledge base and project learning | Make approved historical knowledge reusable without leaking customer material. | 1/4 | 1 |
 | M3: Market signals and impact analysis | Connect observed external changes to confirmed project assumptions and work. | 0/4 | 0 |
 | M4: Reporting, Feishu, and team operation | Support small-team operation while preserving the independent core product. | 0/5 | 0 |
 | M5: Commercial validation and expansion | Use paid or repeated use to decide what to build next. | 0/3 | 0 |
@@ -74,7 +74,7 @@ Make approved historical knowledge reusable without leaking customer material.
 | ID | Task | Owner | Status | Acceptance / self-check |
 | --- | --- | --- | --- | --- |
 | M2-01 | Workspace-scoped document ingestion and hybrid retrieval | Engineering | Completed | Self-check passed: Focused backup/retrieval tests passed 67/67; full API discovery passed 453 tests with 36 capability skips; real M2 PostgreSQL tests passed 5/5; M2 and combined OpenAPI passed 11/11 and 45/104 guards/mutations; M0-04 passed 16 oracle cases; a clean PostgreSQL 18.4 container passed seven migrations, restart, 21-table non-empty restore, row-set hashes, and fresh execution/retrieval reads. Independent read-only review found no P0/P1/P2; its Docker rerun condition was satisfied by the primary integrator on the same working tree. This does not establish original-file deletion, real-document recall, production reliability, demand, ROI, repeat use, or payment. |
-| M2-02 | Project capsule, feedback, and candidate knowledge | Engineering | Pending | A completed project produces traceable candidate knowledge with outcome feedback and version history. |
+| M2-02 | Project capsule, feedback, and candidate knowledge | Engineering | In progress | A completed project produces traceable candidate knowledge with outcome feedback and version history. |
 | M2-03 | Knowledge approval and reuse evaluation | Engineering | Pending | A user approves, scopes, rejects, or revokes knowledge; project B can cite approved knowledge from project A. |
 | M2-04 | M2 review gate | Product | Pending | An isolation test and a usefulness evaluation pass with no unapproved cross-project reuse. |
 
