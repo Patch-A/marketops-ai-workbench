@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import unittest
 
-from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 from apps.api.marketops_import.service import ScopeContext
 from apps.api.marketops_retrieval import (
     IndexSourceResult,
@@ -27,6 +27,10 @@ IDS = {
     "project": "00000000-0000-4000-8000-000000000205",
     "version": "00000000-0000-4000-8000-000000000206",
 }
+
+HTTP_DEPENDENCIES_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("fastapi", "multipart"))
+if HTTP_DEPENDENCIES_AVAILABLE:
+    from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 
 
 class FakeIndexingService:
@@ -61,6 +65,7 @@ class FakeRetrievalService:
         return WithdrawIndexResult(withdraw_source_index(self.index, kwargs["scope"]), False)
 
 
+@unittest.skipUnless(HTTP_DEPENDENCIES_AVAILABLE, "FastAPI and python-multipart are required for retrieval HTTP tests")
 class RetrievalHttpTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.scope = ScopeContext(

@@ -308,6 +308,15 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
                 raise RuntimeError(
                     f"source retrieval migration contract failed: {seventh!r}"
                 )
+            post_grant_replay = await run_migrations(
+                connection,
+                migration_directory,
+                allowed_schema_usage_roles=(APPLICATION_ROLE,),
+            )
+            if post_grant_replay:
+                raise RuntimeError(
+                    f"post-grant migration replay unexpectedly applied {post_grant_replay!r}"
+                )
         await connection.execute(
             f"""
             GRANT SELECT, INSERT ON
@@ -335,13 +344,6 @@ async def migrate_and_grant(asyncpg, migrator_dsn: str) -> tuple[str, ...]:
             GRANT UPDATE (created_by) ON marketops.wbs_plans TO {APPLICATION_ROLE};
             """
         )
-        post_grant_replay = await run_migrations(
-            connection, allowed_schema_usage_roles=(APPLICATION_ROLE,)
-        )
-        if post_grant_replay:
-            raise RuntimeError(
-                f"post-grant migration replay unexpectedly applied {post_grant_replay!r}"
-            )
         expected_migrations = {
             MIGRATION.name: hashlib.sha256(MIGRATION.read_bytes()).digest(),
             REVIEW_MIGRATION.name: hashlib.sha256(REVIEW_MIGRATION.read_bytes()).digest(),

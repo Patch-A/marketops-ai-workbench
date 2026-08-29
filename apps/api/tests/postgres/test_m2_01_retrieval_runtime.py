@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import importlib.util
 import json
 import asyncio
 import hashlib
@@ -27,7 +28,6 @@ from apps.api.marketops_retrieval import (
     SourceIndexingService,
     build_source_index,
 )
-from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 from apps.api.marketops_import.service import ScopeContext
 from apps.api.marketops_import.storage import LocalObjectStore
 from apps.api.tests.test_m1_02_review_http import asgi_request
@@ -35,10 +35,13 @@ from apps.api.tests.test_m1_02_review_http import asgi_request
 
 ADMIN_DSN = os.environ.get("MARKETOPS_TEST_ADMIN_DATABASE_URL", "").strip()
 APP_DSN = os.environ.get("MARKETOPS_TEST_DATABASE_URL", "").strip()
+HTTP_DEPENDENCIES_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("fastapi", "multipart"))
+if HTTP_DEPENDENCIES_AVAILABLE:
+    from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 
 
 @unittest.skipUnless(
-    asyncpg is not None and ADMIN_DSN and APP_DSN,
+    asyncpg is not None and ADMIN_DSN and APP_DSN and HTTP_DEPENDENCIES_AVAILABLE,
     "PostgreSQL admin/application test URLs are required",
 )
 class RetrievalPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):

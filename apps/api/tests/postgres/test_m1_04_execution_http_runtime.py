@@ -3,19 +3,22 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import importlib.util
 import unittest
 from datetime import datetime, timezone
 
 from apps.api.marketops_execution import AsyncpgExecutionRepository, ExecutionService
-from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 from apps.api.marketops_import.service import ScopeContext
 
 
 ADMIN_DSN = os.environ.get("MARKETOPS_TEST_ADMIN_DATABASE_URL", "").strip()
 APP_DSN = os.environ.get("MARKETOPS_TEST_DATABASE_URL", "").strip()
+HTTP_DEPENDENCIES_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("fastapi", "multipart"))
+if HTTP_DEPENDENCIES_AVAILABLE:
+    from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 
 
-@unittest.skipUnless(ADMIN_DSN and APP_DSN, "PostgreSQL admin/application test URLs are required")
+@unittest.skipUnless(ADMIN_DSN and APP_DSN and HTTP_DEPENDENCIES_AVAILABLE, "PostgreSQL admin/application test URLs and HTTP dependencies are required")
 class ExecutionHttpPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
     def __getattr__(self, name):
         fixture = self.__dict__.get("fixture")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import unittest
 from dataclasses import dataclass
@@ -13,7 +14,6 @@ from apps.api.marketops_execution import (
     ExecutionState,
     ExecutionUpdateResult,
 )
-from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 from apps.api.marketops_import.service import ScopeContext
 from apps.api.marketops_schedule import PlanApproval, PlanReadModel, WbsPlan, WbsPlanVersion
 
@@ -28,6 +28,10 @@ PLAN_VERSION_ID = "00000000-0000-4000-8000-000000000007"
 TASK_UUID = "00000000-0000-4000-8000-000000000008"
 TASK_ID = f"candidate:{TASK_UUID}"
 NOW = datetime(2026, 8, 15, 12, 0, tzinfo=timezone.utc)
+
+HTTP_DEPENDENCIES_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("fastapi", "multipart"))
+if HTTP_DEPENDENCIES_AVAILABLE:
+    from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 
 
 @dataclass
@@ -91,6 +95,7 @@ async def asgi_request(app, method, target, headers, body=b""):
     )
 
 
+@unittest.skipUnless(HTTP_DEPENDENCIES_AVAILABLE, "FastAPI and python-multipart are required for execution HTTP tests")
 class M104ExecutionHttpTests(unittest.TestCase):
     def setUp(self):
         scope = ScopeContext(ORGANIZATION_ID, WORKSPACE_ID, CLIENT_ID, ACTOR_ID)
