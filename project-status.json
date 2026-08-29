@@ -488,7 +488,9 @@
               "Real temporary FastAPI plus Chrome/CDP gate passed authenticated content and calendar route checks, Brief approval, image task needs_authorization, calendar confirmation, responsive layout, console-error, and external-request boundaries."
               ,"The same real gate now reloads the content and calendar views and confirms the approved Brief, asset task, confirmed calendar item, and server-synchronization state are restored from authenticated server facts.",
               "Obsidian service and HTTP tests cover authentication, allowed-vault enforcement, empty-scope whole-vault selection, Windows path normalization, deduplication, scope isolation, note limits, read-only response shape, and body redaction.",
-              "The real FastAPI/Chrome gate now connects a synthetic Obsidian vault, renders the note index, verifies refresh recovery, confirms the note body marker is absent from the API response and DOM, and returns 11/11 true."
+              "The real FastAPI/Chrome gate now connects a synthetic Obsidian vault, renders the note index, verifies refresh recovery, confirms the note body marker is absent from the API response and DOM, and returns 11/11 true.",
+              "The dashboard now requests project, GEO, content, and calendar summaries in parallel; configured GEO snapshots, content asset counts, and confirmed calendar items are surfaced with explicit unavailable states when a connector is not configured.",
+              "Frontend syntax and the 21-test Node suite pass after the dashboard aggregation change; the WB-04 real FastAPI/Chrome gate remains 11/11 true."
             ],
             "limitations": [
               "The authenticated server store is now the primary persistence path; browser localStorage remains an explicitly labelled offline-draft fallback when the API is unavailable.",
@@ -497,7 +499,7 @@
               "The production default vault is the configured local path and can be overridden with MARKETOPS_OBSIDIAN_VAULT_ROOT; browser gates use only a synthetic temporary vault.",
               "Project/GEO/research task aggregation, real image connector execution, external channel publishing, and independent non-implementer review remain open; this engineering gate is not a customer-value, ROI, or production-readiness claim."
             ],
-            "nextAction": "Obtain independent read-only review of the complete WB-04 diff and runtime evidence; then decide whether to close the bounded Obsidian portion or continue with the real image connector and project/GEO/research aggregation."
+            "nextAction": "网络恢复后推送本地提交 63b7e25 与 60962f7 并确认 GitHub CI；随后安排独立只读复审，并继续真实生图连接器、外部渠道发布和项目/GEO/研究任务汇总。"
           }
         }
       ]
