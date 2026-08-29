@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import tempfile
 import unittest
@@ -9,14 +10,23 @@ from uuid import uuid4
 
 from apps.api.marketops_calendar import CalendarItemService
 from apps.api.marketops_content import ContentAssetService
-from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 from apps.api.marketops_import.service import ScopeContext
-from apps.api.tests.test_project_import_http import asgi_get, asgi_json
+
+HTTP_DEPENDENCIES_AVAILABLE = all(
+    importlib.util.find_spec(name) is not None for name in ("fastapi", "multipart")
+)
+if HTTP_DEPENDENCIES_AVAILABLE:
+    from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
+    from apps.api.tests.test_project_import_http import asgi_get, asgi_json
 
 def uid() -> str:
     return str(uuid4())
 
 
+@unittest.skipUnless(
+    HTTP_DEPENDENCIES_AVAILABLE,
+    "FastAPI and python-multipart are required for content/calendar HTTP tests",
+)
 class WB04ContentCalendarHttpTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

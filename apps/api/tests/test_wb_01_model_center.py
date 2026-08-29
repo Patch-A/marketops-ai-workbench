@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import json
 import os
 import tempfile
@@ -9,7 +10,6 @@ from pathlib import Path
 from uuid import uuid4
 from unittest.mock import patch
 
-from apps.api.marketops_import.http import create_app
 from apps.api.marketops_import.service import ScopeContext
 from apps.api.marketops_models import ModelCenterError, ModelProfileService, ModelScope
 
@@ -20,6 +20,13 @@ def uid() -> str:
 
 def scope() -> ModelScope:
     return ModelScope(uid(), uid(), uid(), uid())
+
+
+HTTP_DEPENDENCIES_AVAILABLE = all(
+    importlib.util.find_spec(name) is not None for name in ("fastapi", "multipart")
+)
+if HTTP_DEPENDENCIES_AVAILABLE:
+    from apps.api.marketops_import.http import create_app
 
 
 class ModelProfileServiceTests(unittest.IsolatedAsyncioTestCase):
@@ -97,6 +104,10 @@ class ModelProfileServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(raised.exception.code, "INVALID_INPUT")
 
 
+@unittest.skipUnless(
+    HTTP_DEPENDENCIES_AVAILABLE,
+    "FastAPI and python-multipart are required for model HTTP tests",
+)
 class ModelProfileHttpTests(unittest.IsolatedAsyncioTestCase):
     async def request(self, app, method, path, body=None, token="token"):
         messages = []
