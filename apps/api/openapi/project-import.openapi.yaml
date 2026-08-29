@@ -3,9 +3,107 @@
   "info": {
     "title": "MarketOps Project Import API",
     "version": "0.4.0",
-    "description": "M1 proposal-to-schedule and M2 project retrieval API contract. Authorization scope is resolved from the authenticated deployment actor and is never accepted from request bodies."
+    "description": "M1 proposal-to-schedule and M2 project retrieval and learning API contract. Authorization scope and completion facts are resolved from the authenticated deployment actor and server records, never from request bodies."
   },
   "paths": {
+    "/v1/model-profiles": {
+      "get": {
+        "operationId": "listModelProfiles",
+        "summary": "List model metadata visible in the authenticated deployment scope",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "responses": {
+          "200": {
+            "description": "Model metadata, without secret values.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelProfileListResult" } } }
+          },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      },
+      "post": {
+        "operationId": "createModelProfile",
+        "summary": "Register model metadata and a server-side environment reference",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelProfileCreateRequest" } } }
+        },
+        "responses": {
+          "201": {
+            "description": "Model metadata registered.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelProfileMutationResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/model-profiles/{profileId}": {
+      "patch": {
+        "operationId": "updateModelProfile",
+        "summary": "Edit model metadata with optimistic version checking",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "parameters": [
+          { "name": "profileId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelProfileUpdateRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Model metadata updated.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelProfileMutationResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "409": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/model-task-matches": {
+      "post": {
+        "operationId": "matchModelTask",
+        "summary": "Select enabled models for a deterministic task capability requirement",
+        "security": [
+          { "deploymentActor": [] },
+          { "browserDeploymentActor": [] }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelTaskMatchRequest" } } }
+        },
+        "responses": {
+          "200": {
+            "description": "Preferred and optional backup model metadata, or an unavailable result.",
+            "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } },
+            "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelTaskMatchResult" } } }
+          },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
     "/v1/project-imports": {
       "post": {
         "operationId": "importProject",
@@ -158,6 +256,112 @@
           "500": { "$ref": "#/components/responses/ImportFailure" }
         }
       }
+    },
+    "/v1/workbench/briefs": {
+      "get": { "operationId": "listBriefs", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "responses": { "200": { "description": "Briefs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BriefListResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } },
+      "post": { "operationId": "createBrief", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BriefCreateRequest" } } } }, "responses": { "201": { "description": "Brief", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BriefResult" } } } }, "400": { "$ref": "#/components/responses/ImportFailure" }, "422": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/briefs/{briefId}": {
+      "get": { "operationId": "getBrief", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "parameters": [{ "name": "briefId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "responses": { "200": { "description": "Brief", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BriefResult" } } } }, "404": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/research-runs": {
+      "post": { "operationId": "createResearchRun", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResearchRunCreateRequest" } } } }, "responses": { "201": { "description": "Research run", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResearchRunResult" } } } }, "422": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/research-runs/{runId}": {
+      "get": { "operationId": "getResearchRun", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "parameters": [{ "name": "runId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "responses": { "200": { "description": "Research run", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ResearchRunResult" } } } }, "404": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/proposal-drafts": {
+      "post": { "operationId": "createProposalDraft", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProposalDraftCreateRequest" } } } }, "responses": { "201": { "description": "Proposal draft", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProposalDraftResult" } } } }, "422": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/proposal-drafts/{draftId}": {
+      "get": { "operationId": "getProposalDraft", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "parameters": [{ "name": "draftId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "responses": { "200": { "description": "Proposal draft", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProposalDraftResult" } } } }, "404": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/proposal-drafts/{draftId}/decisions": {
+      "post": { "operationId": "decideProposalDraft", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "parameters": [{ "name": "draftId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProposalDecisionRequest" } } } }, "responses": { "201": { "description": "Decision", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProposalDraftResult" } } } }, "409": { "$ref": "#/components/responses/ImportFailure" }, "422": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/geo/query-sets": {
+      "get": {
+        "operationId": "listGeoQuerySets",
+        "summary": "List fixed GEO query sets visible in the authenticated deployment scope",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "responses": {
+          "200": { "description": "Fixed query sets.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeoQuerySetListResult" } } } },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      },
+      "post": {
+        "operationId": "createGeoQuerySet",
+        "summary": "Create a bounded fixed query set for manual GEO observations",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeoQuerySetCreateRequest" } } } },
+        "responses": {
+          "201": { "description": "Fixed query set created.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeoQuerySetResult" } } } },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "422": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/workbench/geo/query-sets/{querySetId}/snapshots": {
+      "get": {
+        "operationId": "listGeoSnapshots",
+        "summary": "List timestamped manual GEO observations for one query set",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "querySetId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Observation snapshots.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeoSnapshotListResult" } } } },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      },
+      "post": {
+        "operationId": "createGeoSnapshot",
+        "summary": "Record one timestamped manual GEO observation and propose a content-gap task when absent or unclear",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "querySetId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeoSnapshotCreateRequest" } } } },
+        "responses": {
+          "201": { "description": "Observation snapshot and optional content-gap task.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/GeoSnapshotCreateResult" } } } },
+          "400": { "$ref": "#/components/responses/ImportFailure" },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "413": { "$ref": "#/components/responses/ImportFailure" },
+          "422": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
+    "/v1/workbench/content/briefs": {
+      "get": { "operationId": "listContentBriefs", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "responses": { "200": { "description": "Content Briefs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentBriefListResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } },
+      "post": { "operationId": "createContentBrief", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentBriefCreateRequest" } } } }, "responses": { "201": { "description": "Content Brief", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentBriefMutationResult" } } } }, "400": { "$ref": "#/components/responses/ImportFailure" }, "409": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/content/briefs/{briefId}/approve": {
+      "post": { "operationId": "approveContentBrief", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "parameters": [{ "name": "briefId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentBriefApprovalRequest" } } } }, "responses": { "201": { "description": "Approved Brief", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentBriefMutationResult" } } } }, "409": { "$ref": "#/components/responses/ImportFailure" }, "422": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/content/assets": {
+      "get": { "operationId": "listContentAssets", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "responses": { "200": { "description": "Content assets", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentAssetListResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } },
+      "post": { "operationId": "createContentAsset", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentAssetCreateRequest" } } } }, "responses": { "201": { "description": "Content asset", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentAssetMutationResult" } } } }, "409": { "$ref": "#/components/responses/ImportFailure" }, "422": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/content/assets/{assetId}": {
+      "patch": { "operationId": "updateContentAsset", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "parameters": [{ "name": "assetId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentAssetUpdateRequest" } } } }, "responses": { "200": { "description": "Updated content asset", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ContentAssetMutationResult" } } } }, "404": { "$ref": "#/components/responses/ImportFailure" }, "409": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/calendar/items": {
+      "get": { "operationId": "listCalendarItems", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "parameters": [{ "name": "period", "in": "query", "required": false, "schema": { "type": "string", "enum": ["week", "month", "all"] } }], "responses": { "200": { "description": "Calendar items", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CalendarItemListResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } },
+      "post": { "operationId": "createCalendarItem", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CalendarItemCreateRequest" } } } }, "responses": { "201": { "description": "Calendar item", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CalendarItemMutationResult" } } } }, "400": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/calendar/items/{itemId}": {
+      "patch": { "operationId": "updateCalendarItem", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "parameters": [{ "name": "itemId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CalendarItemUpdateRequest" } } } }, "responses": { "200": { "description": "Updated calendar item", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CalendarItemMutationResult" } } } }, "404": { "$ref": "#/components/responses/ImportFailure" }, "409": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/obsidian/connection": {
+      "get": { "operationId": "getObsidianConnection", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "responses": { "200": { "description": "Configured read-only Obsidian connection or null", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObsidianConnectionResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } },
+      "post": { "operationId": "connectObsidian", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObsidianConnectionRequest" } } } }, "responses": { "201": { "description": "Saved read-only Obsidian connection", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObsidianConnectionMutationResult" } } } }, "400": { "$ref": "#/components/responses/ImportFailure" }, "403": { "$ref": "#/components/responses/ImportFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } }
+    },
+    "/v1/workbench/obsidian/notes": {
+      "get": { "operationId": "listObsidianNotes", "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }], "responses": { "200": { "description": "Read-only Obsidian note index without note bodies", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ObsidianNoteListResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } } }
     },
     "/v1/projects": {
       "get": {
@@ -800,6 +1004,81 @@
           "503": { "$ref": "#/components/responses/ImportFailure" }
         }
       }
+    },
+    "/v1/projects/{projectId}/capsules": {
+      "post": {
+        "operationId": "finalizeProjectCapsule",
+        "summary": "Explicitly finalize an approved project into an immutable capsule",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapsuleFinalizeRequest" } } } },
+        "responses": {
+          "201": { "description": "A new capsule or an identical replay.", "headers": { "Location": { "required": true, "schema": { "type": "string", "pattern": "^/v1/projects/[0-9a-f-]{36}/capsules/[0-9a-f-]{36}$" } }, "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapsuleFinalizeResult" } } } },
+          "400": { "$ref": "#/components/responses/ImportFailure" }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "403": { "$ref": "#/components/responses/ImportFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "413": { "$ref": "#/components/responses/ImportFailure" }, "422": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      },
+      "get": {
+        "operationId": "listProjectCapsules", "summary": "List immutable capsule versions for the authenticated project",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Capsule history.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CapsuleListResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "403": { "$ref": "#/components/responses/ImportFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } }
+      }
+    },
+    "/v1/projects/{projectId}/capsules/{capsuleId}": {
+      "get": {
+        "operationId": "readProjectCapsule", "summary": "Read one immutable capsule and its candidate knowledge",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "capsuleId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Capsule detail.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "type": "object", "additionalProperties": false, "required": ["capsule"], "properties": { "capsule": { "$ref": "#/components/schemas/ProjectCapsule" } } } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "403": { "$ref": "#/components/responses/ImportFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } }
+      }
+    },
+    "/v1/projects/{projectId}/knowledge": {
+      "get": {
+        "operationId": "listProjectCandidateKnowledge", "summary": "List project-scoped candidate knowledge without cross-project reuse",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Project-scoped candidates.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeListResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "403": { "$ref": "#/components/responses/ImportFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } }
+      }
+    },
+    "/v1/projects/{projectId}/knowledge/{knowledgeId}": {
+      "get": {
+        "operationId": "readProjectCandidateKnowledge", "summary": "Read candidate knowledge with immutable version and evidence history",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "knowledgeId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Candidate knowledge detail.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeReadResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "403": { "$ref": "#/components/responses/ImportFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } }
+      }
+    },
+    "/v1/projects/{projectId}/knowledge/{knowledgeId}/approval-decisions": {
+      "post": {
+        "operationId": "decideProjectKnowledge", "summary": "Append an explicit immutable decision for project candidate knowledge",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "knowledgeId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeDecisionRequest" } } } },
+        "responses": { "201": { "description": "Immutable decision or replay.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeDecisionResult" } } } }, "400": { "$ref": "#/components/responses/ImportFailure" }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "409": { "$ref": "#/components/responses/ImportFailure" }, "422": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } }
+      },
+      "get": {
+        "operationId": "readProjectKnowledgeApproval", "summary": "Read immutable project-scoped knowledge approval history",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "knowledgeId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Approval history.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeApprovalHistoryResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } }
+      }
+    },
+    "/v1/projects/{targetProjectId}/knowledge-sources/{sourceProjectId}/items/{knowledgeId}/citations": {
+      "post": {
+        "operationId": "citeApprovedProjectKnowledge", "summary": "Explicitly cite currently eligible approved knowledge without exposing source materials",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "targetProjectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "sourceProjectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }, { "name": "knowledgeId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeCitationRequest" } } } },
+        "responses": { "201": { "description": "Citation or replay.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeCitationResult" } } } }, "400": { "$ref": "#/components/responses/ImportFailure" }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "422": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } }
+      }
+    },
+    "/v1/projects/{projectId}/knowledge-citations": {
+      "get": {
+        "operationId": "listEffectiveProjectKnowledgeCitations", "summary": "List only citations whose source approval remains currently effective",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "projectId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": { "200": { "description": "Effective citation snapshots.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/KnowledgeCitationListResult" } } } }, "401": { "$ref": "#/components/responses/AuthenticationFailure" }, "404": { "$ref": "#/components/responses/ImportFailure" }, "503": { "$ref": "#/components/responses/ImportFailure" } }
+      }
     }
   },
   "components": {
@@ -817,6 +1096,126 @@
       }
     },
     "schemas": {
+      "BriefCreateRequest": { "type": "object", "additionalProperties": false, "required": ["deidentified", "productName", "productType", "targetMarket", "audience", "objective", "timeframe", "background", "constraints"], "properties": { "deidentified": { "const": true }, "productName": { "type": "string" }, "productType": { "type": "string" }, "targetMarket": { "type": "string" }, "audience": { "type": "string" }, "objective": { "type": "string" }, "timeframe": { "type": "string" }, "background": { "type": "string" }, "constraints": { "type": "array", "items": { "type": "string" } } } },
+      "BriefResult": { "type": "object", "additionalProperties": false, "required": ["brief"], "properties": { "brief": { "type": "object" } } },
+      "BriefListResult": { "type": "object", "additionalProperties": false, "required": ["briefs"], "properties": { "briefs": { "type": "array", "items": { "type": "object" } } } },
+      "ContentBriefCreateRequest": { "type": "object", "additionalProperties": false, "required": ["topic", "channel", "format", "audience"], "properties": { "briefId": { "type": "string", "format": "uuid" }, "expectedVersion": { "type": "integer", "minimum": 1 }, "topic": { "type": "string", "maxLength": 200 }, "channel": { "type": "string", "maxLength": 100 }, "format": { "type": "string", "maxLength": 100 }, "audience": { "type": "string", "maxLength": 2000 } } },
+      "ContentBriefApprovalRequest": { "type": "object", "additionalProperties": false, "required": ["expectedVersion"], "properties": { "expectedVersion": { "type": "integer", "minimum": 1 } } },
+      "ContentBrief": { "type": "object", "additionalProperties": false, "required": ["briefId", "createdAt", "updatedAt", "version", "topic", "channel", "format", "audience", "status", "approvedAt"], "properties": { "briefId": { "type": "string", "format": "uuid" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }, "version": { "type": "integer" }, "topic": { "type": "string" }, "channel": { "type": "string" }, "format": { "type": "string" }, "audience": { "type": "string" }, "status": { "type": "string", "enum": ["draft", "approved"] }, "approvedAt": { "type": ["string", "null"], "format": "date-time" } } },
+      "ContentBriefMutationResult": { "type": "object", "additionalProperties": false, "required": ["brief"], "properties": { "brief": { "$ref": "#/components/schemas/ContentBrief" } } },
+      "ContentBriefListResult": { "type": "object", "additionalProperties": false, "required": ["briefs"], "properties": { "briefs": { "type": "array", "items": { "$ref": "#/components/schemas/ContentBrief" } } } },
+      "ContentAsset": { "type": "object", "additionalProperties": false, "required": ["assetId", "briefId", "createdAt", "updatedAt", "version", "title", "channel", "format", "assetType", "prompt", "status"], "properties": { "assetId": { "type": "string", "format": "uuid" }, "briefId": { "type": "string", "format": "uuid" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }, "version": { "type": "integer" }, "title": { "type": "string" }, "channel": { "type": "string" }, "format": { "type": "string" }, "assetType": { "type": "string", "enum": ["content", "image"] }, "prompt": { "type": "string" }, "status": { "type": "string", "enum": ["draft", "needs_authorization", "queued", "ready", "failed"] } } },
+      "ContentAssetCreateRequest": { "type": "object", "additionalProperties": false, "required": ["briefId", "title", "channel", "format", "assetType"], "properties": { "briefId": { "type": "string", "format": "uuid" }, "title": { "type": "string" }, "channel": { "type": "string" }, "format": { "type": "string" }, "assetType": { "type": "string", "enum": ["content", "image"] }, "prompt": { "type": "string" } } },
+      "ContentAssetUpdateRequest": { "type": "object", "additionalProperties": false, "required": ["expectedVersion", "status"], "properties": { "expectedVersion": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "enum": ["draft", "needs_authorization", "queued", "ready", "failed"] } } },
+      "ContentAssetMutationResult": { "type": "object", "additionalProperties": false, "required": ["asset"], "properties": { "asset": { "$ref": "#/components/schemas/ContentAsset" } } },
+      "ContentAssetListResult": { "type": "object", "additionalProperties": false, "required": ["assets"], "properties": { "assets": { "type": "array", "items": { "$ref": "#/components/schemas/ContentAsset" } } } },
+      "CalendarItem": { "type": "object", "additionalProperties": false, "required": ["itemId", "createdAt", "updatedAt", "version", "title", "date", "source", "note", "status"], "properties": { "itemId": { "type": "string", "format": "uuid" }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" }, "version": { "type": "integer" }, "title": { "type": "string" }, "date": { "type": "string", "format": "date" }, "source": { "type": "string" }, "note": { "type": "string" }, "status": { "type": "string", "enum": ["draft", "confirmed"] } } },
+      "CalendarItemCreateRequest": { "type": "object", "additionalProperties": false, "required": ["title", "date", "source", "note"], "properties": { "title": { "type": "string" }, "date": { "type": "string", "format": "date" }, "source": { "type": "string" }, "note": { "type": "string" } } },
+      "CalendarItemUpdateRequest": { "type": "object", "additionalProperties": false, "required": ["expectedVersion", "status"], "properties": { "expectedVersion": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "enum": ["draft", "confirmed"] } } },
+      "CalendarItemMutationResult": { "type": "object", "additionalProperties": false, "required": ["item"], "properties": { "item": { "$ref": "#/components/schemas/CalendarItem" } } },
+      "CalendarItemListResult": { "type": "object", "additionalProperties": false, "required": ["items"], "properties": { "items": { "type": "array", "items": { "$ref": "#/components/schemas/CalendarItem" } } } },
+      "ObsidianConnectionRequest": { "type": "object", "additionalProperties": false, "required": ["vaultPath", "relativePaths"], "properties": { "vaultPath": { "type": "string", "minLength": 1, "maxLength": 500 }, "relativePaths": { "type": "array", "maxItems": 200, "description": "Empty selects the configured vault root. Entries are safe relative Markdown file or directory paths.", "items": { "type": "string", "minLength": 1, "maxLength": 500 } } } },
+      "ObsidianConnection": { "type": "object", "additionalProperties": false, "required": ["connectionId", "vaultPath", "relativePaths", "status", "createdAt", "updatedAt"], "properties": { "connectionId": { "type": "string" }, "vaultPath": { "type": "string" }, "relativePaths": { "type": "array", "items": { "type": "string" } }, "status": { "type": "string", "enum": ["connected"] }, "createdAt": { "type": "string", "format": "date-time" }, "updatedAt": { "type": "string", "format": "date-time" } } },
+      "ObsidianConnectionResult": { "type": "object", "additionalProperties": false, "required": ["connection"], "properties": { "connection": { "anyOf": [{ "$ref": "#/components/schemas/ObsidianConnection" }, { "type": "null" }] } } },
+      "ObsidianConnectionMutationResult": { "type": "object", "additionalProperties": false, "required": ["connection"], "properties": { "connection": { "$ref": "#/components/schemas/ObsidianConnection" } } },
+      "ObsidianNote": { "type": "object", "additionalProperties": false, "required": ["relativePath", "title", "modifiedAt", "sha256", "sizeBytes"], "properties": { "relativePath": { "type": "string" }, "title": { "type": "string" }, "modifiedAt": { "type": "string", "format": "date-time" }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "sizeBytes": { "type": "integer", "minimum": 0 } } },
+      "ObsidianNoteListResult": { "type": "object", "additionalProperties": false, "required": ["connection", "notes", "readOnly", "syncedAt"], "properties": { "connection": { "$ref": "#/components/schemas/ObsidianConnection" }, "notes": { "type": "array", "items": { "$ref": "#/components/schemas/ObsidianNote" } }, "readOnly": { "type": "boolean", "const": true }, "syncedAt": { "type": "string", "format": "date-time" } } },
+      "ResearchRunCreateRequest": { "type": "object", "additionalProperties": false, "required": ["briefId", "sources", "observations"], "properties": { "briefId": { "type": "string", "format": "uuid" }, "sources": { "type": "array", "minItems": 1, "items": { "type": "object" } }, "observations": { "type": "array", "minItems": 1, "items": { "type": "object" } } } },
+      "ResearchRunResult": { "type": "object", "additionalProperties": false, "required": ["researchRun"], "properties": { "researchRun": { "type": "object" } } },
+      "ProposalDraftCreateRequest": { "type": "object", "additionalProperties": false, "required": ["briefId", "researchRunId"], "properties": { "briefId": { "type": "string", "format": "uuid" }, "researchRunId": { "type": "string", "format": "uuid" } } },
+      "ProposalDecisionRequest": { "type": "object", "additionalProperties": false, "required": ["expectedVersion", "action", "reason"], "properties": { "expectedVersion": { "type": "integer", "minimum": 1 }, "action": { "type": "string", "enum": ["approve", "revise", "reject"] }, "reason": { "type": "string" } } },
+      "ProposalDraftResult": { "type": "object", "additionalProperties": false, "required": ["proposalDraft"], "properties": { "proposalDraft": { "type": "object" } } },
+      "GeoQuerySetCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["product", "market", "language", "queries"],
+        "properties": {
+          "product": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "market": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "language": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "queries": { "type": "array", "minItems": 1, "maxItems": 20, "uniqueItems": true, "items": { "type": "string", "minLength": 1, "maxLength": 400 } }
+        }
+      },
+      "GeoQuery": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["queryId", "text"],
+        "properties": {
+          "queryId": { "type": "string", "format": "uuid" },
+          "text": { "type": "string", "minLength": 1, "maxLength": 400 }
+        }
+      },
+      "GeoQuerySet": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["querySetId", "createdAt", "version", "product", "market", "language", "queries"],
+        "properties": {
+          "querySetId": { "type": "string", "format": "uuid" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "version": { "type": "integer", "const": 1 },
+          "product": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "market": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "language": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "queries": { "type": "array", "minItems": 1, "maxItems": 20, "items": { "$ref": "#/components/schemas/GeoQuery" } }
+        }
+      },
+      "GeoQuerySetResult": { "type": "object", "additionalProperties": false, "required": ["querySet"], "properties": { "querySet": { "$ref": "#/components/schemas/GeoQuerySet" } } },
+      "GeoQuerySetListResult": { "type": "object", "additionalProperties": false, "required": ["querySets"], "properties": { "querySets": { "type": "array", "items": { "$ref": "#/components/schemas/GeoQuerySet" } } } },
+      "GeoSnapshotCreateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["platform", "queryId", "visibility", "observation", "observedAt", "citation"],
+        "properties": {
+          "platform": { "type": "string", "enum": ["Google Search", "Bing Search", "ChatGPT", "其他（人工记录）"] },
+          "queryId": { "type": "string", "format": "uuid" },
+          "visibility": { "type": "string", "enum": ["mentioned", "not_mentioned", "unclear"] },
+          "observation": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "observedAt": { "type": "string", "format": "date" },
+          "citation": { "type": ["string", "null"], "format": "uri", "maxLength": 1000 }
+        }
+      },
+      "GeoSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["snapshotId", "querySetId", "createdAt", "platform", "queryId", "queryText", "visibility", "observation", "observedAt", "citation"],
+        "properties": {
+          "snapshotId": { "type": "string", "format": "uuid" },
+          "querySetId": { "type": "string", "format": "uuid" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "platform": { "type": "string", "enum": ["Google Search", "Bing Search", "ChatGPT", "其他（人工记录）"] },
+          "queryId": { "type": "string", "format": "uuid" },
+          "queryText": { "type": "string", "minLength": 1, "maxLength": 400 },
+          "visibility": { "type": "string", "enum": ["mentioned", "not_mentioned", "unclear"] },
+          "observation": { "type": "string", "minLength": 1, "maxLength": 2000 },
+          "observedAt": { "type": "string", "format": "date" },
+          "citation": { "type": ["string", "null"], "format": "uri", "maxLength": 1000 }
+        }
+      },
+      "GeoContentGapTask": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["taskId", "snapshotId", "querySetId", "createdAt", "status", "title", "platform", "observedAt"],
+        "properties": {
+          "taskId": { "type": "string", "format": "uuid" },
+          "snapshotId": { "type": "string", "format": "uuid" },
+          "querySetId": { "type": "string", "format": "uuid" },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "status": { "type": "string", "const": "needs_review" },
+          "title": { "type": "string", "minLength": 1, "maxLength": 500 },
+          "platform": { "type": "string", "maxLength": 80 },
+          "observedAt": { "type": "string", "format": "date" }
+        }
+      },
+      "GeoSnapshotListResult": { "type": "object", "additionalProperties": false, "required": ["snapshots", "tasks"], "properties": { "snapshots": { "type": "array", "items": { "$ref": "#/components/schemas/GeoSnapshot" } }, "tasks": { "type": "array", "items": { "$ref": "#/components/schemas/GeoContentGapTask" } } } },
+      "GeoSnapshotCreateResult": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["snapshot", "task"],
+        "properties": {
+          "snapshot": { "$ref": "#/components/schemas/GeoSnapshot" },
+          "task": { "oneOf": [{ "$ref": "#/components/schemas/GeoContentGapTask" }, { "type": "null" }] }
+        }
+      },
       "ProjectSummary": {
         "type": "object",
         "additionalProperties": false,
@@ -1348,6 +1747,251 @@
           "replayed": { "type": "boolean" }
         }
       },
+      "FeedbackSource": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sourceType", "sourceId"],
+        "properties": {
+          "sourceType": { "type": "string", "enum": ["artifact_version", "task_execution", "schedule_snapshot"] },
+          "sourceId": { "type": "string", "format": "uuid" }
+        }
+      },
+      "OutcomeFeedback": {
+        "type": "object", "additionalProperties": false,
+        "required": ["metric", "actualValue", "source"],
+        "properties": {
+          "metric": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "plannedValue": { "type": ["string", "null"], "minLength": 1, "maxLength": 1000 },
+          "actualValue": { "type": "string", "minLength": 1, "maxLength": 1000 },
+          "unit": { "type": ["string", "null"], "minLength": 1, "maxLength": 80 },
+          "source": { "$ref": "#/components/schemas/FeedbackSource" }
+        }
+      },
+      "RetrospectiveFeedback": {
+        "type": "object", "additionalProperties": false,
+        "required": ["finding", "classification", "reusableCandidate", "evidence"],
+        "properties": {
+          "finding": { "type": "string", "minLength": 1, "maxLength": 4000 },
+          "classification": { "type": "string", "enum": ["success_pattern", "failure_counterexample", "risk_check", "process_observation", "non_reusable_note"] },
+          "reusableCandidate": { "type": "boolean" },
+          "evidence": { "type": "array", "minItems": 1, "maxItems": 100, "items": { "$ref": "#/components/schemas/FeedbackSource" } }
+        }
+      },
+      "CapsuleFinalizeRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["outcomes", "retrospectives"],
+        "properties": {
+          "outcomes": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/components/schemas/OutcomeFeedback" } },
+          "retrospectives": { "type": "array", "maxItems": 1000, "items": { "$ref": "#/components/schemas/RetrospectiveFeedback" } }
+        }
+      },
+      "KnowledgeEvidence": {
+        "type": "object", "additionalProperties": false,
+        "required": ["sourceType", "sourceId", "bindingSha256"],
+        "properties": {
+          "sourceType": { "type": "string", "enum": ["artifact_version", "task", "task_execution", "plan_version", "plan_approval", "schedule_snapshot", "outcome", "retrospective", "capsule"] },
+          "sourceId": { "type": "string", "minLength": 1, "maxLength": 300 },
+          "bindingSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      },
+      "CandidateKnowledge": {
+        "type": "object", "additionalProperties": false,
+        "required": ["knowledgeId", "ordinal", "scope", "type", "status", "classification", "content", "contentSha256", "confidence", "evidence"],
+        "properties": {
+          "knowledgeId": { "type": "string", "format": "uuid" }, "ordinal": { "type": "integer", "minimum": 1 },
+          "scope": { "type": "string", "const": "project" }, "type": { "type": "string", "enum": ["observed_outcome", "observed_task_duration", "retrospective_finding"] },
+          "status": { "type": "string", "const": "candidate" },
+          "classification": { "type": "string", "enum": ["outcome_observation", "observed_duration", "success_pattern", "failure_counterexample", "risk_check", "process_observation"] },
+          "content": { "type": "string", "minLength": 1, "maxLength": 4000 }, "contentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+          "confidence": { "type": "number", "const": 1.0 }, "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/KnowledgeEvidence" } }
+        }
+      },
+      "CapsuleSummary": {
+        "type": "object", "additionalProperties": false,
+        "required": ["capsuleId", "capsuleVersion", "status", "capsuleDigest", "outcomeCount", "retrospectiveCount", "knowledgeCount", "createdAt"],
+        "properties": {
+          "capsuleId": { "type": "string", "format": "uuid" }, "capsuleVersion": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "const": "ready" },
+          "capsuleDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "outcomeCount": { "type": "integer", "minimum": 0 }, "retrospectiveCount": { "type": "integer", "minimum": 0 }, "knowledgeCount": { "type": "integer", "minimum": 0 }, "createdAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ProjectCapsule": {
+        "type": "object", "additionalProperties": false,
+        "required": ["capsuleId", "capsuleVersion", "status", "capsuleDigest", "outcomeCount", "retrospectiveCount", "knowledgeCount", "createdAt", "binding", "knowledge"],
+        "properties": {
+          "capsuleId": { "type": "string", "format": "uuid" }, "capsuleVersion": { "type": "integer", "minimum": 1 }, "status": { "type": "string", "const": "ready" },
+          "capsuleDigest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "outcomeCount": { "type": "integer", "minimum": 0 }, "retrospectiveCount": { "type": "integer", "minimum": 0 }, "knowledgeCount": { "type": "integer", "minimum": 0 }, "createdAt": { "type": "string", "format": "date-time" },
+          "binding": { "$ref": "#/components/schemas/CapsuleBinding" },
+          "knowledge": { "type": "array", "items": { "$ref": "#/components/schemas/CandidateKnowledge" } }
+        }
+      },
+      "CapsuleBinding": {
+        "type": "object", "additionalProperties": false,
+        "required": ["proposal", "plan", "approval", "schedule"],
+        "properties": {
+          "proposal": { "$ref": "#/components/schemas/CapsuleProposalBinding" },
+          "plan": { "$ref": "#/components/schemas/CapsulePlanBinding" },
+          "approval": { "$ref": "#/components/schemas/CapsuleApprovalBinding" },
+          "schedule": { "$ref": "#/components/schemas/CapsuleScheduleBinding" }
+        }
+      },
+      "CapsuleProposalBinding": {
+        "type": "object", "additionalProperties": false,
+        "required": ["artifactId", "versionId", "version", "sha256"],
+        "properties": {
+          "artifactId": { "type": "string", "format": "uuid" }, "versionId": { "type": "string", "format": "uuid" }, "version": { "type": "integer", "minimum": 1 }, "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      },
+      "CapsulePlanBinding": {
+        "type": "object", "additionalProperties": false,
+        "required": ["planId", "versionId", "version", "digest"],
+        "properties": {
+          "planId": { "type": "string", "format": "uuid" }, "versionId": { "type": "string", "format": "uuid" }, "version": { "type": "integer", "minimum": 1 }, "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      },
+      "CapsuleApprovalBinding": {
+        "type": "object", "additionalProperties": false,
+        "required": ["approvalId"],
+        "properties": { "approvalId": { "type": "string", "format": "uuid" } }
+      },
+      "CapsuleScheduleBinding": {
+        "type": "object", "additionalProperties": false,
+        "required": ["snapshotId", "digest"],
+        "properties": {
+          "snapshotId": { "type": "string", "format": "uuid" }, "digest": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+        }
+      },
+      "CapsuleFinalizeResult": { "type": "object", "additionalProperties": false, "required": ["capsule", "replayed"], "properties": { "capsule": { "$ref": "#/components/schemas/ProjectCapsule" }, "replayed": { "type": "boolean" } } },
+      "CapsuleListResult": { "type": "object", "additionalProperties": false, "required": ["capsules"], "properties": { "capsules": { "type": "array", "items": { "$ref": "#/components/schemas/CapsuleSummary" } } } },
+      "KnowledgeListResult": { "type": "object", "additionalProperties": false, "required": ["knowledge"], "properties": { "knowledge": { "type": "array", "items": { "$ref": "#/components/schemas/CandidateKnowledge" } } } },
+      "KnowledgeVersion": { "type": "object", "additionalProperties": false, "required": ["version", "content", "contentSha256", "createdAt"], "properties": { "version": { "type": "integer", "minimum": 1 }, "content": { "type": "string", "minLength": 1, "maxLength": 4000 }, "contentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "createdAt": { "type": "string", "format": "date-time" } } },
+      "KnowledgeReadResult": { "type": "object", "additionalProperties": false, "required": ["knowledge", "versions", "evidence"], "properties": { "knowledge": { "$ref": "#/components/schemas/CandidateKnowledge" }, "versions": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/KnowledgeVersion" } }, "evidence": { "type": "array", "minItems": 1, "items": { "$ref": "#/components/schemas/KnowledgeEvidence" } } } },
+      "KnowledgeDecisionRequest": {
+        "type": "object", "additionalProperties": false, "required": ["action", "expectedVersion"],
+        "properties": {
+          "action": { "type": "string", "enum": ["approve", "revise", "reject", "revoke", "elevate"] },
+          "expectedVersion": { "type": "integer", "minimum": 0 },
+          "effectiveScope": { "type": ["string", "null"], "enum": ["project", "client", null] },
+          "revisedContent": { "type": ["string", "null"], "minLength": 1, "maxLength": 4000 },
+          "reason": { "type": ["string", "null"], "minLength": 1, "maxLength": 1000 }
+        }
+      },
+      "KnowledgeCitationRequest": {
+        "type": "object", "additionalProperties": false, "required": ["reason"],
+        "properties": { "reason": { "type": "string", "minLength": 1, "maxLength": 1000 } }
+      },
+      "KnowledgePromotion": {
+        "type": "object", "additionalProperties": false,
+        "required": ["version", "action", "status", "effectiveScope", "content", "contentSha256", "reason"],
+        "properties": {
+          "version": { "type": "integer", "minimum": 1 }, "action": { "type": "string", "enum": ["approve", "revise", "reject", "revoke", "elevate"] },
+          "status": { "type": "string", "enum": ["approved", "rejected", "revoked"] }, "effectiveScope": { "type": ["string", "null"], "enum": ["project", "client", null] },
+          "content": { "type": ["string", "null"], "maxLength": 4000 }, "contentSha256": { "type": ["string", "null"], "pattern": "^[a-f0-9]{64}$" }, "reason": { "type": ["string", "null"], "maxLength": 1000 }
+        }
+      },
+      "KnowledgeApprovalHistory": {
+        "type": "object", "additionalProperties": false,
+        "required": ["promotionId", "knowledgeId", "sourceProjectId", "version", "status", "effectiveScope", "decisions"],
+        "properties": {
+          "promotionId": { "type": ["string", "null"], "format": "uuid" }, "knowledgeId": { "type": "string", "format": "uuid" }, "sourceProjectId": { "type": "string", "format": "uuid" },
+          "version": { "type": "integer", "minimum": 0 }, "status": { "type": ["string", "null"], "enum": ["approved", "rejected", "revoked", null] }, "effectiveScope": { "type": ["string", "null"], "enum": ["project", "client", null] },
+          "decisions": { "type": "array", "items": { "$ref": "#/components/schemas/KnowledgePromotion" } }
+        }
+      },
+      "KnowledgeDecisionResult": { "type": "object", "additionalProperties": false, "required": ["approval", "replayed"], "properties": { "approval": { "$ref": "#/components/schemas/KnowledgeApprovalHistory" }, "replayed": { "type": "boolean" } } },
+      "KnowledgeApprovalHistoryResult": { "type": "object", "additionalProperties": false, "required": ["approval"], "properties": { "approval": { "$ref": "#/components/schemas/KnowledgeApprovalHistory" } } },
+      "KnowledgeCitation": {
+        "type": "object", "additionalProperties": false,
+        "required": ["citationId", "sourceProjectId", "knowledgeId", "promotionVersion", "effectiveScope", "content", "contentSha256", "reason", "createdAt"],
+        "properties": { "citationId": { "type": "string", "format": "uuid" }, "sourceProjectId": { "type": "string", "format": "uuid" }, "knowledgeId": { "type": "string", "format": "uuid" }, "promotionVersion": { "type": "integer", "minimum": 1 }, "effectiveScope": { "type": "string", "enum": ["project", "client"] }, "content": { "type": "string", "minLength": 1, "maxLength": 4000 }, "contentSha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }, "reason": { "type": "string", "minLength": 1, "maxLength": 1000 }, "createdAt": { "type": "string", "format": "date-time" } }
+      },
+      "KnowledgeCitationResult": { "type": "object", "additionalProperties": false, "required": ["citation", "replayed"], "properties": { "citation": { "$ref": "#/components/schemas/KnowledgeCitation" }, "replayed": { "type": "boolean" } } },
+      "KnowledgeCitationListResult": { "type": "object", "additionalProperties": false, "required": ["citations"], "properties": { "citations": { "type": "array", "items": { "$ref": "#/components/schemas/KnowledgeCitation" } } } },
+      "ModelProfile": {
+        "type": "object", "additionalProperties": false,
+        "required": ["profileId", "provider", "displayName", "protocol", "endpoint", "modelName", "capabilities", "contextWindow", "region", "dataRetention", "credentialRef", "credentialConfigured", "status", "health", "version", "createdAt", "updatedAt", "lastError"],
+        "properties": {
+          "profileId": { "type": "string", "format": "uuid" },
+          "provider": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "protocol": { "type": "string", "enum": ["openai-compatible"] },
+          "endpoint": { "type": "string", "format": "uri", "maxLength": 500 },
+          "modelName": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "enum": ["chat", "structured_output", "tools", "vision", "image_generation", "image_edit", "embeddings"] } },
+          "contextWindow": { "type": ["integer", "null"], "minimum": 1000, "maximum": 2000000 },
+          "region": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "dataRetention": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "credentialRef": { "type": "string", "pattern": "^env:[A-Z][A-Z0-9_]{2,127}$" },
+          "credentialConfigured": { "type": "boolean" },
+          "status": { "type": "string", "enum": ["enabled", "disabled"] },
+          "health": { "type": "string", "const": "unverified" },
+          "version": { "type": "integer", "minimum": 1 },
+          "createdAt": { "type": "string", "format": "date-time" },
+          "updatedAt": { "type": "string", "format": "date-time" },
+          "lastError": { "type": ["string", "null"] }
+        }
+      },
+      "ModelProfileCreateRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["provider", "displayName", "protocol", "endpoint", "modelName", "capabilities", "contextWindow", "region", "dataRetention", "credentialRef", "status"],
+        "properties": {
+          "provider": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "protocol": { "type": "string", "enum": ["openai-compatible"] },
+          "endpoint": { "type": "string", "format": "uri", "maxLength": 500 },
+          "modelName": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "enum": ["chat", "structured_output", "tools", "vision", "image_generation", "image_edit", "embeddings"] } },
+          "contextWindow": { "type": ["integer", "null"], "minimum": 1000, "maximum": 2000000 },
+          "region": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "dataRetention": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "credentialRef": { "type": "string", "pattern": "^env:[A-Z][A-Z0-9_]{2,127}$" },
+          "status": { "type": "string", "enum": ["enabled", "disabled"] }
+        }
+      },
+      "ModelProfileUpdateRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["provider", "displayName", "protocol", "endpoint", "modelName", "capabilities", "contextWindow", "region", "dataRetention", "credentialRef", "status", "expectedVersion"],
+        "properties": {
+          "provider": { "type": "string", "minLength": 1, "maxLength": 100 },
+          "displayName": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "protocol": { "type": "string", "enum": ["openai-compatible"] },
+          "endpoint": { "type": "string", "format": "uri", "maxLength": 500 },
+          "modelName": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "capabilities": { "type": "array", "minItems": 1, "uniqueItems": true, "items": { "type": "string", "enum": ["chat", "structured_output", "tools", "vision", "image_generation", "image_edit", "embeddings"] } },
+          "contextWindow": { "type": ["integer", "null"], "minimum": 1000, "maximum": 2000000 },
+          "region": { "type": "string", "minLength": 1, "maxLength": 80 },
+          "dataRetention": { "type": "string", "minLength": 1, "maxLength": 200 },
+          "credentialRef": { "type": "string", "pattern": "^env:[A-Z][A-Z0-9_]{2,127}$" },
+          "status": { "type": "string", "enum": ["enabled", "disabled"] },
+          "expectedVersion": { "type": "integer", "minimum": 1 }
+        },
+        "description": "Full replacement of editable metadata with an optimistic concurrency version."
+      },
+      "ModelProfileMutationResult": {
+        "type": "object", "additionalProperties": false,
+        "required": ["profile"],
+        "properties": { "profile": { "$ref": "#/components/schemas/ModelProfile" } }
+      },
+      "ModelProfileListResult": {
+        "type": "object", "additionalProperties": false,
+        "required": ["profiles"],
+        "properties": { "profiles": { "type": "array", "items": { "$ref": "#/components/schemas/ModelProfile" } } }
+      },
+      "ModelTaskMatchRequest": {
+        "type": "object", "additionalProperties": false,
+        "required": ["taskType"],
+        "properties": { "taskType": { "type": "string", "enum": ["research", "outline", "long_form", "keyword_cluster", "review", "image_generation", "image_edit", "embedding"] } }
+      },
+      "ModelTaskMatchResult": {
+        "type": "object", "additionalProperties": false,
+        "required": ["taskType", "requiredCapabilities", "status", "preferred", "backup", "reasons"],
+        "properties": {
+          "taskType": { "type": "string" },
+          "requiredCapabilities": { "type": "array", "items": { "type": "string" } },
+          "status": { "type": "string", "enum": ["matched", "unavailable"] },
+          "preferred": { "anyOf": [{ "$ref": "#/components/schemas/ModelProfile" }, { "type": "null" }] },
+          "backup": { "anyOf": [{ "$ref": "#/components/schemas/ModelProfile" }, { "type": "null" }] },
+          "reasons": { "type": "array", "items": { "type": "string" } }
+        }
+      },
       "ImportError": {
         "type": "object",
         "additionalProperties": false,
@@ -1419,6 +2063,22 @@
               "TASK_NOT_FOUND",
               "EXECUTION_WRITE_FAILED",
               "EXECUTION_READ_FAILED",
+              "CAPSULE_NOT_FOUND",
+              "KNOWLEDGE_NOT_FOUND",
+              "CAPSULE_NOT_READY",
+              "LEARNING_WRITE_FAILED",
+              "LEARNING_READ_FAILED",
+              "MODEL_NOT_FOUND",
+              "MODEL_CONFLICT",
+              "MODEL_STORE_FAILED",
+              "GEO_NOT_FOUND",
+              "GEO_STORE_FAILED",
+              "VAULT_NOT_FOUND",
+              "VAULT_NOT_ALLOWED",
+              "CONNECTION_NOT_FOUND",
+              "PATH_ESCAPE",
+              "NOTE_LIMIT_EXCEEDED",
+              "OBSIDIAN_STORE_FAILED",
               "INTERNAL_FAILURE"
             ]
           },

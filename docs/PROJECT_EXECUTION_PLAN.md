@@ -1,6 +1,6 @@
 # Project Execution Plan
 
-Status: `Active planning and validation`
+Status: `Active implementation, planning and validation`
 Canonical progress source: [`project-status.json`](../project-status.json)
 Generated progress record: [`PROJECT_STATUS.md`](PROJECT_STATUS.md)
 Multi-agent delivery rules: [`MULTI_AGENT_EXECUTION.md`](MULTI_AGENT_EXECUTION.md)
@@ -53,6 +53,19 @@ The [data model](DATA_MODEL.md), [architecture](ARCHITECTURE.md), and [knowledge
 | M5 | Repeat-use and payment experiment, then packaging decision | Actual reuse and payment/deposit evidence determines expansion. |
 
 Detailed task ownership, dependencies, statuses, acceptance checks, evidence, and self-checks live in [`project-status.json`](../project-status.json). The generated [status record](PROJECT_STATUS.md) is the review-friendly view.
+
+## Workbench Expansion Track
+
+The original M2/M3 dependency chain remains the engineering evidence track. The user-approved workbench expansion is registered separately as `WB0`, so the failed/blocked M2-04 usefulness evaluation does not block delivery of a usable private-deployment console. `WB-04` is the current expansion task in progress.
+
+```text
+WB-01 model profiles / task matching
+-> WB-02 Brief / research / proposal draft
+-> WB-03 keyword / GEO snapshot
+-> WB-04 content / image assets / 7-30 day schedule
+```
+
+This track does not change M2-04 status and does not turn synthetic engineering evidence into ROI, production-readiness, or market-validation evidence. WB-01 through WB-03 are complete; WB-04 is the current implementation task. Its content Brief, asset, image-task, calendar, and read-only Obsidian note-index records now use authenticated server persistence with an explicitly labelled offline-draft fallback. Real model execution, note-body citation/write-back, external publishing, and project aggregation remain outside this slice.
 
 ## P0 Build Sequence
 

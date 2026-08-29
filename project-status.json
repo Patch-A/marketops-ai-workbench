@@ -3,7 +3,7 @@
   "project": {
     "name": "MarketOps AI Workbench",
     "repository": "https://github.com/Patch-A/marketops-ai-workbench",
-    "updatedAt": "2026-08-16",
+  "updatedAt": "2026-08-29",
     "statusPolicy": "A task is completed only after its acceptance check passes and completion evidence is recorded. The generated status report is not a substitute for product or market validation."
   },
   "milestones": [
@@ -347,9 +347,159 @@
             "method": "Focused backup/retrieval tests passed 67/67; full API discovery passed 453 tests with 36 capability skips; real M2 PostgreSQL tests passed 5/5; M2 and combined OpenAPI passed 11/11 and 45/104 guards/mutations; M0-04 passed 16 oracle cases; a clean PostgreSQL 18.4 container passed seven migrations, restart, 21-table non-empty restore, row-set hashes, and fresh execution/retrieval reads. Independent read-only review found no P0/P1/P2; its Docker rerun condition was satisfied by the primary integrator on the same working tree. This does not establish original-file deletion, real-document recall, production reliability, demand, ROI, repeat use, or payment."
           }
         },
-        { "id": "M2-02", "title": "Project capsule, feedback, and candidate knowledge", "owner": "Engineering", "status": "in_progress", "dependsOn": ["M2-01"], "acceptance": "A completed project produces traceable candidate knowledge with outcome feedback and version history." },
-        { "id": "M2-03", "title": "Knowledge approval and reuse evaluation", "owner": "Engineering", "status": "pending", "dependsOn": ["M2-02"], "acceptance": "A user approves, scopes, rejects, or revokes knowledge; project B can cite approved knowledge from project A." },
-        { "id": "M2-04", "title": "M2 review gate", "owner": "Product", "status": "pending", "dependsOn": ["M2-03"], "acceptance": "An isolation test and a usefulness evaluation pass with no unapproved cross-project reuse." }
+        {
+          "id": "M2-02",
+          "title": "Project capsule, feedback, and candidate knowledge",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["M2-01"],
+          "acceptance": "A completed project produces traceable candidate knowledge with outcome feedback and version history.",
+          "completedAt": "2026-08-16",
+          "evidence": [
+            { "kind": "file", "ref": "apps/api/marketops_learning/", "note": "Implements immutable project capsules, outcome feedback, retrospectives, candidate knowledge, evidence, and version history with project-only candidate scope." },
+            { "kind": "file", "ref": "apps/api/migrations/0008_project_learning.sql", "note": "Adds forced-RLS immutable learning tables and a deferred constraint trigger binding each capsule to the current approved proposal and the exact approved plan/schedule facts." },
+            { "kind": "file", "ref": "scripts/run_m2_02_postgres_gate.py", "note": "Fresh local PostgreSQL 18.4 gate passed 6/6 runtime tests, including authenticated HTTP, replay, RLS, audit rollback, cross-paired plan/schedule rejection, and non-current approved-proposal rejection." },
+            { "kind": "file", "ref": "scripts/run_m1_01_backup_restore_gate.py", "note": "Fresh v8 logical backup/restore passed with 27 business tables, non-empty learning rows, row-set hashes, fresh learning read, legacy v1/v2 upgrades, and tamper/rollback checks." },
+            { "kind": "file", "ref": "apps/api/tests/postgres/test_m2_02_learning_runtime.py", "note": "Independent read-only final review returned CLEAN APPROVE with no blocking findings after reviewing the runtime coverage and production paths." }
+          ],
+          "selfCheck": {
+            "status": "passed",
+            "method": "Focused M2 tests passed 56/56; full API discovery passed 480 with 42 expected DSN-gated skips; M1/M2 OpenAPI checkers passed 45/109, 11/11, and 6/6; progress and documentation checks passed. Evidence establishes the documented synthetic engineering workflow only, not automatic cross-project reuse, production reliability, demand, ROI, repeat use, or payment."
+          }
+        },
+        {
+          "id": "M2-03",
+          "title": "Knowledge approval and reuse evaluation",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["M2-02"],
+          "acceptance": "A user approves, scopes, rejects, or revokes knowledge; project B can cite approved knowledge from project A.",
+          "completedAt": "2026-08-16",
+          "evidence": [
+            { "kind": "file", "ref": "apps/api/migrations/0009_knowledge_approval.sql", "note": "Adds append-only promotion roots/versions and citation snapshots with forced RLS, composite tenant keys, actor binding, immutable triggers, and fail-closed current-head checks." },
+            { "kind": "file", "ref": "scripts/run_m2_03_postgres_gate.py", "note": "Fresh PostgreSQL 18.4 gate passed 14 runtime tests: same-client explicit citation, revoke/revise fail-closed reads, audit rollback, actor/client/workspace/target-actor direct-write rejection, replay, concurrency, migrations, and least privileges." },
+            { "kind": "file", "ref": "scripts/run_m1_01_backup_restore_gate.py", "note": "Fresh PostgreSQL 18.4 v9 backup/restore gate passed with non-empty promotion and citation rows, row-set hashes, forced RLS, least privilege, fresh approval/citation reads, and legacy v1/v2 upgrade checks; unit coverage preserves v8 manifest validation." },
+            { "kind": "file", "ref": "docs/superpowers/plans/2026-08-16-m2-03-knowledge-approval.md", "note": "Records the independent DeepSeek Harness review and incremental recheck, which found no P0/P1 after verifying the target-project actor guard, v8 manifest regression coverage, and current migration-chain wording." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Full API discovery passed 512 tests with 56 expected DSN-gated skips; M1/M2 OpenAPI contracts, M2-03 PostgreSQL 18.4 runtime gate, v9 backup/restore gate, progress, documentation, and diff checks passed. Evidence is synthetic engineering validation only, not production reliability, usefulness, demand, ROI, repeat use, or payment." }
+        },
+        {
+          "id": "M2-04",
+          "title": "M2 review gate",
+          "owner": "Product",
+          "status": "blocked",
+          "dependsOn": ["M2-03"],
+          "acceptance": "An isolation test and a usefulness evaluation pass with no unapproved cross-project reuse.",
+          "blocker": "The authorized deidentified Project D brief and same-client approved citation snapshot were evaluated in a completed control-first paired run. No serious factual, privacy, or cross-client issue was observed, but the evaluator marked zero useful retained controls in both conditions. Because the preregistered pass criterion requires citation adoption plus at least one retained treatment control, the usefulness evaluation outcome is failed and M2-04 acceptance is not met.",
+          "changeRecord": {
+            "date": "2026-08-17",
+        "evidence": [
+          "docs/superpowers/plans/2026-08-16-m2-04-review-gate.md",
+          "validation/templates/m2-04-paired-evaluation-record.json",
+          "scripts/check_m2_04_evaluation_record.py",
+          "apps/api/tests/test_m2_04_evaluation_record.py",
+          "scripts/run_m2_04_isolation_gate.py",
+          "C:/Users/Patch/Downloads/MarketOps-local-validation-20260815/authorization.json",
+          "C:/Users/Patch/Downloads/MarketOps-local-validation-20260815/manifest.json",
+          "validation/results/m2-04-paired-evaluation-record.json",
+          "C:/Users/Patch/Downloads/MarketOps-M2-04-evaluation/brief-d.md",
+          "C:/Users/Patch/Downloads/MarketOps-M2-04-evaluation/approved-knowledge-a.md",
+          "C:/Users/Patch/Downloads/MarketOps-M2-04-evaluation/authorization.json",
+          "C:/Users/Patch/Downloads/MarketOps-M2-04-evaluation/control-output.md",
+          "C:/Users/Patch/Downloads/MarketOps-M2-04-evaluation/treatment-output.md",
+          "C:/Users/Patch/Downloads/MarketOps-M2-04-evaluation/evaluator-notes.md",
+          "C:/Users/Patch/Downloads/MarketOps-M2-04-evaluation/evaluator-opinion.md"
+        ],
+            "nextAction": "审阅本次失败结果：确认是调整任务、调整批准知识呈现方式，还是重新设计配对评估；只有新的独立评估满足预注册通过条件后，才可考虑关闭 M2-04。"
+          }
+        }
+      ]
+    },
+    {
+      "id": "wb0",
+      "name": "WB0: Workbench expansion foundation",
+      "goal": "Build the first usable workbench expansion slices independently of the blocked M2-04 evaluation gate.",
+      "tasks": [
+        {
+          "id": "WB-01",
+          "title": "Model profiles and task matching foundation",
+          "owner": "Engineering",
+          "dependsOn": ["M1-05"],
+          "acceptance": "A private-deployment operator can add, edit, disable, and list model metadata without exposing a secret; a deterministic task match returns a preferred model, optional backup, and reasons.",
+          "status": "completed",
+          "completedAt": "2026-08-18",
+          "evidence": [
+            { "kind": "file", "ref": "apps/api/marketops_models/service.py", "note": "Stores scoped model metadata and env: references only, rejects endpoint query/fragment data, and excludes unconfigured credentials from deterministic task matches." },
+            { "kind": "file", "ref": "apps/api/tests/test_wb_01_model_center.py", "note": "Five focused service/HTTP tests cover persistence, scope isolation, HTTPS/local endpoint rules, endpoint secret rejection, optimistic disable/conflict, missing credentials, and task matching." },
+            { "kind": "file", "ref": "apps/api/openapi/project-import.openapi.yaml", "note": "Documents all model profile routes, response metadata including credentialConfigured, stable errors, and an explicit PATCH update schema with expectedVersion." },
+            { "kind": "file", "ref": "model-center.js", "note": "Provides add/edit/disable/list UI, credential state visibility, deterministic match display, and persistent save-error/conflict feedback after rerender." },
+            { "kind": "file", "ref": "apps/api/tests/test_project_import_http.py", "note": "Static whitelist regression now requests and asserts model-center.js under protected authentication." }
+          ],
+          "selfCheck": { "status": "passed", "method": "WB-01 and HTTP focused tests passed 32/32; node syntax checks, Python compileall, OpenAPI JSON/schema checks, browser CRUD/match/conflict checks, node scripts/progress.mjs check, and git diff --check passed; independent read-only review returned CLEAN APPROVE with no P0/P1." }
+        },
+        {
+          "id": "WB-02",
+          "title": "Brief, research, and proposal draft vertical slice",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["WB-01"],
+          "acceptance": "A deidentified Brief creates a cited research task and a reviewable proposal draft without changing approved project facts automatically.",
+          "completedAt": "2026-08-29",
+          "evidence": [
+            { "kind": "file", "ref": "scripts/run_wb_02_fastapi_browser_gate.py", "note": "Runs the real FastAPI application with StaticBearerAuthenticator and local JSON BriefResearchService, then drives Chrome through the authenticated workflow." },
+            { "kind": "file", "ref": "scripts/run_wb_02_browser_gate.mjs", "note": "Authenticated Chromium gate passed Brief creation, research and draft failure paths, safe text rendering, source details, approval, 320/390/1440 responsive layouts, console and request-boundary checks." },
+            { "kind": "file", "ref": "apps/api/tests/test_wb_02_brief_research.py", "note": "Focused Brief/research service tests passed 3/3." },
+            { "kind": "file", "ref": "apps/api/tests/test_project_import_http.py", "note": "Authenticated HTTP regression passed 28/28." },
+            { "kind": "file", "ref": "research-workbench.js", "note": "Clears stale draft errors before each new research attempt so retry state reflects the current request." }
+          ],
+          "selfCheck": { "status": "passed", "method": "Real FastAPI/Chrome gate returned 8/8 true; focused service 3/3 and HTTP 28/28 passed; Node/Python syntax, progress, and diff checks passed. Evidence is bounded to local authenticated engineering behavior and does not establish real customer value, ROI, demand, or production readiness." }
+        },
+        {
+          "id": "WB-03",
+          "title": "Keyword and GEO snapshot minimum loop",
+          "owner": "Engineering",
+          "status": "completed",
+          "dependsOn": ["WB-02"],
+          "acceptance": "A fixed query set produces timestamped observations and actionable content-gap tasks without claiming universal rankings.",
+          "completedAt": "2026-08-29",
+          "evidence": [
+            { "kind": "file", "ref": "apps/api/marketops_geo/service.py", "note": "Stores workspace/client/actor-scoped fixed query sets and timestamped manual observations; validates platform, visibility, date, citation protocol, and creates needs_review content-gap tasks for absent or unclear observations." },
+            { "kind": "file", "ref": "apps/api/tests/test_wb_03_geo.py", "note": "Focused GEO service tests cover query limits, duplicate rejection, observation validation, content-gap task creation, persistence, and scope isolation." },
+            { "kind": "file", "ref": "apps/api/tests/test_wb_03_geo_http.py", "note": "Authenticated HTTP tests cover query-set/snapshot creation, unauthenticated rejection, and runtime OpenAPI GEO contract presence." },
+            { "kind": "file", "ref": "apps/api/openapi/project-import.openapi.yaml", "note": "Frozen OpenAPI contract documents four GEO routes, request/response schemas, and GEO_NOT_FOUND/GEO_STORE_FAILED stable errors." },
+            { "kind": "file", "ref": "scripts/run_wb_03_fastapi_browser_gate.py", "note": "Starts the real FastAPI adapter with Basic authentication and local GEO persistence for the browser gate." },
+            { "kind": "file", "ref": "scripts/run_wb_03_browser_gate.mjs", "note": "Real Chrome/CDP gate passed query-set save, snapshot persistence and reload recovery, content-gap task, backend rejection of javascript citation, 320/390/1440 responsive checks, console-error check, and external-request boundary." }
+          ],
+          "selfCheck": { "status": "passed", "method": "WB-03 service and HTTP tests passed 5/5; combined Brief/GEO/HTTP regression passed 35/35; real FastAPI/Chrome gate returned 8/8 true; OpenAPI checks, Python/Node syntax, 538-test Python suite (59 environment skips), 21 frontend Node tests, progress check, and git diff check passed. Evidence is bounded to authenticated local engineering behavior and manual observation samples; it does not establish automatic search monitoring, universal rankings, customer value, ROI, demand, or production readiness." }
+        },
+        {
+          "id": "WB-04",
+          "title": "Content assets, image generation, and 7/30-day schedule",
+          "owner": "Engineering",
+          "status": "in_progress",
+          "dependsOn": ["WB-03"],
+          "acceptance": "An approved content brief can create versioned assets and human-confirmed calendar items with explicit failure and authorization states.",
+          "changeRecord": {
+            "date": "2026-08-29",
+            "summary": "WB-04 server-backed content/calendar plus read-only Obsidian index slice is implemented and runtime-tested; completion remains open until independent review and remaining connector boundaries are resolved.",
+            "confirmed": [
+              "Fresh browser session verified Brief save, approval gate, asset task creation, image task authorization boundary, calendar creation/confirmation, refresh recovery, no console errors, and no content-panel overflow.",
+              "539 API tests passed with 59 environment-gated skips and 21 frontend contract tests passed.",
+              "Real temporary FastAPI plus Chrome/CDP gate passed authenticated content and calendar route checks, Brief approval, image task needs_authorization, calendar confirmation, responsive layout, console-error, and external-request boundaries."
+              ,"The same real gate now reloads the content and calendar views and confirms the approved Brief, asset task, confirmed calendar item, and server-synchronization state are restored from authenticated server facts.",
+              "Obsidian service and HTTP tests cover authentication, allowed-vault enforcement, empty-scope whole-vault selection, Windows path normalization, deduplication, scope isolation, note limits, read-only response shape, and body redaction.",
+              "The real FastAPI/Chrome gate now connects a synthetic Obsidian vault, renders the note index, verifies refresh recovery, confirms the note body marker is absent from the API response and DOM, and returns 11/11 true."
+            ],
+            "limitations": [
+              "The authenticated server store is now the primary persistence path; browser localStorage remains an explicitly labelled offline-draft fallback when the API is unavailable.",
+              "No image is generated until a configured model connector is authorized; no external channel publishing is implemented.",
+              "The Obsidian integration is read-only metadata/index synchronization only; it does not expose note bodies, support note citations, or write back to the vault.",
+              "The production default vault is the configured local path and can be overridden with MARKETOPS_OBSIDIAN_VAULT_ROOT; browser gates use only a synthetic temporary vault.",
+              "Project/GEO/research task aggregation, real image connector execution, external channel publishing, and independent non-implementer review remain open; this engineering gate is not a customer-value, ROI, or production-readiness claim."
+            ],
+            "nextAction": "Obtain independent read-only review of the complete WB-04 diff and runtime evidence; then decide whether to close the bounded Obsidian portion or continue with the real image connector and project/GEO/research aggregation."
+          }
+        }
       ]
     },
     {

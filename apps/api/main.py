@@ -30,6 +30,17 @@ from .marketops_retrieval import (
     RetrievalApplicationService,
     SourceIndexingService,
 )
+from .marketops_learning import (
+    AsyncpgKnowledgeApprovalRepository,
+    AsyncpgLearningRepository,
+    LearningApplicationService,
+)
+from .marketops_models import ModelProfileService
+from .marketops_brief import BriefResearchService
+from .marketops_geo import GeoSnapshotService
+from .marketops_content import ContentAssetService
+from .marketops_calendar import CalendarItemService
+from .marketops_obsidian import ObsidianReadOnlyService
 
 
 @dataclass(frozen=True)
@@ -39,6 +50,7 @@ class RuntimeSettings:
     bearer_token: str
     basic_username: str
     scope: ScopeContext
+    obsidian_vault_root: Path = ObsidianReadOnlyService.DEFAULT_VAULT_ROOT
 
     @classmethod
     def from_environment(cls) -> "RuntimeSettings":
@@ -70,6 +82,12 @@ class RuntimeSettings:
             bearer_token=values["bearer_token"],
             basic_username=values["basic_username"],
             scope=scope,
+            obsidian_vault_root=Path(
+                os.environ.get(
+                    "MARKETOPS_OBSIDIAN_VAULT_ROOT",
+                    str(ObsidianReadOnlyService.DEFAULT_VAULT_ROOT),
+                )
+            ),
         )
 
 
@@ -134,6 +152,28 @@ async def _lifespan(application: FastAPI):
         )
         application.state.retrieval_service = RetrievalApplicationService(
             retrieval_repository
+        )
+        application.state.learning_service = LearningApplicationService(
+            AsyncpgLearningRepository(
+                pool,
+                id_factory=lambda: str(uuid4()),
+                clock=lambda: datetime.now(timezone.utc),
+            ),
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        application.state.knowledge_approval_service = AsyncpgKnowledgeApprovalRepository(
+            pool,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        application.state.model_profile_service = ModelProfileService(settings.object_root)
+        application.state.brief_research_service = BriefResearchService(settings.object_root)
+        application.state.geo_service = GeoSnapshotService(settings.object_root)
+        application.state.content_service = ContentAssetService(settings.object_root)
+        application.state.calendar_service = CalendarItemService(settings.object_root)
+        application.state.obsidian_service = ObsidianReadOnlyService(
+            settings.object_root, vault_root=settings.obsidian_vault_root
         )
         yield
     finally:

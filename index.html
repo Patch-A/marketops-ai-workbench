@@ -4,7 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="theme-color" content="#0b0a0f" />
-    <title>MarketOps Review Console</title>
+    <title>MarketOps AI Workbench</title>
     <!-- /* finesse · compact workflow · evidence first · dual theme · restrained motion */ -->
     <link rel="icon" href="data:," />
     <link rel="stylesheet" href="styles.css" />
@@ -13,24 +13,30 @@
     <a class="skip-link" href="#mainContent">跳到主要内容</a>
     <div class="app-shell">
       <aside class="sidebar" aria-label="主导航">
-        <div class="brand-lockup"><span class="brand-mark" aria-hidden="true">M</span><span><strong>MarketOps</strong><small>REVIEW CONSOLE</small></span></div>
+        <div class="brand-lockup"><span class="brand-mark" aria-hidden="true">M</span><span><strong>MarketOps</strong><small>AI WORKBENCH</small></span></div>
         <nav class="primary-nav" aria-label="工作区导航">
-          <button class="nav-item is-active" type="button"><i data-lucide="scan-text"></i><span>交付审核</span><kbd>M1-02</kbd></button>
-          <button class="nav-item" type="button" id="scheduleNav"><i data-lucide="git-branch"></i><span>执行排期</span><kbd>M1-03</kbd></button>
-          <button class="nav-item" type="button" data-toast="项目知识区尚未接入此切片"><i data-lucide="library"></i><span>项目知识</span></button>
+          <button class="nav-item is-active" type="button" id="dashboardNav" aria-label="总控台" data-primary-view="dashboard"><i data-lucide="layout-dashboard"></i><span>总控台</span></button>
+          <button class="nav-item" type="button" id="projectNav" aria-label="项目" data-primary-view="project"><i data-lucide="folder-kanban"></i><span>项目</span></button>
+          <button class="nav-item" type="button" id="researchNav" aria-label="研究与情报" data-primary-view="research"><i data-lucide="book-open-check"></i><span>研究与情报</span></button>
+          <button class="nav-item" type="button" id="geoNav" aria-label="GEO" data-primary-view="geo"><i data-lucide="radar"></i><span>GEO</span></button>
+          <button class="nav-item" type="button" id="contentNav" aria-label="内容与资产" data-primary-view="content"><i data-lucide="images"></i><span>内容与资产</span></button>
+          <button class="nav-item" type="button" id="calendarNav" aria-label="日程" data-primary-view="calendar"><i data-lucide="calendar-days"></i><span>日程</span></button>
+        </nav>
+        <nav class="secondary-nav" aria-label="系统设置">
+          <button class="nav-item" type="button" id="settingsNav" aria-label="设置中心" data-primary-view="settings"><i data-lucide="settings-2"></i><span>设置中心</span></button>
         </nav>
         <div class="sidebar-context">
           <span class="eyebrow">CURRENT MILESTONE</span>
           <strong>方案转执行计划</strong>
-          <div class="milestone-meter" aria-label="M1 任务进度，1 项完成，1 项进行中，4 项待开始"><span></span><span class="is-current"></span><span></span><span></span><span></span><span></span></div>
-          <p>M1-02 进行中。候选必须保留引用并经人工决定。</p>
+          <div class="milestone-meter" aria-label="M1 首版工作台已完成，可开始试用"><span class="is-complete"></span><span class="is-complete"></span><span class="is-complete"></span><span class="is-complete"></span><span class="is-complete"></span></div>
+          <p>M1 首版工作台已完成。现在可以导入项目并开始实际试用。</p>
         </div>
         <div class="sidebar-bottom"><i data-lucide="shield-check"></i><span>项目资料由当前部署按工作区隔离</span></div>
       </aside>
 
       <main class="main-content" id="mainContent">
         <header class="topbar">
-          <div class="breadcrumb"><span>项目</span><i data-lucide="chevron-right"></i><b id="breadcrumbProject">正在恢复...</b></div>
+          <div class="breadcrumb"><span id="breadcrumbSection">总控台</span><i data-lucide="chevron-right"></i><b id="breadcrumbProject">正在恢复...</b></div>
           <div class="topbar-actions">
             <span class="connection-state" id="connectionState"><i></i>SERVER</span>
             <button class="icon-button" id="themeToggle" type="button" aria-label="切换浅色主题" title="切换主题"><i data-lucide="sun"></i></button>
@@ -39,23 +45,46 @@
         </header>
 
         <div class="page-content">
-          <section class="page-heading">
+          <section class="page-heading" id="projectHeading" data-primary-section="project">
             <div>
               <h1><span class="console-label">DELIVERABLE EXTRACTION / HUMAN REVIEW</span>交付物审核台</h1>
               <p>核对来源、修订候选，并生成可追溯的人工决定。</p>
             </div>
-            <button class="button button-primary" type="button" id="newBrief"><i data-lucide="plus"></i>新建项目</button>
+            <div class="project-heading-actions"><div class="workspace-tabs" role="tablist" aria-label="项目工作区"><button class="workspace-tab is-active" type="button" role="tab" aria-selected="true" data-project-workspace="review"><i data-lucide="scan-text"></i>审核</button><button class="workspace-tab" type="button" role="tab" aria-selected="false" data-project-workspace="schedule"><i data-lucide="git-branch"></i>排期与执行</button></div><button class="button button-primary" type="button" id="newBrief"><i data-lucide="plus"></i>新建项目</button></div>
           </section>
 
-          <div class="status-strip" role="status"><span class="status-signal" aria-hidden="true"><i></i></span><span id="serverStatusText">正在连接 Server API...</span><span class="status-boundary">浏览器不保存项目事实</span></div>
+          <div class="status-strip" id="projectStatusStrip" role="status" data-primary-section="project"><span class="status-signal" aria-hidden="true"><i></i></span><span id="serverStatusText">正在连接 Server API...</span><span class="status-boundary">浏览器不保存项目事实</span></div>
 
-          <section class="import-summary" id="importSummary" aria-live="polite" aria-busy="false" hidden>
+          <section class="dashboard-view" id="dashboardView" data-primary-section="dashboard" aria-labelledby="dashboardTitle">
+            <header class="page-heading dashboard-heading">
+              <div><h1 id="dashboardTitle"><span class="console-label">MARKETOPS CONTROL DESK</span>总控台</h1><p>把今天需要判断、执行和跟进的事项集中到一个入口。</p></div>
+              <div class="dashboard-actions"><button class="icon-button" type="button" id="dashboardRefresh" aria-label="刷新总控台" title="刷新总控台"><i data-lucide="refresh-cw"></i></button><button class="button button-quiet" type="button" data-primary-action="research"><i data-lucide="search"></i>运行研究</button><button class="button button-primary" type="button" id="dashboardNewBrief"><i data-lucide="plus"></i>新建项目</button></div>
+            </header>
+            <div class="dashboard-status" id="dashboardStatus" role="status"><span class="status-signal" aria-hidden="true"><i></i></span><span id="dashboardStatusText">正在读取工作区状态...</span><span class="status-boundary" id="dashboardStatusMeta">事实来自当前部署</span></div>
+            <div class="dashboard-toolbar" aria-label="总控台筛选">
+              <div class="dashboard-period" role="group" aria-label="时间范围"><span class="toolbar-label">范围</span><button class="filter-button is-active" type="button" data-dashboard-period="today" aria-pressed="true">今日</button><button class="filter-button" type="button" data-dashboard-period="week" aria-pressed="false">本周</button><button class="filter-button" type="button" data-dashboard-period="month" aria-pressed="false">本月</button></div>
+              <div class="dashboard-project-filter" role="group" aria-label="项目状态"><span class="toolbar-label">项目</span><button class="filter-button is-active" type="button" data-dashboard-filter="all" aria-pressed="true">全部</button><button class="filter-button" type="button" data-dashboard-filter="active" aria-pressed="false">进行中</button><button class="filter-button" type="button" data-dashboard-filter="blocked" aria-pressed="false">已阻塞</button><button class="filter-button" type="button" data-dashboard-filter="archived" aria-pressed="false">已归档</button></div>
+            </div>
+            <div class="dashboard-selection" id="dashboardSelection" hidden aria-live="polite"></div>
+            <div class="dashboard-grid">
+              <section class="dashboard-panel dashboard-focus-panel" aria-labelledby="focusTitle"><header class="panel-heading"><div><span class="console-label" id="focusKicker">TODAY / NEXT ACTION</span><h2 id="focusTitle">今日重点</h2></div><span id="focusCount">0 项</span></header><div class="dashboard-list" id="dashboardFocusList"><div class="dashboard-empty"><i data-lucide="list-todo"></i><strong>等待项目任务</strong><span>项目进入执行阶段后，今天要做的事情会出现在这里。</span></div></div></section>
+              <section class="dashboard-panel dashboard-projects-panel" aria-labelledby="projectsTitle"><header class="panel-heading"><div><span class="console-label">ACTIVE PROJECTS</span><h2 id="projectsTitle">重点项目</h2></div><div class="panel-heading-actions"><span id="projectCount">0 项</span><button class="text-button" type="button" data-primary-view="project">查看项目</button></div></header><div class="dashboard-project-list" id="dashboardProjectList"><div class="dashboard-empty"><i data-lucide="folder-open"></i><strong>尚无服务器项目</strong><span>从“项目”入口导入已批准方案，建立第一个项目。</span></div></div></section>
+              <section class="dashboard-panel dashboard-geo-panel" aria-labelledby="geoTitle"><header class="panel-heading"><div><span class="console-label">GEO SIGNAL</span><h2 id="geoTitle">GEO 最近变化</h2></div><span class="status-badge">未配置</span></header><div class="dashboard-empty dashboard-empty-compact"><i data-lucide="radar"></i><strong>尚未连接检测来源</strong><span>配置首批产品、市场和固定查询集后，这里才会显示可复现快照。</span><button class="button button-quiet" type="button" data-primary-view="geo">进入 GEO</button></div></section>
+              <section class="dashboard-panel dashboard-intel-panel" aria-labelledby="intelTitle"><header class="panel-heading"><div><span class="console-label">INTELLIGENCE</span><h2 id="intelTitle">重点资讯</h2></div><span class="status-badge">未连接</span></header><div class="dashboard-empty dashboard-empty-compact"><i data-lucide="newspaper"></i><strong>尚未连接资讯来源</strong><span>支持 RSS、官方页面和人工录入后，资讯才会进入首页。</span><button class="button button-quiet" type="button" data-primary-view="research">进入研究与情报</button></div></section>
+              <section class="dashboard-panel dashboard-calendar-panel" aria-labelledby="calendarTitle"><header class="panel-heading"><div><span class="console-label">SCHEDULE</span><h2 id="calendarTitle">今日日程</h2></div><div class="panel-heading-actions"><span id="calendarDateLabel">今日</span><button class="text-button" type="button" data-primary-view="calendar">打开日程</button></div></header><div class="dashboard-list" id="dashboardCalendarList"><div class="dashboard-empty dashboard-empty-compact"><i data-lucide="calendar-days"></i><strong>暂无日程数据</strong><span>批准计划和研究任务会在确认后进入日程。</span></div></div></section>
+            </div>
+            <p class="claim-boundary"><i data-lucide="shield-check"></i>GEO、资讯和模型连接尚未接入；首页只显示已经从服务器读取的项目事实，不用演示数据填充空白。</p>
+          </section>
+
+          <section class="module-placeholder" id="modulePlaceholder" data-primary-section="module" hidden aria-live="polite"></section>
+
+          <section class="import-summary" id="importSummary" data-primary-section="project" aria-live="polite" aria-busy="false" hidden>
             <div class="import-summary-icon"><i data-lucide="file-check"></i></div>
             <div class="import-summary-copy"><span class="eyebrow" id="importSummaryKicker">APPROVED PROPOSAL</span><strong id="importProjectName"></strong><span id="importProjectFiles"></span></div>
             <div class="import-summary-actions"><span class="status-badge" id="importSummaryBadge">读取中</span><button class="text-button" type="button" id="retryProjectLoad" hidden>重试读取</button></div>
           </section>
 
-          <section class="review-console" id="reviewConsole" aria-labelledby="reviewTitle" data-state="unavailable">
+          <section class="review-console" id="reviewConsole" data-primary-section="project" aria-labelledby="reviewTitle" data-state="unavailable">
             <header class="console-header">
               <div><h2 id="reviewTitle"><span class="console-label">REVIEW WORKSPACE</span>服务器审阅记录</h2></div>
               <div class="console-actions">
@@ -103,7 +132,7 @@
             </div>
           </section>
 
-          <section class="schedule-workbench" id="scheduleWorkbench" aria-labelledby="scheduleTitle" data-state="empty">
+          <section class="schedule-workbench" id="scheduleWorkbench" data-primary-section="project" aria-labelledby="scheduleTitle" data-state="empty">
             <header class="console-header schedule-header">
               <div><h2 id="scheduleTitle"><span class="console-label">WBS / DETERMINISTIC SCHEDULE</span>执行排期工作台</h2><p class="schedule-subtitle" id="schedulePlanMeta">未创建计划</p></div>
               <div class="console-actions"><button class="button button-quiet" type="button" id="refreshWbsPlan" disabled><i data-lucide="refresh-cw"></i>刷新</button><button class="button button-primary" type="button" id="createWbsPlan" disabled><i data-lucide="git-branch"></i>从审核生成 WBS</button></div>
@@ -130,7 +159,7 @@
             </div>
             <p class="claim-boundary"><i data-lucide="shield-check"></i>排期结果只提供可追溯的计算快照；计划执行前仍需人工确认，当前未接入模型 API 或外部连接器。</p>
           </section>
-          <section class="execution-workbench" id="executionWorkbench" aria-labelledby="executionTitle" data-state="empty" hidden>
+          <section class="execution-workbench" id="executionWorkbench" data-primary-section="project" aria-labelledby="executionTitle" data-state="empty" hidden>
             <header class="console-header execution-header">
               <div><h2 id="executionTitle"><span class="console-label">APPROVED PLAN / LIVE EXECUTION</span>执行状态与导出</h2><p class="schedule-subtitle" id="executionPlanMeta">尚未载入批准计划</p></div>
               <div class="console-actions"><button class="button button-quiet" type="button" id="syncExecution" disabled><i data-lucide="refresh-cw"></i>同步状态</button><button class="button button-quiet" type="button" id="exportExecutionCsv" disabled><i data-lucide="download"></i>CSV</button><button class="button button-primary" type="button" id="exportExecutionXlsx" disabled><i data-lucide="file-spreadsheet"></i>XLSX</button></div>
@@ -140,7 +169,7 @@
             <div class="execution-task-list" id="executionTaskList"><div class="execution-empty"><i data-lucide="activity"></i><strong>等待执行计划</strong><span>批准当前 WBS 后，可在这里记录执行状态。</span></div></div>
             <p class="claim-boundary"><i data-lucide="shield-check"></i>导出只包含当前批准版本及最新执行状态；浏览器不持有作用域、操作者或计划版本 UUID。</p>
           </section>
-          <p class="claim-boundary"><i data-lucide="info"></i>当前工程证据仅证明合成数据上的审阅行为，不代表真实需求、ROI、节省时间或生产容量。</p>
+          <p class="claim-boundary"><i data-lucide="info"></i>当前演示项目使用合成资料；请先用去标识项目试用，再根据实际反馈评估效果和后续部署。</p>
         </div>
       </main>
     </div>
@@ -169,6 +198,11 @@
     <script src="review-workbench.js"></script>
     <script src="schedule-workbench.js"></script>
     <script src="execution-workbench.js"></script>
+    <script src="model-center.js"></script>
+    <script src="research-workbench.js"></script>
+    <script src="geo-workbench.js"></script>
+    <script src="content-workbench.js"></script>
+    <script src="calendar-workbench.js"></script>
     <script src="app.js"></script>
   </body>
 </html>

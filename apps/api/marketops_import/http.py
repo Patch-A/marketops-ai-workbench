@@ -52,6 +52,21 @@ from ..marketops_retrieval import (
     RetrievalFailure,
     RetrievalScopeContext,
 )
+from ..marketops_learning import (
+    ApprovalDecisionRequest,
+    FeedbackSourceReference,
+    LearningFailure,
+    LearningScopeContext,
+    OutcomeInput,
+    RetrospectiveInput,
+)
+from ..marketops_models import ModelCenterError, ModelProfileService, ModelScope
+from ..marketops_models.service import public_profile
+from ..marketops_brief import BriefResearchError, BriefResearchService, BriefScope
+from ..marketops_geo import GeoError, GeoScope, GeoSnapshotService
+from ..marketops_content import ContentAssetService, ContentError, ContentScope
+from ..marketops_calendar import CalendarError, CalendarItemService, CalendarScope
+from ..marketops_obsidian import ObsidianError, ObsidianReadOnlyService, ObsidianScope
 
 
 Authenticator = Callable[
@@ -66,9 +81,31 @@ _MAX_TEXT_FIELD_SIZE_BYTES = 4096
 _MAX_MULTIPART_REQUEST_SIZE_BYTES = 2 * MAX_FILE_SIZE_BYTES + 64 * 1024
 _MAX_REVIEW_JSON_BYTES = 16 * 1024
 _MAX_SCHEDULE_JSON_BYTES = 128 * 1024
+_MAX_MODEL_JSON_BYTES = 32 * 1024
+_MAX_BRIEF_JSON_BYTES = 128 * 1024
+_MAX_GEO_JSON_BYTES = 64 * 1024
+_MAX_CONTENT_JSON_BYTES = 64 * 1024
+_MAX_CALENDAR_JSON_BYTES = 32 * 1024
+_MAX_OBSIDIAN_JSON_BYTES = 32 * 1024
+_OBSIDIAN_CONNECT_FIELDS = frozenset({"vaultPath", "relativePaths"})
+_CONTENT_BRIEF_FIELDS = frozenset({"topic", "channel", "format", "audience", "briefId", "expectedVersion"})
+_CONTENT_ASSET_FIELDS = frozenset({"briefId", "title", "channel", "format", "assetType", "prompt"})
+_CONTENT_ASSET_UPDATE_FIELDS = frozenset({"expectedVersion", "status"})
+_CONTENT_APPROVE_FIELDS = frozenset({"expectedVersion"})
+_CALENDAR_ITEM_FIELDS = frozenset({"title", "date", "source", "note"})
+_CALENDAR_UPDATE_FIELDS = frozenset({"expectedVersion", "status"})
 _INDEX_SOURCE_FIELDS = frozenset({"artifactVersionId"})
 _SEARCH_REQUIRED_FIELDS = frozenset({"query"})
 _SEARCH_OPTIONAL_FIELDS = frozenset({"limit"})
+_CREATE_MODEL_FIELDS = frozenset({
+    "provider", "displayName", "protocol", "endpoint", "modelName",
+    "capabilities", "contextWindow", "region", "dataRetention",
+    "credentialRef", "status",
+})
+_UPDATE_MODEL_FIELDS = frozenset((*_CREATE_MODEL_FIELDS, "expectedVersion"))
+_MATCH_MODEL_FIELDS = frozenset({"taskType"})
+_GEO_QUERY_SET_FIELDS = frozenset({"product", "market", "language", "queries"})
+_GEO_SNAPSHOT_FIELDS = frozenset({"platform", "queryId", "visibility", "observation", "observedAt", "citation"})
 _CREATE_REVIEW_FIELDS = frozenset(
     {"expectedProposalVersionId", "expectedProposalSha256"}
 )
@@ -90,6 +127,18 @@ _EXECUTION_REQUIRED_FIELDS = frozenset(
 _EXECUTION_OPTIONAL_FIELDS = frozenset(
     {"blockerReason", "actualStart", "actualFinish", "note"}
 )
+_LEARNING_FINALIZE_FIELDS = frozenset({"outcomes", "retrospectives"})
+_LEARNING_OUTCOME_REQUIRED_FIELDS = frozenset({"metric", "actualValue", "source"})
+_LEARNING_OUTCOME_OPTIONAL_FIELDS = frozenset({"plannedValue", "unit"})
+_LEARNING_RETROSPECTIVE_FIELDS = frozenset(
+    {"finding", "classification", "reusableCandidate", "evidence"}
+)
+_LEARNING_SOURCE_FIELDS = frozenset({"sourceType", "sourceId"})
+_KNOWLEDGE_DECISION_REQUIRED_FIELDS = frozenset({"action", "expectedVersion"})
+_KNOWLEDGE_DECISION_OPTIONAL_FIELDS = frozenset(
+    {"effectiveScope", "revisedContent", "reason"}
+)
+_KNOWLEDGE_CITATION_FIELDS = frozenset({"reason"})
 _TASK_UPDATE_FIELDS = frozenset({"taskId", "changes"})
 _EDITABLE_TASK_FIELDS = frozenset(
     {
@@ -166,7 +215,48 @@ _STATUS_BY_CODE = {
     "TASK_NOT_FOUND": 404,
     "EXECUTION_WRITE_FAILED": 503,
     "EXECUTION_READ_FAILED": 503,
+    "CAPSULE_NOT_FOUND": 404,
+    "KNOWLEDGE_NOT_FOUND": 404,
+    "CAPSULE_NOT_READY": 422,
+    "LEARNING_WRITE_FAILED": 503,
+    "LEARNING_READ_FAILED": 503,
+    "DECISION_VERSION_CONFLICT": 409,
+    "INVALID_TRANSITION": 422,
+    "INVALID_SCOPE": 422,
+    "KNOWLEDGE_NOT_ELIGIBLE": 422,
+    "TARGET_PROJECT_NOT_FOUND": 404,
+    "KNOWLEDGE_APPROVAL_WRITE_FAILED": 503,
+    "KNOWLEDGE_APPROVAL_READ_FAILED": 503,
+    "KNOWLEDGE_CITATION_WRITE_FAILED": 503,
     "INTERNAL_FAILURE": 500,
+    "MODEL_NOT_FOUND": 404,
+    "MODEL_CONFLICT": 409,
+    "MODEL_STORE_FAILED": 503,
+    "DEIDENTIFICATION_REQUIRED": 422,
+    "CITATION_REQUIRED": 422,
+    "BRIEF_NOT_FOUND": 404,
+    "RESEARCH_NOT_FOUND": 404,
+    "PROPOSAL_NOT_FOUND": 404,
+    "PROPOSAL_CONFLICT": 409,
+    "PROPOSAL_INVALID_TRANSITION": 422,
+    "BRIEF_NOT_READY": 422,
+    "BRIEF_STORE_FAILED": 503,
+    "GEO_NOT_FOUND": 404,
+    "GEO_STORE_FAILED": 503,
+    "BRIEF_CONFLICT": 409,
+    "BRIEF_NOT_APPROVED": 422,
+    "ASSET_NOT_FOUND": 404,
+    "ASSET_CONFLICT": 409,
+    "CONTENT_STORE_FAILED": 503,
+    "CALENDAR_NOT_FOUND": 404,
+    "CALENDAR_CONFLICT": 409,
+    "CALENDAR_STORE_FAILED": 503,
+    "VAULT_NOT_FOUND": 404,
+    "VAULT_NOT_ALLOWED": 403,
+    "CONNECTION_NOT_FOUND": 404,
+    "PATH_ESCAPE": 422,
+    "NOTE_LIMIT_EXCEEDED": 422,
+    "OBSIDIAN_STORE_FAILED": 503,
 }
 _PUBLIC_MESSAGES = {
     "INVALID_INPUT": "The import request is malformed or incomplete.",
@@ -227,7 +317,48 @@ _PUBLIC_MESSAGES = {
     "TASK_NOT_FOUND": "The requested WBS task was not found.",
     "EXECUTION_WRITE_FAILED": "The execution update could not be persisted.",
     "EXECUTION_READ_FAILED": "The execution state is temporarily unavailable.",
+    "CAPSULE_NOT_FOUND": "The requested project capsule was not found.",
+    "KNOWLEDGE_NOT_FOUND": "The requested candidate knowledge was not found.",
+    "CAPSULE_NOT_READY": "The project is not ready to be finalized.",
+    "LEARNING_WRITE_FAILED": "The project capsule could not be created.",
+    "LEARNING_READ_FAILED": "The project learning records could not be read.",
+    "DECISION_VERSION_CONFLICT": "The knowledge decision changed and must be refreshed.",
+    "INVALID_TRANSITION": "The requested knowledge decision is not allowed.",
+    "INVALID_SCOPE": "The requested knowledge scope is not allowed.",
+    "KNOWLEDGE_NOT_ELIGIBLE": "The selected knowledge is not approved for this citation.",
+    "TARGET_PROJECT_NOT_FOUND": "The target project is not available.",
+    "KNOWLEDGE_APPROVAL_WRITE_FAILED": "The knowledge decision could not be persisted.",
+    "KNOWLEDGE_APPROVAL_READ_FAILED": "The knowledge approval history is temporarily unavailable.",
+    "KNOWLEDGE_CITATION_WRITE_FAILED": "The knowledge citation could not be persisted.",
     "INTERNAL_FAILURE": "The server could not allocate schedule state.",
+    "MODEL_NOT_FOUND": "The requested model profile was not found.",
+    "MODEL_CONFLICT": "The model profile changed or conflicts with another profile.",
+    "MODEL_STORE_FAILED": "The model profile store is temporarily unavailable.",
+    "DEIDENTIFICATION_REQUIRED": "Only deidentified Brief content is accepted.",
+    "CITATION_REQUIRED": "Facts and research observations must cite a supplied source.",
+    "BRIEF_NOT_FOUND": "The requested Brief was not found.",
+    "RESEARCH_NOT_FOUND": "The requested research run was not found.",
+    "PROPOSAL_NOT_FOUND": "The requested proposal draft was not found.",
+    "PROPOSAL_CONFLICT": "The proposal draft changed and must be refreshed.",
+    "PROPOSAL_INVALID_TRANSITION": "The proposal draft is already finalized and cannot be decided again.",
+    "BRIEF_NOT_READY": "Complete the Brief missing questions before starting research.",
+    "BRIEF_STORE_FAILED": "Brief and research data are temporarily unavailable.",
+    "GEO_NOT_FOUND": "The requested GEO query set or query was not found.",
+    "GEO_STORE_FAILED": "GEO observations are temporarily unavailable.",
+    "BRIEF_CONFLICT": "The content Brief changed and must be refreshed.",
+    "BRIEF_NOT_APPROVED": "Approve the current content Brief before creating an asset.",
+    "ASSET_NOT_FOUND": "The requested content asset was not found.",
+    "ASSET_CONFLICT": "The content asset changed and must be refreshed.",
+    "CONTENT_STORE_FAILED": "Content assets are temporarily unavailable.",
+    "CALENDAR_NOT_FOUND": "The requested calendar item was not found.",
+    "CALENDAR_CONFLICT": "The calendar item changed and must be refreshed.",
+    "CALENDAR_STORE_FAILED": "Calendar items are temporarily unavailable.",
+    "VAULT_NOT_FOUND": "The configured Obsidian vault was not found.",
+    "VAULT_NOT_ALLOWED": "The selected path is outside the configured Obsidian vault.",
+    "CONNECTION_NOT_FOUND": "Connect the configured Obsidian vault before listing notes.",
+    "PATH_ESCAPE": "The selected Obsidian path is outside the configured vault.",
+    "NOTE_LIMIT_EXCEEDED": "The selected Obsidian scope contains too many notes.",
+    "OBSIDIAN_STORE_FAILED": "The Obsidian connection is temporarily unavailable.",
 }
 
 _STATIC_FILES = {
@@ -238,6 +369,11 @@ _STATIC_FILES = {
     "/review-workbench.js": "review-workbench.js",
     "/schedule-workbench.js": "schedule-workbench.js",
     "/execution-workbench.js": "execution-workbench.js",
+    "/model-center.js": "model-center.js",
+    "/research-workbench.js": "research-workbench.js",
+    "/geo-workbench.js": "geo-workbench.js",
+    "/content-workbench.js": "content-workbench.js",
+    "/calendar-workbench.js": "calendar-workbench.js",
     "/styles.css": "styles.css",
 }
 
@@ -300,6 +436,14 @@ def create_app(
     execution_service: Any | None = None,
     retrieval_indexing: Any | None = None,
     retrieval_service: Any | None = None,
+    learning_service: Any | None = None,
+    knowledge_approval_service: Any | None = None,
+    model_profile_service: ModelProfileService | None = None,
+    brief_research_service: BriefResearchService | None = None,
+    geo_service: GeoSnapshotService | None = None,
+    content_service: ContentAssetService | None = None,
+    calendar_service: CalendarItemService | None = None,
+    obsidian_service: ObsidianReadOnlyService | None = None,
     static_root: Path | None = None,
     request_id_factory: Callable[[], Any] = uuid4,
     lifespan: Callable[[FastAPI], AbstractAsyncContextManager[Any]] | None = None,
@@ -330,6 +474,452 @@ def create_app(
         app.state.retrieval_indexing = retrieval_indexing
     if retrieval_service is not None:
         app.state.retrieval_service = retrieval_service
+    if learning_service is not None:
+        app.state.learning_service = learning_service
+    if knowledge_approval_service is not None:
+        app.state.knowledge_approval_service = knowledge_approval_service
+    if model_profile_service is not None:
+        app.state.model_profile_service = model_profile_service
+    if brief_research_service is not None:
+        app.state.brief_research_service = brief_research_service
+    if geo_service is not None:
+        app.state.geo_service = geo_service
+    if content_service is not None:
+        app.state.content_service = content_service
+    if calendar_service is not None:
+        app.state.calendar_service = calendar_service
+    if obsidian_service is not None:
+        app.state.obsidian_service = obsidian_service
+
+    @app.get("/v1/model-profiles")
+    async def list_model_profiles(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "model_profile_service", None)
+        if service is None:
+            return _failure("MODEL_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            profiles = await service.list_profiles(_model_scope(scope_or_error))
+            return _json_no_store({"profiles": [public_profile(item) for item in profiles]})
+        except ModelCenterError as error:
+            return _model_failure(error, request_id)
+
+    @app.post("/v1/model-profiles", status_code=201)
+    async def create_model_profile(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "model_profile_service", None)
+        if service is None:
+            return _failure("MODEL_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_MODEL_JSON_BYTES)
+            _require_exact_fields(body, _CREATE_MODEL_FIELDS)
+            profile = await service.create_profile(_model_scope(scope_or_error), body)
+            return _json_no_store({"profile": public_profile(profile)}, status_code=201)
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ModelCenterError as error:
+            return _model_failure(error, request_id)
+
+    @app.patch("/v1/model-profiles/{profile_id}")
+    async def update_model_profile(profile_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "model_profile_service", None)
+        if service is None:
+            return _failure("MODEL_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_MODEL_JSON_BYTES)
+            _require_exact_fields(body, _UPDATE_MODEL_FIELDS)
+            profile = await service.update_profile(_model_scope(scope_or_error), profile_id, body)
+            return _json_no_store({"profile": public_profile(profile)})
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ModelCenterError as error:
+            return _model_failure(error, request_id)
+
+    @app.post("/v1/model-task-matches")
+    async def match_model_task(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "model_profile_service", None)
+        if service is None:
+            return _failure("MODEL_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_MODEL_JSON_BYTES)
+            _require_exact_fields(body, _MATCH_MODEL_FIELDS)
+            return _json_no_store(await service.match_task(_model_scope(scope_or_error), body["taskType"]))
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, KeyError):
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except ModelCenterError as error:
+            return _model_failure(error, request_id)
+
+    @app.post("/v1/workbench/briefs", status_code=201)
+    async def create_workbench_brief(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "brief_research_service", None)
+        if service is None:
+            return _failure("BRIEF_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_BRIEF_JSON_BYTES)
+            brief = await service.create_brief(_brief_scope(scope_or_error), body)
+            return _json_no_store({"brief": brief}, status_code=201)
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, BriefResearchError) as error:
+            return _brief_failure(error, request_id)
+
+    @app.get("/v1/workbench/briefs")
+    async def list_workbench_briefs(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "brief_research_service", None)
+        if service is None:
+            return _failure("BRIEF_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            return _json_no_store({"briefs": await service.list_briefs(_brief_scope(scope_or_error))})
+        except BriefResearchError as error:
+            return _brief_failure(error, request_id)
+
+    @app.get("/v1/workbench/briefs/{brief_id}")
+    async def get_workbench_brief(brief_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "brief_research_service", None)
+        if service is None:
+            return _failure("BRIEF_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            return _json_no_store({"brief": await service.get_brief(_brief_scope(scope_or_error), brief_id)})
+        except BriefResearchError as error:
+            return _brief_failure(error, request_id)
+
+    @app.post("/v1/workbench/research-runs", status_code=201)
+    async def create_workbench_research_run(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "brief_research_service", None)
+        if service is None:
+            return _failure("BRIEF_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_BRIEF_JSON_BYTES)
+            run = await service.create_research_run(_brief_scope(scope_or_error), body)
+            return _json_no_store({"researchRun": run}, status_code=201)
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, BriefResearchError) as error:
+            return _brief_failure(error, request_id)
+
+    @app.get("/v1/workbench/research-runs/{run_id}")
+    async def get_workbench_research_run(run_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "brief_research_service", None)
+        if service is None:
+            return _failure("BRIEF_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            return _json_no_store({"researchRun": await service.get_research_run(_brief_scope(scope_or_error), run_id)})
+        except BriefResearchError as error:
+            return _brief_failure(error, request_id)
+
+    @app.post("/v1/workbench/proposal-drafts", status_code=201)
+    async def create_workbench_proposal_draft(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "brief_research_service", None)
+        if service is None:
+            return _failure("BRIEF_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_BRIEF_JSON_BYTES)
+            draft = await service.create_proposal_draft(_brief_scope(scope_or_error), body)
+            return _json_no_store({"proposalDraft": draft}, status_code=201)
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, BriefResearchError) as error:
+            return _brief_failure(error, request_id)
+
+    @app.get("/v1/workbench/proposal-drafts/{draft_id}")
+    async def get_workbench_proposal_draft(draft_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "brief_research_service", None)
+        if service is None:
+            return _failure("BRIEF_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            return _json_no_store({"proposalDraft": await service.get_proposal_draft(_brief_scope(scope_or_error), draft_id)})
+        except BriefResearchError as error:
+            return _brief_failure(error, request_id)
+
+    @app.post("/v1/workbench/proposal-drafts/{draft_id}/decisions", status_code=201)
+    async def decide_workbench_proposal_draft(draft_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "brief_research_service", None)
+        if service is None:
+            return _failure("BRIEF_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_REVIEW_JSON_BYTES)
+            draft = await service.decide_proposal_draft(_brief_scope(scope_or_error), draft_id, body)
+            return _json_no_store({"proposalDraft": draft}, status_code=201)
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, BriefResearchError) as error:
+            return _brief_failure(error, request_id)
+
+    @app.get("/v1/workbench/geo/query-sets")
+    async def list_geo_query_sets(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "geo_service", None)
+        if service is None:
+            return _failure("GEO_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            return _json_no_store({"querySets": await service.list_query_sets(_geo_scope(scope_or_error))})
+        except GeoError as error:
+            return _geo_failure(error, request_id)
+
+    @app.post("/v1/workbench/geo/query-sets", status_code=201)
+    async def create_geo_query_set(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "geo_service", None)
+        if service is None:
+            return _failure("GEO_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_GEO_JSON_BYTES)
+            _require_exact_fields(body, _GEO_QUERY_SET_FIELDS)
+            return _json_no_store({"querySet": await service.create_query_set(_geo_scope(scope_or_error), body)}, status_code=201)
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except GeoError as error:
+            return _geo_failure(error, request_id)
+
+    @app.get("/v1/workbench/geo/query-sets/{query_set_id}/snapshots")
+    async def list_geo_snapshots(query_set_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "geo_service", None)
+        if service is None:
+            return _failure("GEO_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            geo_scope = _geo_scope(scope_or_error)
+            return _json_no_store({
+                "snapshots": await service.list_snapshots(geo_scope, query_set_id),
+                "tasks": await service.list_tasks(geo_scope, query_set_id),
+            })
+        except GeoError as error:
+            return _geo_failure(error, request_id)
+
+    @app.post("/v1/workbench/geo/query-sets/{query_set_id}/snapshots", status_code=201)
+    async def create_geo_snapshot(query_set_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "geo_service", None)
+        if service is None:
+            return _failure("GEO_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_GEO_JSON_BYTES)
+            _require_exact_fields(body, _GEO_SNAPSHOT_FIELDS)
+            return _json_no_store(await service.create_snapshot(_geo_scope(scope_or_error), query_set_id, body), status_code=201)
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except GeoError as error:
+            return _geo_failure(error, request_id)
+
+    @app.get("/v1/workbench/content/briefs")
+    async def list_content_briefs(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "content_service", None)
+        if service is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            return _json_no_store({"briefs": await service.list_briefs(_content_scope(scope_or_error))})
+        except ContentError as error: return _content_failure(error, request_id)
+
+    @app.post("/v1/workbench/content/briefs", status_code=201)
+    async def create_content_brief(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "content_service", None)
+        if service is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_CONTENT_JSON_BYTES)
+            _require_fields_subset(body, _CONTENT_BRIEF_FIELDS)
+            return _json_no_store({"brief": await service.create_brief(_content_scope(scope_or_error), body)}, status_code=201)
+        except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, ContentError) as error: return _content_failure(error, request_id)
+
+    @app.post("/v1/workbench/content/briefs/{brief_id}/approve", status_code=201)
+    async def approve_content_brief(brief_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "content_service", None)
+        if service is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_CONTENT_JSON_BYTES)
+            _require_exact_fields(body, _CONTENT_APPROVE_FIELDS)
+            return _json_no_store({"brief": await service.approve_brief(_content_scope(scope_or_error), brief_id, body)}, status_code=201)
+        except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, ContentError) as error: return _content_failure(error, request_id)
+
+    @app.get("/v1/workbench/content/assets")
+    async def list_content_assets(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "content_service", None)
+        if service is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try: return _json_no_store({"assets": await service.list_assets(_content_scope(scope_or_error))})
+        except ContentError as error: return _content_failure(error, request_id)
+
+    @app.post("/v1/workbench/content/assets", status_code=201)
+    async def create_content_asset(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "content_service", None)
+        if service is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_CONTENT_JSON_BYTES)
+            _require_fields_subset(body, _CONTENT_ASSET_FIELDS)
+            if not _CONTENT_ASSET_FIELDS.difference({"prompt"}).issubset(body):
+                raise _MalformedRequest
+            return _json_no_store({"asset": await service.create_asset(_content_scope(scope_or_error), body)}, status_code=201)
+        except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, ContentError) as error: return _content_failure(error, request_id)
+
+    @app.patch("/v1/workbench/content/assets/{asset_id}")
+    async def update_content_asset(asset_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "content_service", None)
+        if service is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_CONTENT_JSON_BYTES)
+            _require_exact_fields(body, _CONTENT_ASSET_UPDATE_FIELDS)
+            return _json_no_store({"asset": await service.update_asset(_content_scope(scope_or_error), asset_id, body)})
+        except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, ContentError) as error: return _content_failure(error, request_id)
+
+    @app.get("/v1/workbench/calendar/items")
+    async def list_calendar_items(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "calendar_service", None)
+        if service is None: return _failure("CALENDAR_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            period = request.query_params.get("period", "all")
+            return _json_no_store({"items": await service.list_items(_calendar_scope(scope_or_error), period)})
+        except CalendarError as error: return _calendar_failure(error, request_id)
+
+    @app.post("/v1/workbench/calendar/items", status_code=201)
+    async def create_calendar_item(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "calendar_service", None)
+        if service is None: return _failure("CALENDAR_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_CALENDAR_JSON_BYTES)
+            _require_exact_fields(body, _CALENDAR_ITEM_FIELDS)
+            return _json_no_store({"item": await service.create_item(_calendar_scope(scope_or_error), body)}, status_code=201)
+        except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, CalendarError) as error: return _calendar_failure(error, request_id)
+
+    @app.patch("/v1/workbench/calendar/items/{item_id}")
+    async def update_calendar_item(item_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "calendar_service", None)
+        if service is None: return _failure("CALENDAR_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_CALENDAR_JSON_BYTES)
+            _require_exact_fields(body, _CALENDAR_UPDATE_FIELDS)
+            return _json_no_store({"item": await service.update_item(_calendar_scope(scope_or_error), item_id, body)})
+        except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, CalendarError) as error: return _calendar_failure(error, request_id)
+
+    @app.get("/v1/workbench/obsidian/connection")
+    async def get_obsidian_connection(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "obsidian_service", None)
+        if service is None: return _failure("OBSIDIAN_STORE_FAILED", request_id, status=503, retryable=True)
+        try: return _json_no_store({"connection": await service.get_connection(_obsidian_scope(scope_or_error))})
+        except ObsidianError as error: return _obsidian_failure(error, request_id)
+
+    @app.post("/v1/workbench/obsidian/connection", status_code=201)
+    async def connect_obsidian(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "obsidian_service", None)
+        if service is None: return _failure("OBSIDIAN_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_OBSIDIAN_JSON_BYTES)
+            _require_exact_fields(body, _OBSIDIAN_CONNECT_FIELDS)
+            return _json_no_store({"connection": await service.connect(_obsidian_scope(scope_or_error), body)}, status_code=201)
+        except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, ObsidianError) as error: return _obsidian_failure(error, request_id)
+
+    @app.get("/v1/workbench/obsidian/notes")
+    async def list_obsidian_notes(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        service = getattr(request.app.state, "obsidian_service", None)
+        if service is None: return _failure("OBSIDIAN_STORE_FAILED", request_id, status=503, retryable=True)
+        try: return _json_no_store(await service.list_notes(_obsidian_scope(scope_or_error)))
+        except ObsidianError as error: return _obsidian_failure(error, request_id)
 
     @app.post("/v1/project-imports", status_code=201)
     async def import_project(request: Request) -> JSONResponse:
@@ -1426,6 +2016,306 @@ def create_app(
     ) -> Response:
         return await download_execution_export(project_id, plan_id, request, "xlsx")
 
+    @app.post("/v1/projects/{project_id}/capsules", status_code=201)
+    async def finalize_project_capsule(
+        project_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        if canonical_project is None:
+            return _failure("CAPSULE_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(request)
+            outcomes, retrospectives = _learning_feedback(body, canonical_project)
+            service = getattr(request.app.state, "learning_service", None)
+            if service is None:
+                return _failure(
+                    "LEARNING_WRITE_FAILED", request_id, status=503, retryable=True
+                )
+            result = await service.finalize_capsule(
+                canonical_project,
+                outcomes,
+                retrospectives,
+                _learning_scope(scope_or_error),
+            )
+            response = _json_no_store(
+                {"capsule": _capsule_json(result.capsule), "replayed": result.replayed},
+                status_code=201,
+            )
+            response.headers["Location"] = (
+                f"/v1/projects/{canonical_project}/capsules/"
+                f"{result.capsule.capsule_id}"
+            )
+            return response
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "LEARNING_WRITE_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/capsules")
+    async def list_project_capsules(project_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        if canonical_project is None:
+            return _failure("CAPSULE_NOT_FOUND", request_id, status=404)
+        try:
+            service = getattr(request.app.state, "learning_service", None)
+            if service is None:
+                return _failure(
+                    "LEARNING_READ_FAILED", request_id, status=503, retryable=True
+                )
+            capsules = await service.list_capsules(
+                canonical_project, _learning_scope(scope_or_error)
+            )
+            return _json_no_store({"capsules": [_capsule_summary_json(item) for item in capsules]})
+        except asyncio.CancelledError:
+            raise
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "LEARNING_READ_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/capsules/{capsule_id}")
+    async def read_project_capsule(
+        project_id: str, capsule_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_capsule = _canonical_review_uuid(capsule_id)
+        if canonical_project is None or canonical_capsule is None:
+            return _failure("CAPSULE_NOT_FOUND", request_id, status=404)
+        try:
+            service = getattr(request.app.state, "learning_service", None)
+            if service is None:
+                return _failure(
+                    "LEARNING_READ_FAILED", request_id, status=503, retryable=True
+                )
+            capsule = await service.read_capsule(
+                canonical_project, canonical_capsule, _learning_scope(scope_or_error)
+            )
+            return _json_no_store({"capsule": _capsule_json(capsule)})
+        except asyncio.CancelledError:
+            raise
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "LEARNING_READ_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/knowledge")
+    async def list_project_knowledge(project_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        if canonical_project is None:
+            return _failure("KNOWLEDGE_NOT_FOUND", request_id, status=404)
+        try:
+            service = getattr(request.app.state, "learning_service", None)
+            if service is None:
+                return _failure(
+                    "LEARNING_READ_FAILED", request_id, status=503, retryable=True
+                )
+            knowledge = await service.list_knowledge(
+                canonical_project, _learning_scope(scope_or_error)
+            )
+            return _json_no_store({"knowledge": [_knowledge_item_json(item) for item in knowledge]})
+        except asyncio.CancelledError:
+            raise
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "LEARNING_READ_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.get("/v1/projects/{project_id}/knowledge/{knowledge_id}")
+    async def read_project_knowledge(
+        project_id: str, knowledge_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        canonical_project = _canonical_review_uuid(project_id)
+        canonical_knowledge = _canonical_review_uuid(knowledge_id)
+        if canonical_project is None or canonical_knowledge is None:
+            return _failure("KNOWLEDGE_NOT_FOUND", request_id, status=404)
+        try:
+            service = getattr(request.app.state, "learning_service", None)
+            if service is None:
+                return _failure(
+                    "LEARNING_READ_FAILED", request_id, status=503, retryable=True
+                )
+            model = await service.read_knowledge(
+                canonical_project, canonical_knowledge, _learning_scope(scope_or_error)
+            )
+            return _json_no_store(
+                {
+                    "knowledge": _knowledge_item_json(model.item),
+                    "versions": [
+                        {
+                            "version": item.version,
+                            "content": item.content,
+                            "contentSha256": item.content_sha256,
+                            "createdAt": item.created_at.isoformat(),
+                        }
+                        for item in model.versions
+                    ],
+                    "evidence": [_knowledge_evidence_json(item) for item in model.evidence],
+                }
+            )
+        except asyncio.CancelledError:
+            raise
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure(
+                "LEARNING_READ_FAILED", request_id, status=503, retryable=True
+            )
+
+    @app.post("/v1/projects/{project_id}/knowledge/{knowledge_id}/approval-decisions", status_code=201)
+    async def decide_project_knowledge(
+        project_id: str, knowledge_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        source_project_id = _canonical_review_uuid(project_id)
+        canonical_knowledge_id = _canonical_review_uuid(knowledge_id)
+        if source_project_id is None or canonical_knowledge_id is None:
+            return _failure("KNOWLEDGE_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(request)
+            decision = _knowledge_decision(body)
+            service = getattr(request.app.state, "knowledge_approval_service", None)
+            if service is None:
+                return _failure("KNOWLEDGE_APPROVAL_WRITE_FAILED", request_id, status=503, retryable=True)
+            result = await service.decide(
+                _learning_scope(scope_or_error), source_project_id, canonical_knowledge_id, decision
+            )
+            return _json_no_store({"approval": _approval_history_json(result.history), "replayed": result.replayed}, status_code=201)
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure("KNOWLEDGE_APPROVAL_WRITE_FAILED", request_id, status=503, retryable=True)
+
+    @app.get("/v1/projects/{project_id}/knowledge/{knowledge_id}/approval-decisions")
+    async def read_project_knowledge_approval(
+        project_id: str, knowledge_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        source_project_id = _canonical_review_uuid(project_id)
+        canonical_knowledge_id = _canonical_review_uuid(knowledge_id)
+        if source_project_id is None or canonical_knowledge_id is None:
+            return _failure("KNOWLEDGE_NOT_FOUND", request_id, status=404)
+        try:
+            service = getattr(request.app.state, "knowledge_approval_service", None)
+            if service is None:
+                return _failure("KNOWLEDGE_APPROVAL_READ_FAILED", request_id, status=503, retryable=True)
+            history = await service.read_history(
+                _learning_scope(scope_or_error), source_project_id, canonical_knowledge_id
+            )
+            if history is None:
+                return _failure("KNOWLEDGE_NOT_FOUND", request_id, status=404)
+            return _json_no_store({"approval": _approval_history_json(history)})
+        except asyncio.CancelledError:
+            raise
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure("KNOWLEDGE_APPROVAL_READ_FAILED", request_id, status=503, retryable=True)
+
+    @app.post("/v1/projects/{target_project_id}/knowledge-sources/{source_project_id}/items/{knowledge_id}/citations", status_code=201)
+    async def cite_project_knowledge(
+        target_project_id: str, source_project_id: str, knowledge_id: str, request: Request
+    ) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        target = _canonical_review_uuid(target_project_id)
+        source = _canonical_review_uuid(source_project_id)
+        knowledge = _canonical_review_uuid(knowledge_id)
+        if target is None or source is None or knowledge is None:
+            return _failure("KNOWLEDGE_NOT_FOUND", request_id, status=404)
+        try:
+            body = await _read_strict_json(request)
+            reason = _knowledge_citation_reason(body)
+            service = getattr(request.app.state, "knowledge_approval_service", None)
+            if service is None:
+                return _failure("KNOWLEDGE_CITATION_WRITE_FAILED", request_id, status=503, retryable=True)
+            result = await service.cite_approved_knowledge(
+                _learning_scope(scope_or_error), source_project_id=source,
+                source_knowledge_id=knowledge, target_project_id=target, reason=reason,
+            )
+            return _json_no_store({"citation": _citation_json(result.citation), "replayed": result.replayed}, status_code=201)
+        except asyncio.CancelledError:
+            raise
+        except _PayloadTooLarge:
+            return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except _MalformedRequest:
+            return _failure("INVALID_INPUT", request_id, status=400)
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure("KNOWLEDGE_CITATION_WRITE_FAILED", request_id, status=503, retryable=True)
+
+    @app.get("/v1/projects/{project_id}/knowledge-citations")
+    async def list_effective_project_citations(project_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        target_project_id = _canonical_review_uuid(project_id)
+        if target_project_id is None:
+            return _failure("KNOWLEDGE_NOT_FOUND", request_id, status=404)
+        try:
+            service = getattr(request.app.state, "knowledge_approval_service", None)
+            if service is None:
+                return _failure("KNOWLEDGE_APPROVAL_READ_FAILED", request_id, status=503, retryable=True)
+            citations = await service.list_effective_citations(
+                _learning_scope(scope_or_error), target_project_id
+            )
+            return _json_no_store({"citations": [_citation_json(item) for item in citations]})
+        except asyncio.CancelledError:
+            raise
+        except LearningFailure as error:
+            return _learning_failure(error, request_id)
+        except Exception:
+            return _failure("KNOWLEDGE_APPROVAL_READ_FAILED", request_id, status=503, retryable=True)
+
     if static_root is not None:
         root = static_root.resolve(strict=True)
 
@@ -1697,6 +2587,136 @@ def _retrieval_scope(scope: ScopeContext) -> RetrievalScopeContext:
     )
 
 
+def _learning_scope(scope: ScopeContext) -> LearningScopeContext:
+    return LearningScopeContext(
+        scope.organization_id,
+        scope.workspace_id,
+        scope.client_id,
+        scope.actor_id,
+    )
+
+
+def _learning_feedback(
+    body: dict[str, Any], project_id: str
+) -> tuple[tuple[OutcomeInput, ...], tuple[RetrospectiveInput, ...]]:
+    _require_exact_fields(body, _LEARNING_FINALIZE_FIELDS)
+    outcomes = body.get("outcomes")
+    retrospectives = body.get("retrospectives")
+    if (
+        not isinstance(outcomes, list)
+        or not isinstance(retrospectives, list)
+        or len(outcomes) > 1000
+        or len(retrospectives) > 1000
+        or not outcomes and not retrospectives
+    ):
+        raise _MalformedRequest
+    parsed_outcomes = tuple(
+        _learning_outcome(item, project_id) for item in outcomes
+    )
+    parsed_retrospectives = tuple(
+        _learning_retrospective(item, project_id) for item in retrospectives
+    )
+    return parsed_outcomes, parsed_retrospectives
+
+
+def _learning_outcome(value: Any, project_id: str) -> OutcomeInput:
+    if not isinstance(value, dict):
+        raise _MalformedRequest
+    keys = frozenset(value)
+    if (
+        not _LEARNING_OUTCOME_REQUIRED_FIELDS.issubset(keys)
+        or not keys.issubset(
+            _LEARNING_OUTCOME_REQUIRED_FIELDS | _LEARNING_OUTCOME_OPTIONAL_FIELDS
+        )
+        or not _bounded_text(value.get("metric"), 200)
+        or not _bounded_text(value.get("actualValue"), 1000)
+        or not _optional_bounded_text(value.get("plannedValue"), 1000)
+        or not _optional_bounded_text(value.get("unit"), 80)
+    ):
+        raise _MalformedRequest
+    return OutcomeInput(
+        value["metric"].strip(),
+        _optional_text_value(value.get("plannedValue")),
+        value["actualValue"].strip(),
+        _optional_text_value(value.get("unit")),
+        _learning_source(value["source"], project_id),
+    )
+
+
+def _learning_retrospective(value: Any, project_id: str) -> RetrospectiveInput:
+    if (
+        not isinstance(value, dict)
+        or frozenset(value) != _LEARNING_RETROSPECTIVE_FIELDS
+        or not _bounded_text(value.get("finding"), 4000)
+        or not isinstance(value.get("classification"), str)
+        or not isinstance(value.get("reusableCandidate"), bool)
+        or not isinstance(value.get("evidence"), list)
+        or not 1 <= len(value["evidence"]) <= 100
+    ):
+        raise _MalformedRequest
+    return RetrospectiveInput(
+        value["finding"].strip(),
+        value["classification"],
+        value["reusableCandidate"],
+        tuple(_learning_source(item, project_id) for item in value["evidence"]),
+    )
+
+
+def _learning_source(value: Any, project_id: str) -> FeedbackSourceReference:
+    if (
+        not isinstance(value, dict)
+        or frozenset(value) != _LEARNING_SOURCE_FIELDS
+        or not isinstance(value.get("sourceType"), str)
+    ):
+        raise _MalformedRequest
+    source_id = _canonical_review_uuid(value.get("sourceId"))
+    if source_id is None:
+        raise _MalformedRequest
+    return FeedbackSourceReference(value["sourceType"], source_id, project_id, "0" * 64)
+
+
+def _knowledge_decision(value: Any) -> ApprovalDecisionRequest:
+    if not isinstance(value, dict):
+        raise _MalformedRequest
+    keys = frozenset(value)
+    if (
+        not _KNOWLEDGE_DECISION_REQUIRED_FIELDS.issubset(keys)
+        or not keys.issubset(_KNOWLEDGE_DECISION_REQUIRED_FIELDS | _KNOWLEDGE_DECISION_OPTIONAL_FIELDS)
+        or not isinstance(value.get("action"), str)
+        or isinstance(value.get("expectedVersion"), bool)
+        or not isinstance(value.get("expectedVersion"), int)
+        or value["expectedVersion"] < 0
+        or not _optional_bounded_text(value.get("effectiveScope"), 20)
+        or not _optional_bounded_text(value.get("revisedContent"), 4000)
+        or not _optional_bounded_text(value.get("reason"), 1000)
+    ):
+        raise _MalformedRequest
+    return ApprovalDecisionRequest(
+        value["action"].strip(), value["expectedVersion"],
+        _optional_text_value(value.get("effectiveScope")),
+        _optional_text_value(value.get("revisedContent")),
+        _optional_text_value(value.get("reason")),
+    )
+
+
+def _knowledge_citation_reason(value: Any) -> str:
+    if not isinstance(value, dict) or frozenset(value) != _KNOWLEDGE_CITATION_FIELDS or not _bounded_text(value.get("reason"), 1000):
+        raise _MalformedRequest
+    return value["reason"].strip()
+
+
+def _bounded_text(value: Any, maximum: int) -> bool:
+    return isinstance(value, str) and bool(value.strip()) and len(value.strip()) <= maximum
+
+
+def _optional_bounded_text(value: Any, maximum: int) -> bool:
+    return value is None or _bounded_text(value, maximum)
+
+
+def _optional_text_value(value: Any) -> str | None:
+    return None if value is None else value.strip()
+
+
 async def _read_execution_rows(
     request: Request,
     project_id: str,
@@ -1772,6 +2792,10 @@ def _reject_nonstandard_json_constant(value: str) -> None:
 
 def _require_exact_fields(value: dict[str, Any], expected: frozenset[str]) -> None:
     if frozenset(value) != expected:
+        raise _MalformedRequest
+
+def _require_fields_subset(value: dict[str, Any], allowed: frozenset[str]) -> None:
+    if not isinstance(value, dict) or not frozenset(value).issubset(allowed):
         raise _MalformedRequest
 
 
@@ -2029,6 +3053,58 @@ def _review_failure(error: ReviewFailure, request_id: str) -> JSONResponse:
     )
 
 
+def _model_scope(scope: ScopeContext) -> ModelScope:
+    return ModelScope(scope.organization_id, scope.workspace_id, scope.client_id, scope.actor_id)
+
+
+def _brief_scope(scope: ScopeContext) -> BriefScope:
+    return BriefScope(scope.organization_id, scope.workspace_id, scope.client_id, scope.actor_id)
+
+
+def _geo_scope(scope: ScopeContext) -> GeoScope:
+    return GeoScope(scope.organization_id, scope.workspace_id, scope.client_id, scope.actor_id)
+
+def _content_scope(scope: ScopeContext) -> ContentScope:
+    return ContentScope(scope.organization_id, scope.workspace_id, scope.client_id, scope.actor_id)
+
+def _calendar_scope(scope: ScopeContext) -> CalendarScope:
+    return CalendarScope(scope.organization_id, scope.workspace_id, scope.client_id, scope.actor_id)
+
+def _obsidian_scope(scope: ScopeContext) -> ObsidianScope:
+    return ObsidianScope(scope.organization_id, scope.workspace_id, scope.client_id, scope.actor_id)
+
+
+def _brief_failure(error: Exception, request_id: str) -> JSONResponse:
+    code = error.code if isinstance(error, BriefResearchError) else "INVALID_INPUT"
+    return _failure(code, request_id, status=_STATUS_BY_CODE.get(code, 400), retryable=code == "BRIEF_STORE_FAILED")
+
+def _obsidian_failure(error: Exception, request_id: str) -> JSONResponse:
+    code = error.code if isinstance(error, ObsidianError) else "INVALID_INPUT"
+    return _failure(code, request_id, status=_STATUS_BY_CODE.get(code, 400), retryable=code == "OBSIDIAN_STORE_FAILED")
+
+
+def _geo_failure(error: GeoError, request_id: str) -> JSONResponse:
+    code = error.code if error.code in _PUBLIC_MESSAGES else "INVALID_INPUT"
+    return _failure(code, request_id, status=_STATUS_BY_CODE.get(code, 400), retryable=code == "GEO_STORE_FAILED")
+
+def _content_failure(error: Exception, request_id: str) -> JSONResponse:
+    code = error.code if isinstance(error, ContentError) else "INVALID_INPUT"
+    return _failure(code, request_id, status=_STATUS_BY_CODE.get(code, 400), retryable=code == "CONTENT_STORE_FAILED")
+
+def _calendar_failure(error: Exception, request_id: str) -> JSONResponse:
+    code = error.code if isinstance(error, CalendarError) else "INVALID_INPUT"
+    return _failure(code, request_id, status=_STATUS_BY_CODE.get(code, 400), retryable=code == "CALENDAR_STORE_FAILED")
+
+
+def _model_failure(error: ModelCenterError, request_id: str) -> JSONResponse:
+    return _failure(
+        error.code,
+        request_id,
+        status=_STATUS_BY_CODE.get(error.code, 400),
+        retryable=error.code == "MODEL_STORE_FAILED",
+    )
+
+
 def _retrieval_failure(
     error: RetrievalFailure, request_id: str
 ) -> JSONResponse:
@@ -2044,6 +3120,150 @@ def _retrieval_failure(
         status=_STATUS_BY_CODE.get(error.code, 500),
         retryable=retryable,
     )
+
+
+def _learning_failure(error: LearningFailure, request_id: str) -> JSONResponse:
+    retryable = error.code in {"LEARNING_WRITE_FAILED", "LEARNING_READ_FAILED"}
+    return _failure(
+        error.code,
+        request_id,
+        status=_STATUS_BY_CODE.get(error.code, 500),
+        retryable=retryable,
+    )
+
+
+def _capsule_summary_json(summary: Any) -> dict[str, Any]:
+    return {
+        "capsuleId": summary.capsule_id,
+        "capsuleVersion": summary.capsule_version,
+        "status": summary.status,
+        "capsuleDigest": summary.capsule_digest,
+        "outcomeCount": summary.outcome_count,
+        "retrospectiveCount": summary.retrospective_count,
+        "knowledgeCount": summary.knowledge_count,
+        "createdAt": summary.created_at.isoformat(),
+    }
+
+
+def _capsule_json(capsule: Any) -> dict[str, Any]:
+    return {
+        **_capsule_summary_json(capsule),
+        "binding": _capsule_binding_json(capsule.payload),
+        "knowledge": [_knowledge_item_json(item) for item in capsule.knowledge_items],
+    }
+
+
+def _capsule_binding_json(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, Mapping):
+        raise LearningFailure("LEARNING_READ_FAILED", "capsule payload is unavailable")
+    brief = payload.get("brief")
+    plan = payload.get("plan")
+    if not isinstance(brief, Mapping) or not isinstance(plan, Mapping):
+        raise LearningFailure("LEARNING_READ_FAILED", "capsule binding is unavailable")
+    approval = plan.get("approval")
+    schedule = plan.get("schedule")
+    if not isinstance(approval, Mapping) or not isinstance(schedule, Mapping):
+        raise LearningFailure("LEARNING_READ_FAILED", "capsule binding is unavailable")
+    try:
+        return {
+            "proposal": {
+                "artifactId": _capsule_binding_uuid(brief["artifactId"]),
+                "versionId": _capsule_binding_uuid(brief["versionId"]),
+                "version": _capsule_binding_version(brief["version"]),
+                "sha256": _capsule_binding_sha256(brief["sha256"]),
+            },
+            "plan": {
+                "planId": _capsule_binding_uuid(plan["planId"]),
+                "versionId": _capsule_binding_uuid(plan["versionId"]),
+                "version": _capsule_binding_version(plan["version"]),
+                "digest": _capsule_binding_sha256(plan["sha256"]),
+            },
+            "approval": {"approvalId": _capsule_binding_uuid(approval["id"])},
+            "schedule": {
+                "snapshotId": _capsule_binding_uuid(schedule["id"]),
+                "digest": _capsule_binding_sha256(schedule["scheduleSha256"]),
+            },
+        }
+    except (KeyError, TypeError, ValueError):
+        raise LearningFailure("LEARNING_READ_FAILED", "capsule binding is unavailable") from None
+
+
+def _capsule_binding_uuid(value: Any) -> str:
+    return str(UUID(str(value)))
+
+
+def _capsule_binding_version(value: Any) -> int:
+    if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+        raise ValueError
+    return value
+
+
+def _capsule_binding_sha256(value: Any) -> str:
+    if not isinstance(value, str) or re.fullmatch(r"[a-f0-9]{64}", value) is None:
+        raise ValueError
+    return value
+
+
+def _knowledge_item_json(item: Any) -> dict[str, Any]:
+    return {
+        "knowledgeId": item.knowledge_id,
+        "ordinal": item.ordinal,
+        "scope": item.scope,
+        "type": item.type,
+        "status": item.status,
+        "classification": item.classification,
+        "content": item.content,
+        "contentSha256": item.content_sha256,
+        "confidence": item.confidence,
+        "evidence": [_knowledge_evidence_json(value) for value in item.evidence],
+    }
+
+
+def _approval_history_json(history: Any) -> dict[str, Any]:
+    state = history.state
+    return {
+        "promotionId": history.promotion_id,
+        "knowledgeId": state.candidate.knowledge_id,
+        "sourceProjectId": state.candidate.source_project_id,
+        "version": state.version,
+        "status": None if state.current is None else state.current.status,
+        "effectiveScope": None if state.current is None else state.current.effective_scope,
+        "decisions": [
+            {
+                "version": item.version,
+                "action": item.action,
+                "status": item.status,
+                "effectiveScope": item.effective_scope,
+                "content": item.content,
+                "contentSha256": item.content_sha256,
+                "reason": item.reason,
+            }
+            for item in state.decisions
+        ],
+    }
+
+
+def _citation_json(citation: Any) -> dict[str, Any]:
+    authorization = citation.authorization
+    return {
+        "citationId": citation.citation_id,
+        "sourceProjectId": authorization.source_project_id,
+        "knowledgeId": authorization.knowledge_id,
+        "promotionVersion": authorization.promotion_version,
+        "effectiveScope": authorization.effective_scope,
+        "content": authorization.content,
+        "contentSha256": authorization.content_sha256,
+        "reason": authorization.reason,
+        "createdAt": citation.created_at.isoformat(),
+    }
+
+
+def _knowledge_evidence_json(evidence: Any) -> dict[str, Any]:
+    return {
+        "sourceType": evidence.source_type,
+        "sourceId": evidence.source_id,
+        "bindingSha256": evidence.binding_sha256,
+    }
 
 
 def _plan_model_json(model: Any) -> dict[str, Any]:
