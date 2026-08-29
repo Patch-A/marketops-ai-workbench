@@ -138,6 +138,7 @@ const dashboardState = {
   selectedProject: null,
   lastUpdated: null,
   refreshing: false,
+  signals: { geo: null, content: null, calendar: [] },
 };
 
 const dashboardPeriods = {
@@ -294,19 +295,58 @@ function renderDashboardTasks(detail) {
   const openTasks = periodTasks.slice(0, 5);
   const focusList = document.querySelector('#dashboardFocusList');
   const calendarList = document.querySelector('#dashboardCalendarList');
+  const calendarItems = Array.isArray(dashboardState.signals.calendar)
+    ? dashboardState.signals.calendar.filter((item) => item.status !== 'completed' && dashboardTaskMatchesPeriod({ plannedStart: item.date }))
+    : [];
+  const mergedCalendar = [...calendarItems, ...openTasks.map((task) => ({
+    title: task.title || task.name || '未命名任务',
+    date: task.plannedStart || task.dueDate || '',
+    source: detail?.projectName || '项目执行',
+  }))];
   document.querySelector('#focusCount').textContent = `${periodTasks.length} 项`;
-  if (!openTasks.length) {
+  if (!openTasks.length && !calendarItems.length) {
     focusList.innerHTML = `<div class="dashboard-empty"><i data-lucide="list-todo"></i><strong>${detail ? '暂无未完成执行任务' : '等待项目任务'}</strong><span>${detail ? '批准计划后，未完成任务会在这里形成今天的行动入口。' : '项目进入执行阶段后，今天要做的事情会出现在这里。'}</span></div>`;
     calendarList.innerHTML = '<div class="dashboard-empty dashboard-empty-compact"><i data-lucide="calendar-days"></i><strong>暂无日程数据</strong><span>批准计划和研究任务会在确认后进入日程。</span></div>';
     return;
   }
-  focusList.innerHTML = openTasks.map((task) => `<button class="dashboard-task-row" type="button"><span class="task-state-dot"></span><span><strong>${escapeHtml(task.title || task.name || '未命名任务')}</strong><small>${escapeHtml(task.status || '待处理')} · ${escapeHtml(detail?.projectName || '当前项目')}</small></span><i data-lucide="chevron-right"></i></button>`).join('');
-  focusList.querySelectorAll('.dashboard-task-row').forEach((row) => row.addEventListener('click', () => {
-    showToast('请从项目的执行页更新此任务');
-    navigatePrimaryView('project');
-    showWorkspace('schedule');
-  }));
-  calendarList.innerHTML = openTasks.slice(0, 3).map((task) => `<div class="dashboard-calendar-row"><strong>${escapeHtml(task.title || task.name || '未命名任务')}</strong><small>${escapeHtml(task.plannedStart || task.dueDate || '日期待确认')}</small></div>`).join('');
+  if (!openTasks.length) {
+    focusList.innerHTML = '<div class="dashboard-empty"><i data-lucide="list-todo"></i><strong>当前范围暂无执行任务</strong><span>日程事项仍会显示在右侧，项目执行任务可稍后补充。</span></div>';
+  }
+  if (openTasks.length) {
+    focusList.innerHTML = openTasks.map((task) => `<button class="dashboard-task-row" type="button"><span class="task-state-dot"></span><span><strong>${escapeHtml(task.title || task.name || '未命名任务')}</strong><small>${escapeHtml(task.status || '待处理')} · ${escapeHtml(detail?.projectName || '当前项目')}</small></span><i data-lucide="chevron-right"></i></button>`).join('');
+    focusList.querySelectorAll('.dashboard-task-row').forEach((row) => row.addEventListener('click', () => {
+      showToast('请从项目的执行页更新此任务');
+      navigatePrimaryView('project');
+      showWorkspace('schedule');
+    }));
+  }
+  calendarList.innerHTML = mergedCalendar.slice(0, 5).map((item) => `<div class="dashboard-calendar-row"><strong>${escapeHtml(item.title || '未命名事项')}</strong><small>${escapeHtml(item.date || '日期待确认')} · ${escapeHtml(item.source || '工作台')}</small></div>`).join('');
+  refreshIcons();
+}
+
+function renderDashboardSignals() {
+  const geoPanel = document.querySelector('.dashboard-geo-panel');
+  const geo = dashboardState.signals.geo;
+  if (geoPanel) {
+    const body = geoPanel.querySelector('.dashboard-empty-compact');
+    const heading = geoPanel.querySelector('.panel-heading');
+    const badge = heading?.querySelector('.status-badge');
+    if (badge) badge.textContent = geo?.configured ? `${geo.snapshots.length} 条快照` : '未配置';
+    if (body && geo?.configured) {
+      const latest = geo.snapshots[geo.snapshots.length - 1];
+      body.innerHTML = `<i data-lucide="radar"></i><strong>${latest ? escapeHtml(latest.visibilityLabel || '最近快照') : '查询集已配置'}</strong><span>${escapeHtml(geo.product)} · ${escapeHtml(geo.market)} · ${latest ? escapeHtml(latest.queryText) : '等待第一条人工观测'}</span><button class="button button-quiet" type="button" data-primary-view="geo">查看 GEO</button>`;
+    }
+  }
+  const intelPanel = document.querySelector('.dashboard-intel-panel');
+  const content = dashboardState.signals.content;
+  if (intelPanel) {
+    const body = intelPanel.querySelector('.dashboard-empty-compact');
+    const badge = intelPanel.querySelector('.panel-heading .status-badge');
+    if (badge) badge.textContent = content ? `${content.assets} 个资产` : '未连接';
+    if (body && content) {
+      body.innerHTML = `<i data-lucide="images"></i><strong>${content.brief ? '内容工作区已就绪' : '等待内容 Brief'}</strong><span>${content.brief ? escapeHtml(content.brief.topic) : '创建内容 Brief 后，资产状态会在这里汇总。'} · ${content.assets} 个资产任务</span><button class="button button-quiet" type="button" data-primary-view="content">打开内容与资产</button>`;
+    }
+  }
   refreshIcons();
 }
 
@@ -314,10 +354,13 @@ function renderDashboard(projects, currentDetail) {
   dashboardState.currentDetail = currentDetail;
   renderDashboardProjects(projects, currentDetail);
   renderDashboardTasks(currentDetail);
+  renderDashboardSignals();
   dashboardState.lastUpdated = new Date();
   const status = document.querySelector('#dashboardStatus');
   document.querySelector('#dashboardStatusText').textContent = currentDetail ? `已读取 ${currentDetail.projectName} 的服务器事实` : '当前工作区尚未载入项目事实';
-  document.querySelector('#dashboardStatusMeta').textContent = `更新于 ${formatDashboardTimestamp(dashboardState.lastUpdated)} · GEO、资讯和模型连接仍待配置`;
+  const geoState = dashboardState.signals.geo?.configured ? 'GEO 已接入' : 'GEO 待配置';
+  const contentState = dashboardState.signals.content ? '内容已同步' : '内容待同步';
+  document.querySelector('#dashboardStatusMeta').textContent = `更新于 ${formatDashboardTimestamp(dashboardState.lastUpdated)} · ${geoState} · ${contentState}`;
   status.dataset.state = 'ready';
   document.querySelector('#calendarDateLabel').textContent = dashboardState.period === 'today' ? formatDashboardDate() : dashboardPeriods[dashboardState.period].label;
   refreshIcons();
@@ -341,7 +384,29 @@ async function refreshDashboard(currentDetail = null) {
   document.querySelector('#dashboardStatusText').textContent = '正在同步总控台...';
   document.querySelector('#dashboardStatusMeta').textContent = '读取服务器项目事实';
   try {
-    const projects = await api.listProjects();
+    const projectsPromise = api.listProjects();
+    const [projects, geoResult, contentResult, calendarResult] = await Promise.all([
+      projectsPromise,
+      (async () => {
+        try {
+          const sets = await api.listGeoQuerySets();
+          const latest = sets.querySets.at(-1);
+          if (!latest) return { configured: false, snapshots: [] };
+          const snapshots = await api.listGeoSnapshots(latest.querySetId);
+          return { configured: true, product: latest.product, market: latest.market, snapshots: snapshots.snapshots };
+        } catch { return null; }
+      })(),
+      (async () => {
+        try {
+          const [briefs, assets] = await Promise.all([api.listContentBriefs(), api.listContentAssets()]);
+          return { brief: briefs.briefs.at(-1) || null, assets: assets.assets.length };
+        } catch { return null; }
+      })(),
+      (async () => {
+        try { return (await api.listCalendarItems('all')).items; } catch { return []; }
+      })(),
+    ]);
+    dashboardState.signals = { geo: geoResult, content: contentResult, calendar: calendarResult };
     renderDashboard(projects, currentDetail);
   } catch (error) {
     dashboardState.currentDetail = currentDetail || dashboardState.currentDetail || null;
