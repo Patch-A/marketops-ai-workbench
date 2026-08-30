@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import importlib.util
 import os
 import unittest
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from asyncpg import CheckViolationError, ForeignKeyViolationError
+RUNTIME_DEPENDENCIES_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("asyncpg", "fastapi", "multipart"))
+if RUNTIME_DEPENDENCIES_AVAILABLE:
+    from asyncpg import CheckViolationError, ForeignKeyViolationError
 
 from apps.api.marketops_learning import LearningFailure
 from apps.api.marketops_learning.approval import ApprovalDecisionRequest
@@ -18,7 +21,7 @@ ADMIN_DSN = os.environ.get("MARKETOPS_TEST_ADMIN_DATABASE_URL", "").strip()
 APP_DSN = os.environ.get("MARKETOPS_TEST_DATABASE_URL", "").strip()
 
 
-@unittest.skipUnless(ADMIN_DSN and APP_DSN, "PostgreSQL admin/application test URLs are required")
+@unittest.skipUnless(ADMIN_DSN and APP_DSN and RUNTIME_DEPENDENCIES_AVAILABLE, "PostgreSQL admin/application URLs and runtime dependencies are required")
 class KnowledgeApprovalPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.fixture = LearningPostgresRuntimeTests("runTest")

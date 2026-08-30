@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import unittest
 from datetime import datetime, timezone
 from types import SimpleNamespace
 
-from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
+HTTP_DEPENDENCIES_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("fastapi", "multipart"))
+if HTTP_DEPENDENCIES_AVAILABLE:
+    from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
 from apps.api.marketops_import.service import ScopeContext
 from apps.api.marketops_learning import KnowledgeEvidence, KnowledgeItem, LearningFailure
 from apps.api.marketops_learning.postgres import (
@@ -15,7 +18,8 @@ from apps.api.marketops_learning.postgres import (
     KnowledgeVersionView,
     PersistCapsuleResult,
 )
-from apps.api.tests.test_m1_02_review_http import asgi_request
+if HTTP_DEPENDENCIES_AVAILABLE:
+    from apps.api.tests.test_m1_02_review_http import asgi_request
 
 
 IDS = {
@@ -149,6 +153,8 @@ class FakeKnowledgeApprovalService:
         return (self.citation,)
 
 
+@unittest.skipUnless(HTTP_DEPENDENCIES_AVAILABLE, "FastAPI and python-multipart are required for learning HTTP tests")
+@unittest.skipUnless(HTTP_DEPENDENCIES_AVAILABLE, "FastAPI and python-multipart are required for learning HTTP tests")
 class LearningHttpTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self):
         self.scope = ScopeContext(

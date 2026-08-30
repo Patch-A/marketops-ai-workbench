@@ -339,9 +339,11 @@ async def database_snapshot(
     return snapshot
 
 
-async def referenced_objects(connection: Any) -> list[dict[str, Any]]:
+async def referenced_objects(connection: Any, project_id: str | None = None) -> list[dict[str, Any]]:
+    project_clause = "" if project_id is None else "WHERE version.project_id = $1"
+    parameters = () if project_id is None else (project_id,)
     rows = await connection.fetch(
-        """
+        f"""
         SELECT version.storage_key, artifact.kind, version.byte_size,
                pg_catalog.encode(version.sha256, 'hex') AS sha256
         FROM marketops.artifact_versions AS version
@@ -351,8 +353,10 @@ async def referenced_objects(connection: Any) -> list[dict[str, Any]]:
          AND artifact.client_id = version.client_id
          AND artifact.project_id = version.project_id
          AND artifact.id = version.artifact_id
+        {project_clause}
         ORDER BY version.storage_key
-        """
+        """,
+        *parameters,
     )
     return [
         {
@@ -474,6 +478,7 @@ async def export_legacy_bundle(
     bundle_root: Path,
     dump_version: int,
     restore_version: int,
+    project_id: str,
 ) -> tuple[Any, tuple[str, ...]]:
     dump_path = work_root / "legacy-database.dump"
     connection = await asyncpg.connect(admin_dsn)
@@ -483,7 +488,7 @@ async def export_legacy_bundle(
                 "SELECT pg_catalog.pg_export_snapshot()"
             )
             snapshot = await database_snapshot(connection, LEGACY_BUSINESS_TABLES)
-            objects = await referenced_objects(connection)
+            objects = await referenced_objects(connection, project_id)
             await asyncio.to_thread(
                 create_database_dump,
                 container_id,
@@ -525,6 +530,7 @@ async def export_review_v2_bundle(
     bundle_root: Path,
     dump_version: int,
     restore_version: int,
+    project_id: str,
 ) -> tuple[Any, tuple[str, ...]]:
     dump_path = work_root / "review-v2-database.dump"
     connection = await asyncpg.connect(admin_dsn)
@@ -534,7 +540,7 @@ async def export_review_v2_bundle(
                 "SELECT pg_catalog.pg_export_snapshot()"
             )
             snapshot = await database_snapshot(connection, REVIEW_BUSINESS_TABLES)
-            objects = await referenced_objects(connection)
+            objects = await referenced_objects(connection, project_id)
             await asyncio.to_thread(
                 create_database_dump,
                 container_id,
@@ -576,6 +582,7 @@ async def export_bundle(
     bundle_root: Path,
     dump_version: int,
     restore_version: int,
+    project_id: str,
 ) -> tuple[dict[str, Any], tuple[str, ...]]:
     dump_path = work_root / "database.dump"
     connection = await asyncpg.connect(admin_dsn)
@@ -595,7 +602,7 @@ async def export_bundle(
             if migration_manifest_rows(source_migrations) != list(MIGRATION_SET):
                 raise RuntimeError("source migration registry differs from reviewed migrations")
             snapshot = await database_snapshot(connection)
-            objects = await referenced_objects(connection)
+            objects = await referenced_objects(connection, project_id)
             await asyncio.to_thread(create_database_dump, container_id, snapshot_id, dump_path)
     finally:
         await connection.close()
@@ -1698,6 +1705,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             bundle_root=legacy_bundle_root,
             dump_version=dump_version,
             restore_version=restore_version,
+            project_id=committed["projectId"],
         )
         review_history = await seed_review_history(asyncpg, admin_dsn, app_dsn, scope, committed)
         review_v2_bundle, review_v2_toc_tables = await export_review_v2_bundle(
@@ -1708,6 +1716,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             bundle_root=review_v2_bundle_root,
             dump_version=dump_version,
             restore_version=restore_version,
+            project_id=committed["projectId"],
         )
         schedule_history = await seed_schedule_history(
             asyncpg, app_dsn, scope, committed, review_history
@@ -1732,6 +1741,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             bundle_root=bundle_root,
             dump_version=dump_version,
             restore_version=restore_version,
+            project_id=committed["projectId"],
         )
         bundle = load_backup_bundle(bundle_root)
         negative = await negative_bundle_checks(bundle_root, work_root)

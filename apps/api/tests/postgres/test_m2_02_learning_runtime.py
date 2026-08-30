@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import importlib.util
 import json
 import unittest
 from datetime import datetime, timezone
@@ -21,9 +22,11 @@ from apps.api.marketops_learning import (
     OutcomeInput,
     RetrospectiveInput,
 )
-from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
-from apps.api.marketops_import.service import ScopeContext
-from apps.api.tests.test_m1_02_review_http import asgi_request
+RUNTIME_DEPENDENCIES_AVAILABLE = all(importlib.util.find_spec(name) is not None for name in ("asyncpg", "fastapi", "multipart"))
+if RUNTIME_DEPENDENCIES_AVAILABLE:
+    from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
+    from apps.api.marketops_import.service import ScopeContext
+    from apps.api.tests.test_m1_02_review_http import asgi_request
 
 
 ADMIN_DSN = os.environ.get("MARKETOPS_TEST_ADMIN_DATABASE_URL", "").strip()
@@ -31,8 +34,8 @@ APP_DSN = os.environ.get("MARKETOPS_TEST_DATABASE_URL", "").strip()
 
 
 @unittest.skipUnless(
-    ADMIN_DSN and APP_DSN,
-    "PostgreSQL admin/application test URLs are required",
+    ADMIN_DSN and APP_DSN and RUNTIME_DEPENDENCIES_AVAILABLE,
+    "PostgreSQL admin/application URLs and runtime dependencies are required",
 )
 class LearningPostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
