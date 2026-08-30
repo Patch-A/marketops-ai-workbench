@@ -154,11 +154,12 @@ class _BlockingReferenceReader(CompleteReferenceReader):
 
 
 class PostgresCompleteReferenceReader(CompleteReferenceReader):
-    """Test-only RLS-bypass reader for the current project's artifact references."""
+    """Test-only RLS-bypass reader for the current workspace/client scope."""
 
-    def __init__(self, admin_dsn: str, project_id: str):
+    def __init__(self, admin_dsn: str, workspace_id: str, client_id: str):
         self._admin_dsn = admin_dsn
-        self._project_id = project_id
+        self._workspace_id = workspace_id
+        self._client_id = client_id
 
     async def snapshot_references(self) -> ReferenceSnapshot:
         try:
@@ -179,10 +180,11 @@ class PostgresCompleteReferenceReader(CompleteReferenceReader):
                     SELECT storage_key, byte_size,
                            pg_catalog.encode(sha256, 'hex') AS sha256
                     FROM marketops.artifact_versions
-                    WHERE project_id = $1
+                    WHERE workspace_id = $1 AND client_id = $2
                     ORDER BY storage_key
                     """,
-                    self._project_id,
+                    self._workspace_id,
+                    self._client_id,
                 )
         finally:
             await connection.close()
@@ -642,7 +644,8 @@ async def _run_apply_child(work_root: Path, output: Path) -> None:
         LocalObjectStore(work_root / "objects"),
         PostgresCompleteReferenceReader(
             required_environment("MARKETOPS_TEST_ADMIN_DATABASE_URL"),
-            load_state(work_root / "state.json")["committed"]["projectId"],
+            load_state(work_root / "state.json")["scope"]["workspaceId"],
+            load_state(work_root / "state.json")["scope"]["clientId"],
         ),
         observation_interval=OBSERVATION_INTERVAL,
         plan_lifetime=PLAN_LIFETIME,
@@ -695,7 +698,9 @@ async def run(work_root: Path, output: Path, state_path: Path | None = None) -> 
     store = LocalObjectStore(object_root)
     admin_dsn = required_environment("MARKETOPS_TEST_ADMIN_DATABASE_URL")
     app_dsn = required_environment("MARKETOPS_TEST_DATABASE_URL")
-    reader = PostgresCompleteReferenceReader(admin_dsn, state["committed"]["projectId"])
+    reader = PostgresCompleteReferenceReader(
+        admin_dsn, state["scope"]["workspaceId"], state["scope"]["clientId"]
+    )
     cleaner = OrphanCleaner(
         store,
         reader,

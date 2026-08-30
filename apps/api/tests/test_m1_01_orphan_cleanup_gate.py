@@ -135,10 +135,11 @@ class OrphanCleanupGateContractTests(unittest.TestCase):
     def test_postgres_reference_reader_is_project_scoped(self):
         root = Path(__file__).resolve().parents[3]
         source = (root / "scripts" / "run_m1_01_orphan_cleanup_gate.py").read_text(encoding="utf-8")
-        self.assertIn("def __init__(self, admin_dsn: str, project_id: str):", source)
-        self.assertIn("WHERE project_id = $1", source)
-        self.assertIn("self._project_id,", source)
-        self.assertIn("state[\"committed\"][\"projectId\"]", source)
+        self.assertIn("def __init__(self, admin_dsn: str, workspace_id: str, client_id: str):", source)
+        self.assertIn("WHERE workspace_id = $1 AND client_id = $2", source)
+        self.assertIn("self._workspace_id,", source)
+        self.assertIn("self._client_id,", source)
+        self.assertIn("state[\"scope\"][\"workspaceId\"]", source)
 
     def test_runtime_job_places_cleanup_between_backup_and_connection_loss(self):
         root = Path(__file__).resolve().parents[3]
