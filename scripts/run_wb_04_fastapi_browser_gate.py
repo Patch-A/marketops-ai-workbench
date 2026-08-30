@@ -15,13 +15,15 @@ def main() -> int:
             from pathlib import Path
             from apps.api.marketops_import.http import StaticBearerAuthenticator, create_app
             from apps.api.marketops_import.service import ScopeContext
+            from apps.api.marketops_brief import BriefResearchService
             from apps.api.marketops_content import ContentAssetService
+            from apps.api.marketops_geo import GeoSnapshotService
             from apps.api.marketops_calendar import CalendarItemService
             from apps.api.marketops_obsidian import ObsidianReadOnlyService
             scope = ScopeContext({scope[0]!r}, {scope[1]!r}, {scope[2]!r}, {scope[3]!r})
             class EmptyProjectReader:
                 async def list_projects(self, scope, *, limit): return []
-            app = create_app(authenticator=StaticBearerAuthenticator({token!r}, scope, basic_username='marketops'), project_reader=EmptyProjectReader(), content_service=ContentAssetService(Path({str(root)!r})), calendar_service=CalendarItemService(Path({str(root)!r})), obsidian_service=ObsidianReadOnlyService(Path({str(root)!r}), vault_root=Path({str(vault)!r})), static_root=Path({str(ROOT)!r}))
+            app = create_app(authenticator=StaticBearerAuthenticator({token!r}, scope, basic_username='marketops'), project_reader=EmptyProjectReader(), brief_research_service=BriefResearchService(Path({str(root)!r})), geo_service=GeoSnapshotService(Path({str(root)!r})), content_service=ContentAssetService(Path({str(root)!r})), calendar_service=CalendarItemService(Path({str(root)!r})), obsidian_service=ObsidianReadOnlyService(Path({str(root)!r}), vault_root=Path({str(vault)!r})), static_root=Path({str(ROOT)!r}))
         '''), encoding='utf-8')
         env = os.environ.copy(); env['PYTHONDONTWRITEBYTECODE'] = '1'; env['PYTHONPATH'] = str(ROOT) + os.pathsep + env.get('PYTHONPATH', ''); log = (path / 'uvicorn.log').open('w', encoding='utf-8'); server = subprocess.Popen([sys.executable, '-m', 'uvicorn', 'server_app:app', '--host', '127.0.0.1', '--port', str(args.port), '--log-level', 'warning'], cwd=path, env=env, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=log, text=True)
         try:

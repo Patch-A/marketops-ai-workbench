@@ -70,3 +70,10 @@ class BriefResearchServiceTests(unittest.IsolatedAsyncioTestCase):
             await self.service.decide_proposal_draft(self.scope, draft["draftId"], {"expectedVersion": 1, "action": "reject", "reason": "stale"})
         with self.assertRaisesRegex(BriefResearchError, "finalized"):
             await self.service.decide_proposal_draft(self.scope, draft["draftId"], {"expectedVersion": 2, "action": "reject", "reason": "cannot overwrite"})
+
+    async def test_list_research_runs_is_scoped_and_returns_reviewable_runs(self):
+        brief = await self.service.create_brief(self.scope, self.brief())
+        source = {"url": "https://example.com/market", "title": "Official source", "excerpt": "A bounded observation.", "observedAt": "2026-08-21", "scope": "India manufacturing", "confidence": "high"}
+        run = await self.service.create_research_run(self.scope, {"briefId": brief["briefId"], "sources": [source], "observations": [{"claim": "Observed fact", "classification": "fact", "confidence": "high"}]})
+        self.assertEqual((await self.service.list_research_runs(self.scope))[0]["runId"], run["runId"])
+        self.assertEqual(await self.service.list_research_runs(BriefScope(uid(), uid(), uid(), uid())), [])

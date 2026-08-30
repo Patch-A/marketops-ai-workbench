@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import json
 import os
+import re
 import tempfile
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -72,13 +73,17 @@ class CalendarItemService:
 
     async def create_item(self, scope: CalendarScope, payload: Mapping[str, Any]) -> dict[str, Any]:
         scope = _scope(scope)
-        if set(payload) != {"title", "date", "source", "note"}:
+        required = {"title", "date", "source", "note"}
+        optional = {"originSuggestionId"}
+        if not required.issubset(payload) or not set(payload).issubset(required | optional):
             raise CalendarError("INVALID_INPUT", "calendar item fields are incomplete or unknown")
+        origin_suggestion_id = _origin_suggestion_id(payload.get("originSuggestionId"))
         item = {
             "itemId": self._new_id(), "organizationId": scope.organization_id, "workspaceId": scope.workspace_id,
             "clientId": scope.client_id, "createdBy": scope.actor_id, "createdAt": self._clock(), "updatedAt": self._clock(),
             "version": 1, "title": _text(payload["title"], "title", 200), "date": _date(payload["date"]),
             "source": _text(payload["source"], "source", 100), "note": _text(payload["note"], "note", 1000, optional=True),
+            "originSuggestionId": origin_suggestion_id,
             "status": "draft",
         }
         async with self._lock:
@@ -113,7 +118,8 @@ class CalendarItemService:
 
     @staticmethod
     def _public(item: Mapping[str, Any]) -> dict[str, Any]:
-        return {key: item[key] for key in ("itemId", "createdAt", "updatedAt", "version", "title", "date", "source", "note", "status")}
+        keys = ("itemId", "createdAt", "updatedAt", "version", "title", "date", "source", "note", "status")
+        return {**{key: item[key] for key in keys}, "originSuggestionId": item.get("originSuggestionId")}
 
     def _read(self) -> list[dict[str, Any]]:
         if not self._path.exists(): return []
@@ -143,3 +149,11 @@ def _date(value: Any) -> str:
         return date.fromisoformat(value).isoformat()
     except ValueError as exc:
         raise CalendarError("INVALID_INPUT", "date must be an ISO calendar date") from exc
+
+def _origin_suggestion_id(value: Any) -> str | None:
+    if value in (None, ""):
+        return None
+    value = _text(value, "originSuggestionId", 300)
+    if not re.fullmatch(r"(?:research|geo):[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}", value, flags=re.IGNORECASE):
+        raise CalendarError("INVALID_INPUT", "originSuggestionId is invalid")
+    return value

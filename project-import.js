@@ -12,6 +12,7 @@
   const CONTENT_BRIEFS_ROUTE = '/v1/workbench/content/briefs';
   const CONTENT_ASSETS_ROUTE = '/v1/workbench/content/assets';
   const CALENDAR_ITEMS_ROUTE = '/v1/workbench/calendar/items';
+  const SCHEDULE_SUGGESTIONS_ROUTE = '/v1/workbench/schedule-suggestions';
   const OBSIDIAN_CONNECTION_ROUTE = '/v1/workbench/obsidian/connection';
   const OBSIDIAN_NOTES_ROUTE = '/v1/workbench/obsidian/notes';
   const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -234,9 +235,14 @@
         if (!isPlainObject(payload) || !Array.isArray(payload.items)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The calendar list violated its contract.');
         return { items: payload.items.map(validateCalendarItem) };
       },
+      async listScheduleSuggestions(request = {}) {
+        const payload = await requestJson(fetchImpl, SCHEDULE_SUGGESTIONS_ROUTE, { method: 'GET', credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: request.signal });
+        if (!isPlainObject(payload) || !Array.isArray(payload.suggestions)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The schedule suggestion list violated its contract.');
+        return { suggestions: payload.suggestions.map(validateScheduleSuggestion) };
+      },
       async createCalendarItem(input, request = {}) {
-        if (!isPlainObject(input) || !isCalendarDate(input.date) || !boundedText(input.title, 200) || !boundedText(input.source, 100) || typeof input.note !== 'string' || input.note.length > 1000) throw new ProjectApiError('INVALID_INPUT', 'The calendar item is incomplete.');
-        const payload = await requestJson(fetchImpl, CALENDAR_ITEMS_ROUTE, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ title: input.title.trim(), date: input.date, source: input.source.trim(), note: input.note.trim() }), signal: request.signal }, true);
+        if (!isPlainObject(input) || !isCalendarDate(input.date) || !boundedText(input.title, 200) || !boundedText(input.source, 100) || typeof input.note !== 'string' || input.note.length > 1000 || (input.originSuggestionId !== undefined && !isScheduleSuggestionId(input.originSuggestionId))) throw new ProjectApiError('INVALID_INPUT', 'The calendar item is incomplete.');
+        const payload = await requestJson(fetchImpl, CALENDAR_ITEMS_ROUTE, { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ title: input.title.trim(), date: input.date, source: input.source.trim(), note: input.note.trim(), ...(input.originSuggestionId ? { originSuggestionId: input.originSuggestionId } : {}) }), signal: request.signal }, true);
         if (!isPlainObject(payload) || !isPlainObject(payload.item)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The calendar item response violated its contract.', { uncertain: true });
         return validateCalendarItem(payload.item);
       },
@@ -1368,9 +1374,19 @@
   }
 
   function validateCalendarItem(value) {
-    const required = ['itemId', 'createdAt', 'updatedAt', 'version', 'title', 'date', 'source', 'note', 'status'];
-    if (!isPlainObject(value) || !hasExactKeys(value, required) || !UUID_PATTERN.test(value.itemId || '') || !isIsoDate(value.createdAt) || !isIsoDate(value.updatedAt) || !positiveInteger(value.version) || !boundedText(value.title, 200) || !isCalendarDate(value.date) || !boundedText(value.source, 100) || typeof value.note !== 'string' || value.note.length > 1000 || !['draft', 'confirmed'].includes(value.status)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The calendar item violated its contract.', { uncertain: true });
+    const required = ['itemId', 'createdAt', 'updatedAt', 'version', 'title', 'date', 'source', 'note', 'status', 'originSuggestionId'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required) || !UUID_PATTERN.test(value.itemId || '') || !isIsoDate(value.createdAt) || !isIsoDate(value.updatedAt) || !positiveInteger(value.version) || !boundedText(value.title, 200) || !isCalendarDate(value.date) || !boundedText(value.source, 100) || typeof value.note !== 'string' || value.note.length > 1000 || !['draft', 'confirmed'].includes(value.status) || (value.originSuggestionId !== null && !isScheduleSuggestionId(value.originSuggestionId))) throw new ProjectApiError('MALFORMED_RESPONSE', 'The calendar item violated its contract.', { uncertain: true });
     return { ...value };
+  }
+
+  function validateScheduleSuggestion(value) {
+    const required = ['suggestionId', 'source', 'title', 'date', 'status', 'note'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required) || !boundedText(value.suggestionId, 300) || !boundedText(value.source, 100) || !boundedText(value.title, 200) || !isCalendarDate(value.date) || !boundedText(value.status, 80) || typeof value.note !== 'string' || value.note.length > 1000) throw new ProjectApiError('MALFORMED_RESPONSE', 'The schedule suggestion violated its contract.', { uncertain: true });
+    return { ...value };
+  }
+
+  function isScheduleSuggestionId(value) {
+    return typeof value === 'string' && /^(?:research|geo):[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
   }
 
   function validateObsidianConnection(value) {

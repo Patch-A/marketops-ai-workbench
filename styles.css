@@ -84,7 +84,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .selection-copy strong { min-width: 0; overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
 .dashboard-grid { display: grid; grid-template-columns: minmax(0, 1.15fr) minmax(0, 1.25fr); gap: 14px; margin-top: 14px; }
 .dashboard-panel { min-width: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
-.dashboard-focus-panel, .dashboard-projects-panel { min-height: 280px; }
+.dashboard-focus-panel, .dashboard-projects-panel, .dashboard-suggestions-panel { min-height: 280px; }
 .dashboard-geo-panel, .dashboard-intel-panel, .dashboard-calendar-panel { min-height: 220px; }
 .dashboard-calendar-panel { grid-column: 1 / -1; }
 .dashboard-list, .dashboard-project-list { min-width: 0; display: grid; }

@@ -9,7 +9,9 @@ from pathlib import Path
 from uuid import uuid4
 
 from apps.api.marketops_calendar import CalendarItemService
+from apps.api.marketops_brief import BriefResearchService
 from apps.api.marketops_content import ContentAssetService
+from apps.api.marketops_geo import GeoSnapshotService
 from apps.api.marketops_import.service import ScopeContext
 
 HTTP_DEPENDENCIES_AVAILABLE = all(
@@ -34,6 +36,8 @@ class WB04ContentCalendarHttpTests(unittest.TestCase):
         self.app = create_app(
             content_service=ContentAssetService(Path(self.temp.name)),
             calendar_service=CalendarItemService(Path(self.temp.name)),
+            brief_research_service=BriefResearchService(Path(self.temp.name)),
+            geo_service=GeoSnapshotService(Path(self.temp.name)),
             authenticator=StaticBearerAuthenticator("test-token", self.scope),
             request_id_factory=lambda: "wb04-request",
         )
@@ -62,7 +66,23 @@ class WB04ContentCalendarHttpTests(unittest.TestCase):
 
     def test_openapi_contract_contains_wb04_routes(self):
         document = self.app.openapi()
-        for path in ("/v1/workbench/content/briefs", "/v1/workbench/content/assets", "/v1/workbench/calendar/items"):
+        for path in ("/v1/workbench/content/briefs", "/v1/workbench/content/assets", "/v1/workbench/calendar/items", "/v1/workbench/schedule-suggestions"):
             self.assertIn(path, document["paths"])
         self.assertIn("ContentAsset", document["components"]["schemas"])
         self.assertIn("CalendarItem", document["components"]["schemas"])
+        self.assertIn("ScheduleSuggestionListResult", document["components"]["schemas"])
+
+    def test_schedule_suggestions_are_read_only_and_scoped(self):
+        brief = asyncio.run(asgi_json(self.app, "POST", "/v1/workbench/briefs", json.dumps({"deidentified": True, "productName": "产品", "productType": "工业品", "targetMarket": "印度", "audience": "负责人", "objective": "调研", "timeframe": "本周", "background": "测试", "constraints": []}).encode(), self.headers)).json()["brief"]
+        source = {"url": "https://example.com/source", "title": "Source", "excerpt": "Bounded source", "observedAt": "2026-08-30", "scope": "test", "confidence": "high"}
+        asyncio.run(asgi_json(self.app, "POST", "/v1/workbench/research-runs", json.dumps({"briefId": brief["briefId"], "sources": [source], "observations": [{"claim": "fact", "classification": "fact", "confidence": "high"}]}).encode(), self.headers))
+        query_set = asyncio.run(asgi_json(self.app, "POST", "/v1/workbench/geo/query-sets", json.dumps({"product": "产品", "market": "印度", "language": "中文", "queries": ["如何选择"]}).encode(), self.headers)).json()["querySet"]
+        asyncio.run(asgi_json(self.app, "POST", f"/v1/workbench/geo/query-sets/{query_set['querySetId']}/snapshots", json.dumps({"platform": "ChatGPT", "queryId": query_set["queries"][0]["queryId"], "visibility": "not_mentioned", "observation": "未提及", "observedAt": "2026-08-30", "citation": "https://example.com/answer"}).encode(), self.headers))
+        suggestions = asyncio.run(asgi_get(self.app, "/v1/workbench/schedule-suggestions", self.headers)).json()["suggestions"]
+        self.assertEqual({item["source"] for item in suggestions}, {"研究任务", "GEO 缺口"})
+        self.assertEqual(asyncio.run(asgi_get(self.app, "/v1/workbench/calendar/items?period=all", self.headers)).json()["items"], [])
+        accepted = suggestions[0]
+        created = asyncio.run(asgi_json(self.app, "POST", "/v1/workbench/calendar/items", json.dumps({"title": accepted["title"], "date": accepted["date"], "source": accepted["source"], "note": accepted["note"], "originSuggestionId": accepted["suggestionId"]}).encode(), self.headers))
+        self.assertEqual(created.status_code, 201)
+        after_accept = asyncio.run(asgi_get(self.app, "/v1/workbench/schedule-suggestions", self.headers)).json()["suggestions"]
+        self.assertNotIn(accepted["suggestionId"], {item["suggestionId"] for item in after_accept})

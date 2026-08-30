@@ -160,6 +160,12 @@ class BriefResearchService:
             records = self._read()
         return [self._public_brief(item) for item in records["briefs"] if _scope_match(item, scope)]
 
+    async def list_research_runs(self, scope: BriefScope) -> list[dict[str, Any]]:
+        scope = _scope(scope)
+        async with self._lock:
+            records = self._read()
+        return [self._public_run(item) for item in records["researchRuns"] if _scope_match(item, scope)]
+
     async def get_brief(self, scope: BriefScope, brief_id: str) -> dict[str, Any]:
         item = await self._find(scope, "briefs", brief_id, "briefId")
         return self._public_brief(item)

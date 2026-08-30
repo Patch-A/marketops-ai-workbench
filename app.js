@@ -13,7 +13,7 @@ const iconGlyphs = {
   'mouse-pointer-2': '↖', pencil: '✎', plus: '+', 'refresh-cw': '↻',
   'scan-text': '⌗', send: '↑', 'shield-check': '✓', sparkles: '✦', sun: '☼', moon: '☾', x: '×',
   'layout-dashboard': '▦', 'folder-kanban': '▤', 'book-open-check': '≡', radar: '◉', images: '▧',
-  'calendar-days': '□', 'settings-2': '⚙', search: '⌕', 'list-todo': '☷', 'folder-open': '▱', newspaper: '▤',
+  'calendar-days': '□', 'settings-2': '⚙', search: '⌕', 'list-todo': '☷', 'folder-open': '▱', newspaper: '▤', inbox: '▥',
 };
 
 function refreshIcons() {
@@ -138,7 +138,7 @@ const dashboardState = {
   selectedProject: null,
   lastUpdated: null,
   refreshing: false,
-  signals: { geo: null, content: null, calendar: [] },
+  signals: { geo: null, content: null, calendar: [], suggestions: [] },
 };
 
 const dashboardPeriods = {
@@ -295,6 +295,17 @@ function renderDashboardTasks(detail) {
   const openTasks = periodTasks.slice(0, 5);
   const focusList = document.querySelector('#dashboardFocusList');
   const calendarList = document.querySelector('#dashboardCalendarList');
+  const suggestionsList = document.querySelector('#dashboardSuggestionsList');
+  const suggestions = Array.isArray(dashboardState.signals.suggestions)
+    ? dashboardState.signals.suggestions.filter((item) => dashboardTaskMatchesPeriod({ plannedStart: item.date }))
+    : [];
+  document.querySelector('#suggestionsCount').textContent = `${suggestions.length} 项`;
+  if (!suggestions.length) {
+    suggestionsList.innerHTML = '<div class="dashboard-empty"><i data-lucide="inbox"></i><strong>暂无待确认建议</strong><span>研究结果和 GEO 缺口经人工确认后，才会纳入正式日程。</span></div>';
+  } else {
+    suggestionsList.innerHTML = suggestions.slice(0, 5).map((item) => `<button class="dashboard-task-row dashboard-suggestion-row" type="button"><span class="task-state-dot"></span><span><strong>${escapeHtml(item.title)}</strong><small>${escapeHtml(item.source)} · ${escapeHtml(item.date)}</small></span><i data-lucide="chevron-right"></i></button>`).join('');
+    suggestionsList.querySelectorAll('.dashboard-suggestion-row').forEach((row) => row.addEventListener('click', () => { showToast('请在日程页确认是否纳入'); navigatePrimaryView('calendar'); }));
+  }
   const calendarItems = Array.isArray(dashboardState.signals.calendar)
     ? dashboardState.signals.calendar.filter((item) => item.status !== 'completed' && dashboardTaskMatchesPeriod({ plannedStart: item.date }))
     : [];
@@ -307,6 +318,7 @@ function renderDashboardTasks(detail) {
   if (!openTasks.length && !calendarItems.length) {
     focusList.innerHTML = `<div class="dashboard-empty"><i data-lucide="list-todo"></i><strong>${detail ? '暂无未完成执行任务' : '等待项目任务'}</strong><span>${detail ? '批准计划后，未完成任务会在这里形成今天的行动入口。' : '项目进入执行阶段后，今天要做的事情会出现在这里。'}</span></div>`;
     calendarList.innerHTML = '<div class="dashboard-empty dashboard-empty-compact"><i data-lucide="calendar-days"></i><strong>暂无日程数据</strong><span>批准计划和研究任务会在确认后进入日程。</span></div>';
+    refreshIcons();
     return;
   }
   if (!openTasks.length) {
@@ -385,7 +397,7 @@ async function refreshDashboard(currentDetail = null) {
   document.querySelector('#dashboardStatusMeta').textContent = '读取服务器项目事实';
   try {
     const projectsPromise = api.listProjects();
-    const [projects, geoResult, contentResult, calendarResult] = await Promise.all([
+    const [projects, geoResult, contentResult, calendarResult, suggestionsResult] = await Promise.all([
       projectsPromise,
       (async () => {
         try {
@@ -405,8 +417,11 @@ async function refreshDashboard(currentDetail = null) {
       (async () => {
         try { return (await api.listCalendarItems('all')).items; } catch { return []; }
       })(),
+      (async () => {
+        try { return (await api.listScheduleSuggestions()).suggestions; } catch { return []; }
+      })(),
     ]);
-    dashboardState.signals = { geo: geoResult, content: contentResult, calendar: calendarResult };
+    dashboardState.signals = { geo: geoResult, content: contentResult, calendar: calendarResult, suggestions: suggestionsResult };
     renderDashboard(projects, currentDetail);
   } catch (error) {
     dashboardState.currentDetail = currentDetail || dashboardState.currentDetail || null;

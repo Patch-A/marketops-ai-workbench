@@ -140,6 +140,12 @@ class GeoSnapshotService:
             records = self._read()
         return [self._public_task(item) for item in records["tasks"] if item["querySetId"] == query_set["querySetId"] and _match(item, scope)]
 
+    async def list_all_tasks(self, scope: GeoScope) -> list[dict[str, Any]]:
+        scope = _scope(scope)
+        async with self._lock:
+            records = self._read()
+        return [self._public_task(item) for item in records["tasks"] if _match(item, scope)]
+
     async def create_snapshot(self, scope: GeoScope, query_set_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         scope = _scope(scope)
         query_set = await self._find(scope, "querySets", query_set_id, "querySetId")

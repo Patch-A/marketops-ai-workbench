@@ -92,7 +92,7 @@ _CONTENT_BRIEF_FIELDS = frozenset({"topic", "channel", "format", "audience", "br
 _CONTENT_ASSET_FIELDS = frozenset({"briefId", "title", "channel", "format", "assetType", "prompt"})
 _CONTENT_ASSET_UPDATE_FIELDS = frozenset({"expectedVersion", "status"})
 _CONTENT_APPROVE_FIELDS = frozenset({"expectedVersion"})
-_CALENDAR_ITEM_FIELDS = frozenset({"title", "date", "source", "note"})
+_CALENDAR_ITEM_FIELDS = frozenset({"title", "date", "source", "note", "originSuggestionId"})
 _CALENDAR_UPDATE_FIELDS = frozenset({"expectedVersion", "status"})
 _INDEX_SOURCE_FIELDS = frozenset({"artifactVersionId"})
 _SEARCH_REQUIRED_FIELDS = frozenset({"query"})
@@ -661,6 +661,48 @@ def create_app(
         except BriefResearchError as error:
             return _brief_failure(error, request_id)
 
+    @app.get("/v1/workbench/schedule-suggestions")
+    async def list_schedule_suggestions(request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        brief_service = getattr(request.app.state, "brief_research_service", None)
+        geo_service = getattr(request.app.state, "geo_service", None)
+        calendar_service = getattr(request.app.state, "calendar_service", None)
+        if brief_service is None or geo_service is None or calendar_service is None:
+            return _failure("SCHEDULE_SUGGESTIONS_UNAVAILABLE", request_id, status=503, retryable=True)
+        try:
+            runs, geo_tasks, calendar_items = await asyncio.gather(
+                brief_service.list_research_runs(_brief_scope(scope_or_error)),
+                geo_service.list_all_tasks(_geo_scope(scope_or_error)),
+                calendar_service.list_items(_calendar_scope(scope_or_error)),
+            )
+            accepted_ids = {item.get("originSuggestionId") for item in calendar_items}
+            suggestions = [
+                {
+                    "suggestionId": f"research:{item['runId']}", "source": "研究任务",
+                    "title": f"审核研究结果：{item['researchTask']['query']}",
+                    "date": item["createdAt"][:10], "status": item["status"],
+                    "note": item["researchTask"]["note"],
+                }
+                for item in runs if item["status"] in {"needs_review", "failed"} and f"research:{item['runId']}" not in accepted_ids
+            ] + [
+                {
+                    "suggestionId": f"geo:{item['taskId']}", "source": "GEO 缺口",
+                    "title": item["title"], "date": item["observedAt"],
+                    "status": item["status"], "note": f"{item['platform']} 观察到内容缺口。",
+                }
+                for item in geo_tasks if item["status"] == "needs_review" and f"geo:{item['taskId']}" not in accepted_ids
+            ]
+            return _json_no_store({"suggestions": sorted(suggestions, key=lambda item: (item["date"], item["source"], item["suggestionId"]))})
+        except (BriefResearchError, GeoError, CalendarError) as error:
+            if isinstance(error, BriefResearchError):
+                return _brief_failure(error, request_id)
+            if isinstance(error, GeoError):
+                return _geo_failure(error, request_id)
+            return _calendar_failure(error, request_id)
+
     @app.post("/v1/workbench/proposal-drafts", status_code=201)
     async def create_workbench_proposal_draft(request: Request) -> JSONResponse:
         request_id = _request_id(request_id_factory)
@@ -883,7 +925,9 @@ def create_app(
         if service is None: return _failure("CALENDAR_STORE_FAILED", request_id, status=503, retryable=True)
         try:
             body = await _read_strict_json(request, max_bytes=_MAX_CALENDAR_JSON_BYTES)
-            _require_exact_fields(body, _CALENDAR_ITEM_FIELDS)
+            _require_fields_subset(body, _CALENDAR_ITEM_FIELDS)
+            if not {"title", "date", "source", "note"}.issubset(body):
+                raise _MalformedRequest
             return _json_no_store({"item": await service.create_item(_calendar_scope(scope_or_error), body)}, status_code=201)
         except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
         except (_MalformedRequest, CalendarError) as error: return _calendar_failure(error, request_id)

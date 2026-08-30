@@ -35,6 +35,7 @@ class GeoSnapshotServiceTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["snapshot"]["visibility"], "not_mentioned")
         self.assertEqual(result["task"]["status"], "needs_review")
         self.assertEqual(len(await self.service.list_snapshots(self.scope, query_set["querySetId"])), 1)
+        self.assertEqual((await self.service.list_all_tasks(self.scope))[0]["taskId"], result["task"]["taskId"])
 
     async def test_scope_and_validation_fail_closed(self):
         with self.assertRaises(GeoError):

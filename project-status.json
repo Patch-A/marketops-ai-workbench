@@ -496,15 +496,17 @@
               ,"GitHub Actions run 33295746717 confirmed static checks, PostgreSQL initialization, server tests, and browser cutover, then exposed a second unscoped reference reader in the orphan-cleanup gate; local commit e574ba0 now scopes that reader by the committed projectId and adds a regression assertion."
               ,"GitHub Actions run 33296505246 passed both static-checks and m1-01-runtime after the orphan-cleanup reader was corrected to the workspace/client scope in commit 969b8b8; restore, orphan cleanup, and connection-loss gates all passed."
               ,"WB-04 新增模型连接探测：服务端只读取环境变量凭据并探测 OpenAI-compatible /models，健康状态可持久化为 healthy、unconfigured 或 unhealthy；相关 HTTP、模型中心和工作台测试 36/36 通过。"
+              ,"WB-04 新增研究/GEO 待确认行动汇总：schedule-suggestions 只读接口按当前工作区聚合 needs_review/failed 研究任务和 GEO 缺口，不自动改写正式日程。"
+              ,"纳入日程会在服务器日程项保留 originSuggestionId，汇总接口据此去重；真实 FastAPI + Chrome/CDP 门禁新增建议展示、纳入、刷新后不重复验收，返回 12/12 true。"
             ],
             "limitations": [
               "The authenticated server store is now the primary persistence path; browser localStorage remains an explicitly labelled offline-draft fallback when the API is unavailable.",
               "No image is generated until a configured model connector is authorized; no external channel publishing is implemented.",
               "The Obsidian integration is read-only metadata/index synchronization only; it does not expose note bodies, support note citations, or write back to the vault.",
               "The production default vault is the configured local path and can be overridden with MARKETOPS_OBSIDIAN_VAULT_ROOT; browser gates use only a synthetic temporary vault.",
-              "Project/GEO/research task aggregation, real image connector execution, external channel publishing, and independent non-implementer review remain open; this engineering gate is not a customer-value, ROI, or production-readiness claim."
+              "项目执行任务与研究/GEO 建议已分别汇总到首页，但仍未实现项目级任务跨项目聚合、真实生图连接器执行、外部渠道发布和独立非实现者复审；本工程门禁不是客户价值、ROI 或生产就绪性证明。"
             ],
-            "nextAction": "恢复并确认 Harness 模型 API 契约后，配置服务端环境变量并运行连接探测；继续实现生图任务队列与结果回传，并安排独立只读复审。"
+            "nextAction": "启动并验证真实生图连接器的服务端授权、任务队列与结果回传；同时安排独立只读复审。Harness 若能进入工作区可做辅助审查，但不作为主线前置条件。"
           }
         }
       ]

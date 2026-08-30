@@ -50,3 +50,11 @@ class WB04ContentCalendarTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(await self.calendar.list_items(scope, "week")), 1)
         self.assertEqual(len(await self.calendar.list_items(scope, "month")), 1)
         self.assertNotEqual(item["itemId"], future["itemId"])
+
+    async def test_calendar_keeps_an_accepted_suggestion_reference(self):
+        scope = CalendarScope(self.scope.organization_id, self.scope.workspace_id, self.scope.client_id, self.scope.actor_id)
+        suggestion_id = f"research:{uid()}"
+        item = await self.calendar.create_item(scope, {"title": "审核研究结果", "date": date.today().isoformat(), "source": "研究任务", "note": "人工确认", "originSuggestionId": suggestion_id})
+        self.assertEqual(item["originSuggestionId"], suggestion_id)
+        with self.assertRaisesRegex(CalendarError, "originSuggestionId"):
+            await self.calendar.create_item(scope, {"title": "错误关联", "date": date.today().isoformat(), "source": "研究任务", "note": "", "originSuggestionId": "research:invalid"})
