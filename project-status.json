@@ -3,7 +3,7 @@
   "project": {
     "name": "MarketOps AI Workbench",
     "repository": "https://github.com/Patch-A/marketops-ai-workbench",
-  "updatedAt": "2026-08-29",
+  "updatedAt": "2026-08-30",
     "statusPolicy": "A task is completed only after its acceptance check passes and completion evidence is recorded. The generated status report is not a substitute for product or market validation."
   },
   "milestones": [
@@ -493,6 +493,7 @@
               "Frontend syntax and the 21-test Node suite pass after the dashboard aggregation change; the WB-04 real FastAPI/Chrome gate remains 11/11 true.",
               "GitHub Actions run 33294764393 static-checks passed; its runtime job reached PostgreSQL, server tests, and browser cutover successfully before failing in legacy restore object-reference comparison.",
               "The local follow-up commit b288e3f scopes restored object-reference verification to the committed project, and local targeted checks pass."
+              ,"GitHub Actions run 33295746717 confirmed static checks, PostgreSQL initialization, server tests, and browser cutover, then exposed a second unscoped reference reader in the orphan-cleanup gate; local commit e574ba0 now scopes that reader by the committed projectId and adds a regression assertion."
             ],
             "limitations": [
               "The authenticated server store is now the primary persistence path; browser localStorage remains an explicitly labelled offline-draft fallback when the API is unavailable.",
@@ -501,7 +502,7 @@
               "The production default vault is the configured local path and can be overridden with MARKETOPS_OBSIDIAN_VAULT_ROOT; browser gates use only a synthetic temporary vault.",
               "Project/GEO/research task aggregation, real image connector execution, external channel publishing, and independent non-implementer review remain open; this engineering gate is not a customer-value, ROI, or production-readiness claim."
             ],
-            "nextAction": "推送并确认 b288e3f 的恢复、孤儿清理和连接丢失门禁；随后安排独立只读复审，并继续真实生图连接器、外部渠道发布和项目/GEO/研究任务汇总。"
+            "nextAction": "网络恢复后推送并确认 e574ba0 的孤儿清理范围修复；在同 SHA CI 全绿后安排独立只读复审，并继续真实生图连接器、外部渠道发布和项目/GEO/研究任务汇总。"
           }
         }
       ]
