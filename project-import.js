@@ -224,10 +224,32 @@
         return validateContentAsset(payload.asset);
       },
       async updateContentAsset(assetId, input, request = {}) {
-        if (!UUID_PATTERN.test(assetId || '') || !isPlainObject(input) || !positiveInteger(input.expectedVersion) || !['draft', 'needs_authorization', 'queued', 'ready', 'failed'].includes(input.status)) throw new ProjectApiError('INVALID_INPUT', 'The content asset update is invalid.');
+        if (!UUID_PATTERN.test(assetId || '') || !isPlainObject(input) || !positiveInteger(input.expectedVersion) || !['draft', 'needs_authorization', 'queued', 'generating', 'ready', 'failed', 'cancelled'].includes(input.status)) throw new ProjectApiError('INVALID_INPUT', 'The content asset update is invalid.');
         const payload = await requestJson(fetchImpl, CONTENT_ASSETS_ROUTE + '/' + encodeURIComponent(assetId), { method: 'PATCH', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedVersion: input.expectedVersion, status: input.status }), signal: request.signal }, true);
         if (!isPlainObject(payload) || !isPlainObject(payload.asset)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The content asset update response violated its contract.', { uncertain: true });
         return validateContentAsset(payload.asset);
+      },
+      async generateContentImage(assetId, request = {}) {
+        if (!UUID_PATTERN.test(assetId || '')) throw new ProjectApiError('INVALID_INPUT', 'A valid asset id is required.');
+        const payload = await requestJson(fetchImpl, CONTENT_ASSETS_ROUTE + '/' + encodeURIComponent(assetId) + '/generate', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: request.signal }, true);
+        if (!isPlainObject(payload) || !isPlainObject(payload.asset)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The image generation response violated its contract.', { uncertain: true });
+        return validateContentAsset(payload.asset);
+      },
+      async retryContentImage(assetId, request = {}) {
+        if (!UUID_PATTERN.test(assetId || '')) throw new ProjectApiError('INVALID_INPUT', 'A valid asset id is required.');
+        const payload = await requestJson(fetchImpl, CONTENT_ASSETS_ROUTE + '/' + encodeURIComponent(assetId) + '/retry', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: request.signal }, true);
+        if (!isPlainObject(payload) || !isPlainObject(payload.asset)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The image retry response violated its contract.', { uncertain: true });
+        return validateContentAsset(payload.asset);
+      },
+      async cancelContentImage(assetId, expectedVersion, request = {}) {
+        if (!UUID_PATTERN.test(assetId || '') || !positiveInteger(expectedVersion)) throw new ProjectApiError('INVALID_INPUT', 'A valid asset id and version are required.');
+        const payload = await requestJson(fetchImpl, CONTENT_ASSETS_ROUTE + '/' + encodeURIComponent(assetId) + '/cancel', { method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json', 'Content-Type': 'application/json' }, body: JSON.stringify({ expectedVersion }), signal: request.signal }, true);
+        if (!isPlainObject(payload) || !isPlainObject(payload.asset)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The image cancel response violated its contract.', { uncertain: true });
+        return validateContentAsset(payload.asset);
+      },
+      contentImageResultUrl(assetId) {
+        if (!UUID_PATTERN.test(assetId || '')) throw new ProjectApiError('INVALID_INPUT', 'A valid asset id is required.');
+        return CONTENT_ASSETS_ROUTE + '/' + encodeURIComponent(assetId) + '/result';
       },
       async listCalendarItems(period = 'all', request = {}) {
         if (!['week', 'month', 'all'].includes(period)) throw new ProjectApiError('INVALID_INPUT', 'The calendar period is invalid.');
@@ -1368,8 +1390,8 @@
   }
 
   function validateContentAsset(value) {
-    const required = ['assetId', 'briefId', 'createdAt', 'updatedAt', 'version', 'title', 'channel', 'format', 'assetType', 'prompt', 'status'];
-    if (!isPlainObject(value) || !hasExactKeys(value, required) || !UUID_PATTERN.test(value.assetId || '') || !UUID_PATTERN.test(value.briefId || '') || !isIsoDate(value.createdAt) || !isIsoDate(value.updatedAt) || !positiveInteger(value.version) || !boundedText(value.title, 300) || !boundedText(value.channel, 100) || !boundedText(value.format, 100) || !['content', 'image'].includes(value.assetType) || typeof value.prompt !== 'string' || value.prompt.length > 2000 || !['draft', 'needs_authorization', 'queued', 'ready', 'failed'].includes(value.status)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The content asset violated its contract.', { uncertain: true });
+    const required = ['assetId', 'briefId', 'createdAt', 'updatedAt', 'version', 'title', 'channel', 'format', 'assetType', 'prompt', 'status', 'modelProfileId', 'generationStartedAt', 'generationFinishedAt', 'resultObjectKey', 'resultSha256', 'resultMimeType', 'errorCode', 'errorMessage'];
+    if (!isPlainObject(value) || !hasExactKeys(value, required) || !UUID_PATTERN.test(value.assetId || '') || !UUID_PATTERN.test(value.briefId || '') || !isIsoDate(value.createdAt) || !isIsoDate(value.updatedAt) || !positiveInteger(value.version) || !boundedText(value.title, 300) || !boundedText(value.channel, 100) || !boundedText(value.format, 100) || !['content', 'image'].includes(value.assetType) || typeof value.prompt !== 'string' || value.prompt.length > 2000 || !['draft', 'needs_authorization', 'queued', 'generating', 'ready', 'failed', 'cancelled'].includes(value.status) || !nullableUuid(value.modelProfileId) || !nullableIsoDate(value.generationStartedAt) || !nullableIsoDate(value.generationFinishedAt) || !nullableBoundedText(value.resultObjectKey, 500) || !nullableSha256(value.resultSha256) || !nullableBoundedText(value.resultMimeType, 100) || !nullableBoundedText(value.errorCode, 100) || !nullableBoundedText(value.errorMessage, 300)) throw new ProjectApiError('MALFORMED_RESPONSE', 'The content asset violated its contract.', { uncertain: true });
     return { ...value };
   }
 
@@ -1404,6 +1426,9 @@
   function nullableBoundedText(value, maximum) {
     return value === undefined || value === null || (typeof value === 'string' && value.length <= maximum);
   }
+  function nullableUuid(value) { return value === undefined || value === null || UUID_PATTERN.test(value); }
+  function nullableIsoDate(value) { return value === undefined || value === null || isIsoDate(value); }
+  function nullableSha256(value) { return value === undefined || value === null || SHA256_PATTERN.test(value); }
 
   function nullableCalendarDate(value) {
     return value === undefined || value === null || isCalendarDate(value);

@@ -24,6 +24,10 @@ if HTTP_DEPENDENCIES_AVAILABLE:
 def uid() -> str:
     return str(uuid4())
 
+class FakeImageModels:
+    async def match_task(self, scope, task_type):
+        return {"status": "unavailable", "preferred": None}
+
 
 @unittest.skipUnless(
     HTTP_DEPENDENCIES_AVAILABLE,
@@ -71,6 +75,26 @@ class WB04ContentCalendarHttpTests(unittest.TestCase):
         self.assertIn("ContentAsset", document["components"]["schemas"])
         self.assertIn("CalendarItem", document["components"]["schemas"])
         self.assertIn("ScheduleSuggestionListResult", document["components"]["schemas"])
+        for path in ("/v1/workbench/content/assets/{assetId}/generate", "/v1/workbench/content/assets/{assetId}/retry", "/v1/workbench/content/assets/{assetId}/cancel", "/v1/workbench/content/assets/{assetId}/result"):
+            self.assertIn(path, document["paths"])
+
+    def test_image_generation_fails_closed_without_authorized_model(self):
+        from apps.api.marketops_models import ModelProfileService
+        self.app = create_app(
+            content_service=ContentAssetService(Path(self.temp.name)),
+            calendar_service=CalendarItemService(Path(self.temp.name)),
+            brief_research_service=BriefResearchService(Path(self.temp.name)),
+            geo_service=GeoSnapshotService(Path(self.temp.name)),
+            model_profile_service=FakeImageModels(),
+            authenticator=StaticBearerAuthenticator("test-token", self.scope),
+            request_id_factory=lambda: "wb04-request",
+        )
+        brief = asyncio.run(asgi_json(self.app, "POST", "/v1/workbench/content/briefs", json.dumps({"topic": "主题", "channel": "知乎", "format": "长文", "audience": "负责人"}).encode(), self.headers)).json()["brief"]
+        asyncio.run(asgi_json(self.app, "POST", f"/v1/workbench/content/briefs/{brief['briefId']}/approve", json.dumps({"expectedVersion": 1}).encode(), self.headers))
+        asset = asyncio.run(asgi_json(self.app, "POST", "/v1/workbench/content/assets", json.dumps({"briefId": brief["briefId"], "title": "封面", "channel": "图片", "format": "png", "assetType": "image", "prompt": "工业"}).encode(), self.headers)).json()["asset"]
+        result = asyncio.run(asgi_json(self.app, "POST", f"/v1/workbench/content/assets/{asset['assetId']}/generate", b"{}", self.headers))
+        self.assertEqual(result.status_code, 503)
+        self.assertEqual(result.json()["code"], "MODEL_UNAVAILABLE")
 
     def test_schedule_suggestions_are_read_only_and_scoped(self):
         brief = asyncio.run(asgi_json(self.app, "POST", "/v1/workbench/briefs", json.dumps({"deidentified": True, "productName": "产品", "productType": "工业品", "targetMarket": "印度", "audience": "负责人", "objective": "调研", "timeframe": "本周", "background": "测试", "constraints": []}).encode(), self.headers)).json()["brief"]

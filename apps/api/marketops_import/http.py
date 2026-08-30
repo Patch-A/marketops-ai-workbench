@@ -248,6 +248,9 @@ _STATUS_BY_CODE = {
     "ASSET_NOT_FOUND": 404,
     "ASSET_CONFLICT": 409,
     "CONTENT_STORE_FAILED": 503,
+    "MODEL_UNAVAILABLE": 503,
+    "GENERATION_FAILED": 502,
+    "RESULT_NOT_READY": 409,
     "CALENDAR_NOT_FOUND": 404,
     "CALENDAR_CONFLICT": 409,
     "CALENDAR_STORE_FAILED": 503,
@@ -350,6 +353,9 @@ _PUBLIC_MESSAGES = {
     "ASSET_NOT_FOUND": "The requested content asset was not found.",
     "ASSET_CONFLICT": "The content asset changed and must be refreshed.",
     "CONTENT_STORE_FAILED": "Content assets are temporarily unavailable.",
+    "MODEL_UNAVAILABLE": "No authorized image model is available.",
+    "GENERATION_FAILED": "The image generation service failed safely.",
+    "RESULT_NOT_READY": "The image result is not ready.",
     "CALENDAR_NOT_FOUND": "The requested calendar item was not found.",
     "CALENDAR_CONFLICT": "The calendar item changed and must be refreshed.",
     "CALENDAR_STORE_FAILED": "Calendar items are temporarily unavailable.",
@@ -903,6 +909,54 @@ def create_app(
             return _json_no_store({"asset": await service.update_asset(_content_scope(scope_or_error), asset_id, body)})
         except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
         except (_MalformedRequest, ContentError) as error: return _content_failure(error, request_id)
+
+    @app.post("/v1/workbench/content/assets/{asset_id}/generate")
+    async def generate_content_image(asset_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        content = getattr(request.app.state, "content_service", None)
+        models = getattr(request.app.state, "model_profile_service", None)
+        if content is None or models is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            return _json_no_store({"asset": await content.generate_image(_content_scope(scope_or_error), asset_id, models)})
+        except ContentError as error: return _content_failure(error, request_id)
+
+    @app.post("/v1/workbench/content/assets/{asset_id}/retry")
+    async def retry_content_image(asset_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        content = getattr(request.app.state, "content_service", None); models = getattr(request.app.state, "model_profile_service", None)
+        if content is None or models is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try: return _json_no_store({"asset": await content.retry_image(_content_scope(scope_or_error), asset_id, models)})
+        except ContentError as error: return _content_failure(error, request_id)
+
+    @app.post("/v1/workbench/content/assets/{asset_id}/cancel")
+    async def cancel_content_image(asset_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        content = getattr(request.app.state, "content_service", None)
+        if content is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            body = await _read_strict_json(request, max_bytes=_MAX_CONTENT_JSON_BYTES)
+            _require_exact_fields(body, {"expectedVersion"})
+            return _json_no_store({"asset": await content.cancel_image(_content_scope(scope_or_error), asset_id, body["expectedVersion"])})
+        except _PayloadTooLarge: return _failure("PAYLOAD_TOO_LARGE", request_id, status=413)
+        except (_MalformedRequest, ContentError) as error: return _content_failure(error, request_id)
+
+    @app.get("/v1/workbench/content/assets/{asset_id}/result")
+    async def get_content_image_result(asset_id: str, request: Request) -> Response:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse): return scope_or_error
+        content = getattr(request.app.state, "content_service", None)
+        if content is None: return _failure("CONTENT_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            item, raw = await content.get_asset_result(_content_scope(scope_or_error), asset_id)
+            return Response(content=raw, media_type=item.get("resultMimeType") or "image/png", headers={"Cache-Control": "no-store", "X-Request-Id": request_id})
+        except ContentError as error: return _content_failure(error, request_id)
 
     @app.get("/v1/workbench/calendar/items")
     async def list_calendar_items(request: Request) -> JSONResponse:

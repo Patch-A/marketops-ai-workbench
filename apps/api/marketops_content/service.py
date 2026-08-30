@@ -3,13 +3,20 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import os
 import tempfile
+import urllib.error
+import urllib.request
+from urllib.parse import urlparse
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 from uuid import UUID, uuid4
+
+from ..marketops_models import ModelScope
 
 class ContentError(ValueError):
     def __init__(self, code: str, message: str):
@@ -55,6 +62,7 @@ def _match(item: Mapping[str, Any], scope: ContentScope) -> bool:
     ))
 
 class ContentAssetService:
+    MAX_RESULT_BYTES = 10 * 1024 * 1024
     def __init__(self, root: Path, *, id_factory=uuid4, clock=_now):
         self._path = Path(root) / "content-workbench" / "records.json"
         self._path.parent.mkdir(parents=True, exist_ok=True)
@@ -161,7 +169,7 @@ class ContentAssetService:
 
     async def update_asset(self, scope: ContentScope, asset_id: str, payload: Mapping[str, Any]) -> dict[str, Any]:
         scope = _scope(scope)
-        if set(payload) != {"expectedVersion", "status"} or isinstance(payload["expectedVersion"], bool) or not isinstance(payload["expectedVersion"], int) or payload["expectedVersion"] < 1 or payload["status"] not in {"draft", "needs_authorization", "queued", "ready", "failed"}:
+        if set(payload) != {"expectedVersion", "status"} or isinstance(payload["expectedVersion"], bool) or not isinstance(payload["expectedVersion"], int) or payload["expectedVersion"] < 1 or payload["status"] not in {"draft", "needs_authorization", "queued", "generating", "ready", "failed", "cancelled"}:
             raise ContentError("INVALID_INPUT", "asset update is invalid")
         identifier = _uuid(asset_id, "assetId")
         async with self._lock:
@@ -176,6 +184,123 @@ class ContentAssetService:
             records["assets"][index] = item
             self._write(records)
             return self._public_asset(item)
+
+    async def generate_image(self, scope: ContentScope, asset_id: str, model_service: Any) -> dict[str, Any]:
+        """Generate an image through a configured OpenAI-compatible model."""
+        scope = _scope(scope)
+        identifier = _uuid(asset_id, "assetId")
+        async with self._lock:
+            records = self._read()
+            index = next((i for i, entry in enumerate(records["assets"]) if entry["assetId"] == identifier and _match(entry, scope)), None)
+            if index is None:
+                raise ContentError("ASSET_NOT_FOUND", "asset was not found")
+            current = records["assets"][index]
+            if current["assetType"] != "image":
+                raise ContentError("INVALID_INPUT", "only image assets can be generated")
+            if current["status"] == "generating":
+                raise ContentError("ASSET_CONFLICT", "image generation is already running")
+            queued = {**current, "status": "queued", "version": current["version"] + 1, "updatedAt": self._clock(), "errorCode": None, "errorMessage": None}
+            records["assets"][index] = queued
+            self._write(records)
+        try:
+            match = await model_service.match_task(ModelScope(scope.organization_id, scope.workspace_id, scope.client_id, scope.actor_id), "image_generation")
+            profile = match.get("preferred")
+            if not profile:
+                raise ContentError("MODEL_UNAVAILABLE", "没有可用的生图模型或服务端凭据未配置")
+            async with self._lock:
+                records = self._read(); index = next(i for i, entry in enumerate(records["assets"]) if entry["assetId"] == identifier and _match(entry, scope))
+                current_record = records["assets"][index]
+                generating = {**current_record, "status": "generating", "version": current_record["version"] + 1, "modelProfileId": profile["profileId"], "generationStartedAt": self._clock(), "updatedAt": self._clock()}
+                records["assets"][index] = generating; self._write(records)
+            token_ref = profile.get("credentialRef", "")
+            token = os.environ.get(token_ref[4:], "").strip() if token_ref.startswith("env:") else ""
+            if not token:
+                raise ContentError("MODEL_UNAVAILABLE", "服务端生图凭据未配置")
+            data = await asyncio.to_thread(self._request_generation, profile["endpoint"], profile["modelName"], token, current["prompt"])
+            raw = data.get("bytes")
+            if not isinstance(raw, (bytes, bytearray)) or not raw or len(raw) > self.MAX_RESULT_BYTES:
+                raise ContentError("GENERATION_FAILED", "生图结果为空或超过大小限制")
+            raw = bytes(raw)
+            mime = data.get("mimeType", "image/png")
+            result_dir = self._path.parent / "results"; result_dir.mkdir(parents=True, exist_ok=True)
+            result_path = result_dir / f"{identifier}.bin"; result_path.write_bytes(raw)
+            digest = hashlib.sha256(raw).hexdigest()
+            async with self._lock:
+                records = self._read(); index = next(i for i, entry in enumerate(records["assets"]) if entry["assetId"] == identifier and _match(entry, scope))
+                current_record = records["assets"][index]
+                if current_record["status"] == "cancelled":
+                    try: result_path.unlink()
+                    except OSError: pass
+                    return self._public_asset(current_record)
+                ready = {**current_record, "status": "ready", "version": current_record["version"] + 1, "resultObjectKey": str(result_path.relative_to(self._path.parent)), "resultSha256": digest, "resultMimeType": mime, "updatedAt": self._clock(), "generationFinishedAt": self._clock(), "errorCode": None, "errorMessage": None}
+                records["assets"][index] = ready; self._write(records); return self._public_asset(ready)
+        except ContentError as error:
+            await self._mark_generation_failed(scope, identifier, error.code, str(error))
+            raise
+        except Exception as error:
+            await self._mark_generation_failed(scope, identifier, "GENERATION_FAILED", "生图服务调用失败")
+            raise ContentError("GENERATION_FAILED", "生图服务调用失败") from error
+
+    async def retry_image(self, scope: ContentScope, asset_id: str, model_service: Any) -> dict[str, Any]:
+        current = next((item for item in await self.list_assets(scope) if item["assetId"] == _uuid(asset_id, "assetId")), None)
+        if current is None:
+            raise ContentError("ASSET_NOT_FOUND", "asset was not found")
+        if current.get("status") not in {"failed", "cancelled", "needs_authorization"}:
+            raise ContentError("ASSET_CONFLICT", "only failed or cancelled image tasks can be retried")
+        return await self.generate_image(scope, asset_id, model_service)
+
+    async def cancel_image(self, scope: ContentScope, asset_id: str, expected_version: int) -> dict[str, Any]:
+        current = next((item for item in await self.list_assets(scope) if item["assetId"] == _uuid(asset_id, "assetId")), None)
+        if current is None:
+            raise ContentError("ASSET_NOT_FOUND", "asset was not found")
+        if current.get("status") not in {"needs_authorization", "queued", "generating"}:
+            raise ContentError("ASSET_CONFLICT", "only queued or generating image tasks can be cancelled")
+        return await self.update_asset(scope, asset_id, {"expectedVersion": expected_version, "status": "cancelled"})
+
+    async def get_asset_result(self, scope: ContentScope, asset_id: str) -> tuple[dict[str, Any], bytes]:
+        asset_id = _uuid(asset_id, "assetId"); scope = _scope(scope)
+        items = await self.list_assets(scope); item = next((entry for entry in items if entry["assetId"] == asset_id), None)
+        if item is None: raise ContentError("ASSET_NOT_FOUND", "asset was not found")
+        if item.get("status") != "ready": raise ContentError("RESULT_NOT_READY", "image result is not ready")
+        path = (self._path.parent / str(item.get("resultObjectKey", ""))).resolve()
+        if self._path.parent.resolve() not in path.parents:
+            raise ContentError("CONTENT_STORE_FAILED", "image result path is invalid")
+        try: raw = path.read_bytes()
+        except OSError as error: raise ContentError("CONTENT_STORE_FAILED", "image result is unavailable") from error
+        if len(raw) > self.MAX_RESULT_BYTES:
+            raise ContentError("CONTENT_STORE_FAILED", "image result exceeds size limit")
+        if hashlib.sha256(raw).hexdigest() != item.get("resultSha256"): raise ContentError("CONTENT_STORE_FAILED", "image result integrity check failed")
+        return item, raw
+
+    async def _mark_generation_failed(self, scope: ContentScope, identifier: str, code: str, message: str) -> None:
+        async with self._lock:
+            records = self._read(); index = next((i for i, entry in enumerate(records["assets"]) if entry["assetId"] == identifier and _match(entry, scope)), None)
+            if index is not None and records["assets"][index]["status"] != "cancelled":
+                current = records["assets"][index]
+                records["assets"][index] = {**current, "status": "failed", "version": current["version"] + 1, "errorCode": code, "errorMessage": message[:200], "updatedAt": self._clock()}
+                self._write(records)
+
+    @staticmethod
+    def _request_generation(endpoint: str, model_name: str, token: str, prompt: str) -> dict[str, Any]:
+        request = urllib.request.Request(endpoint.rstrip("/") + "/images/generations", data=json.dumps({"model": model_name, "prompt": prompt, "n": 1, "size": "1024x1024"}).encode(), headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json", "Accept": "application/json"}, method="POST")
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                payload = json.loads(response.read().decode("utf-8"))
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError) as error:
+            raise ContentError("GENERATION_FAILED", "生图服务调用失败") from error
+        try:
+            item = payload["data"][0]
+            if "b64_json" in item:
+                return {"bytes": base64.b64decode(item["b64_json"], validate=True), "mimeType": "image/png"}
+            url = item["url"]
+            parsed = urlparse(url)
+            endpoint_host = urlparse(endpoint).hostname
+            if parsed.scheme not in {"http", "https"} or parsed.hostname != endpoint_host:
+                raise ContentError("GENERATION_FAILED", "生图响应地址不受信任")
+            with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as image_response:
+                return {"bytes": image_response.read(), "mimeType": image_response.headers.get_content_type() or "image/png"}
+        except Exception as error:
+            raise ContentError("GENERATION_FAILED", "生图响应格式无效") from error
 
     def _new_id(self) -> str:
         return _uuid(str(self._id_factory()), "id")
@@ -209,4 +334,4 @@ class ContentAssetService:
 
     @staticmethod
     def _public_asset(item: Mapping[str, Any]) -> dict[str, Any]:
-        return {key: item.get(key) for key in ("assetId", "briefId", "createdAt", "updatedAt", "version", "title", "channel", "format", "assetType", "prompt", "status")}
+        return {key: item.get(key) for key in ("assetId", "briefId", "createdAt", "updatedAt", "version", "title", "channel", "format", "assetType", "prompt", "status", "modelProfileId", "generationStartedAt", "generationFinishedAt", "resultObjectKey", "resultSha256", "resultMimeType", "errorCode", "errorMessage")}

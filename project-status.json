@@ -498,15 +498,17 @@
               ,"WB-04 新增模型连接探测：服务端只读取环境变量凭据并探测 OpenAI-compatible /models，健康状态可持久化为 healthy、unconfigured 或 unhealthy；相关 HTTP、模型中心和工作台测试 36/36 通过。"
               ,"WB-04 新增研究/GEO 待确认行动汇总：schedule-suggestions 只读接口按当前工作区聚合 needs_review/failed 研究任务和 GEO 缺口，不自动改写正式日程。"
               ,"纳入日程会在服务器日程项保留 originSuggestionId，汇总接口据此去重；真实 FastAPI + Chrome/CDP 门禁新增建议展示、纳入、刷新后不重复验收，返回 12/12 true。"
+              ,"真实生图连接器已接入服务端状态机：按 image_generation 匹配已授权模型，支持 base64 或同主机图片 URL，结果落盘并记录 SHA-256；未配置模型、失败响应、结果损坏、取消和重试均有显式状态与安全错误。"
+              ,"新增生图 HTTP 路由、客户端方法、前端生成/重试入口和 OpenAPI 状态枚举；完整 API 回归 559 项通过（59 项环境跳过），前端 Node 回归 21 项通过，WB-04 聚焦 HTTP/服务测试通过。"
             ],
             "limitations": [
               "The authenticated server store is now the primary persistence path; browser localStorage remains an explicitly labelled offline-draft fallback when the API is unavailable.",
               "No image is generated until a configured model connector is authorized; no external channel publishing is implemented.",
               "The Obsidian integration is read-only metadata/index synchronization only; it does not expose note bodies, support note citations, or write back to the vault.",
               "The production default vault is the configured local path and can be overridden with MARKETOPS_OBSIDIAN_VAULT_ROOT; browser gates use only a synthetic temporary vault.",
-              "项目执行任务与研究/GEO 建议已分别汇总到首页，但仍未实现项目级任务跨项目聚合、真实生图连接器执行、外部渠道发布和独立非实现者复审；本工程门禁不是客户价值、ROI 或生产就绪性证明。"
+              "项目执行任务与研究/GEO 建议已分别汇总到首页，但仍未实现项目级任务跨项目聚合、真实外部模型实测、外部渠道发布和独立非实现者复审；本工程门禁不是客户价值、ROI 或生产就绪性证明。"
             ],
-            "nextAction": "启动并验证真实生图连接器的服务端授权、任务队列与结果回传；同时安排独立只读复审。Harness 若能进入工作区可做辅助审查，但不作为主线前置条件。"
+            "nextAction": "用用户提供的生图模型 endpoint 与 env 凭据做一次本机联调；随后安排独立只读复审，并补充真实模型返回 URL/超时的门禁。Harness 若能进入工作区可做辅助审查，但不作为主线前置条件。"
           }
         }
       ]
