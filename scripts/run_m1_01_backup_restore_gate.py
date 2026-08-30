@@ -1529,7 +1529,7 @@ async def verify_legacy_upgrade_restore(
     connection = await asyncpg.connect(target_admin)
     try:
         restored_snapshot = await database_snapshot(connection)
-        restored_objects = await referenced_objects(connection)
+        restored_objects = await referenced_objects(connection, committed["projectId"])
     finally:
         await connection.close()
     for table in LEGACY_BUSINESS_TABLES:
@@ -1794,7 +1794,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         target_connection = await asyncpg.connect(target_admin)
         try:
             restored_snapshot = await database_snapshot(target_connection)
-            restored_objects = await referenced_objects(target_connection)
+            restored_objects = await referenced_objects(target_connection, committed["projectId"])
         finally:
             await target_connection.close()
         if restored_snapshot != manifest["snapshot"]:
