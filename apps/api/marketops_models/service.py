@@ -12,6 +12,8 @@ import json
 import os
 import re
 import tempfile
+import urllib.error
+import urllib.request
 from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timezone
 from pathlib import Path
@@ -182,11 +184,11 @@ def _model_from_dict(value: Mapping[str, Any]) -> ModelProfile:
         data_retention=_text(value.get("data_retention", "未声明"), "data_retention", 200),
         credential_ref=_credential_ref(value["credential_ref"]),
         status=status,
-        health="unverified",
+        health=value.get("health", "unverified") if value.get("health", "unverified") in {"unverified", "healthy", "unhealthy", "unconfigured"} else "unverified",
         version=int(value["version"]),
         created_at=_text(value["created_at"], "created_at", 80),
         updated_at=_text(value["updated_at"], "updated_at", 80),
-        last_error=None,
+        last_error=value.get("last_error") if isinstance(value.get("last_error"), str) else None,
     )
 
 
@@ -276,6 +278,46 @@ class ModelProfileService:
                 else [f"没有启用、具备能力且已配置凭据的模型：{', '.join(required)}"]
             ),
         }
+
+    async def probe_profile(self, scope: ModelScope, profile_id: str) -> ModelProfile:
+        """Probe an OpenAI-compatible endpoint without exposing the credential."""
+        scope = _validate_scope(scope)
+        profile_id = _uuid(profile_id, "profileId")
+        async with self._lock:
+            profiles = list(self._read())
+            index = next((i for i, item in enumerate(profiles) if item.profile_id == profile_id and _scope_match(item, scope)), None)
+            if index is None:
+                raise ModelCenterError("MODEL_NOT_FOUND", "model profile was not found")
+            current = profiles[index]
+        token = os.environ.get(current.credential_ref[4:], "").strip()
+        if not token:
+            updated = replace(current, health="unconfigured", last_error="服务端凭据未配置", updated_at=self._clock())
+        else:
+            updated = await asyncio.to_thread(self._probe, current, token)
+        async with self._lock:
+            profiles = list(self._read())
+            index = next((i for i, item in enumerate(profiles) if item.profile_id == profile_id and _scope_match(item, scope)), None)
+            if index is None:
+                raise ModelCenterError("MODEL_NOT_FOUND", "model profile was removed during probe")
+            updated = replace(updated, version=profiles[index].version + 1, updated_at=self._clock())
+            profiles[index] = updated
+            self._write(profiles)
+            return updated
+
+    @staticmethod
+    def _probe(profile: ModelProfile, token: str) -> ModelProfile:
+        url = profile.endpoint.rstrip("/") + "/models"
+        request = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}", "Accept": "application/json"})
+        try:
+            with urllib.request.urlopen(request, timeout=8) as response:
+                if not 200 <= response.status < 300:
+                    raise urllib.error.HTTPError(url, response.status, "unexpected status", response.headers, None)
+            return replace(profile, health="healthy", last_error=None)
+        except urllib.error.HTTPError as error:
+            return replace(profile, health="unhealthy", last_error=f"服务返回 HTTP {error.code}")
+        except (urllib.error.URLError, TimeoutError, OSError) as error:
+            reason = getattr(error, "reason", error)
+            return replace(profile, health="unhealthy", last_error=f"连接失败：{str(reason)[:160]}")
 
     def _new_profile(self, scope: ModelScope, payload: Mapping[str, Any]) -> ModelProfile:
         now = self._clock()

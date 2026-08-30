@@ -103,6 +103,15 @@ class ModelProfileServiceTests(unittest.IsolatedAsyncioTestCase):
             await self.service.match_task(self.scope, "automatic_external_send")
         self.assertEqual(raised.exception.code, "INVALID_INPUT")
 
+    async def test_probe_marks_unconfigured_without_network_call(self):
+        profile = await self.service.create_profile(self.scope, self.payload())
+        with patch.dict(os.environ, {}, clear=True):
+            checked = await self.service.probe_profile(self.scope, profile.profile_id)
+        self.assertEqual(checked.health, "unconfigured")
+        self.assertEqual(checked.last_error, "服务端凭据未配置")
+        reloaded = (await self.service.list_profiles(self.scope))[0]
+        self.assertEqual(reloaded.health, "unconfigured")
+
 
 @unittest.skipUnless(
     HTTP_DEPENDENCIES_AVAILABLE,
@@ -168,6 +177,10 @@ class ModelProfileHttpTests(unittest.IsolatedAsyncioTestCase):
                 status, matched = await self.request(app, "POST", "/v1/model-task-matches", {"taskType": "review"})
             self.assertEqual(status, 200)
             self.assertEqual(matched["status"], "matched")
+            with patch.dict(os.environ, {}, clear=True):
+                status, probed = await self.request(app, "POST", f"/v1/model-profiles/{created['profile']['profileId']}/probe", {})
+            self.assertEqual(status, 200)
+            self.assertEqual(probed["profile"]["health"], "unconfigured")
 
 
 if __name__ == "__main__":

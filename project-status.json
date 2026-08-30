@@ -495,6 +495,7 @@
               "The local follow-up commit b288e3f scopes restored object-reference verification to the committed project, and local targeted checks pass."
               ,"GitHub Actions run 33295746717 confirmed static checks, PostgreSQL initialization, server tests, and browser cutover, then exposed a second unscoped reference reader in the orphan-cleanup gate; local commit e574ba0 now scopes that reader by the committed projectId and adds a regression assertion."
               ,"GitHub Actions run 33296505246 passed both static-checks and m1-01-runtime after the orphan-cleanup reader was corrected to the workspace/client scope in commit 969b8b8; restore, orphan cleanup, and connection-loss gates all passed."
+              ,"WB-04 新增模型连接探测：服务端只读取环境变量凭据并探测 OpenAI-compatible /models，健康状态可持久化为 healthy、unconfigured 或 unhealthy；相关 HTTP、模型中心和工作台测试 36/36 通过。"
             ],
             "limitations": [
               "The authenticated server store is now the primary persistence path; browser localStorage remains an explicitly labelled offline-draft fallback when the API is unavailable.",
@@ -503,7 +504,7 @@
               "The production default vault is the configured local path and can be overridden with MARKETOPS_OBSIDIAN_VAULT_ROOT; browser gates use only a synthetic temporary vault.",
               "Project/GEO/research task aggregation, real image connector execution, external channel publishing, and independent non-implementer review remain open; this engineering gate is not a customer-value, ROI, or production-readiness claim."
             ],
-            "nextAction": "已确认 969b8b8 已推送且 GitHub Actions 33296505246 全绿；下一步安排独立只读复审，并继续真实生图连接器、外部渠道发布和项目/GEO/研究任务汇总。"
+            "nextAction": "恢复并确认 Harness 模型 API 契约后，配置服务端环境变量并运行连接探测；继续实现生图任务队列与结果回传，并安排独立只读复审。"
           }
         }
       ]

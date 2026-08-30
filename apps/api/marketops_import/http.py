@@ -568,6 +568,21 @@ def create_app(
         except ModelCenterError as error:
             return _model_failure(error, request_id)
 
+    @app.post("/v1/model-profiles/{profile_id}/probe")
+    async def probe_model_profile(profile_id: str, request: Request) -> JSONResponse:
+        request_id = _request_id(request_id_factory)
+        scope_or_error = await _authenticate(request, request_id)
+        if isinstance(scope_or_error, JSONResponse):
+            return scope_or_error
+        service = getattr(request.app.state, "model_profile_service", None)
+        if service is None:
+            return _failure("MODEL_STORE_FAILED", request_id, status=503, retryable=True)
+        try:
+            profile = await service.probe_profile(_model_scope(scope_or_error), profile_id)
+            return _json_no_store({"profile": public_profile(profile)})
+        except ModelCenterError as error:
+            return _model_failure(error, request_id)
+
     @app.post("/v1/workbench/briefs", status_code=201)
     async def create_workbench_brief(request: Request) -> JSONResponse:
         request_id = _request_id(request_id_factory)

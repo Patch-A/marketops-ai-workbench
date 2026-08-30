@@ -61,6 +61,20 @@
       const value = profile || { provider: '', displayName: '', protocol: 'openai-compatible', endpoint: 'http://127.0.0.1:4446/v1', modelName: '', capabilities: ['chat'], contextWindow: 32000, region: '本机私有部署', dataRetention: '由本机部署策略决定', credentialRef: 'env:', status: 'enabled' };
       editor.innerHTML = `<form class="model-profile-form" id="modelProfileForm"><div class="editor-heading"><div><span class="console-label">MODEL PROFILE</span><h2>${profile ? '编辑模型' : '添加模型'}</h2></div><span class="status-badge">${profile ? `${escapeHtml(profile.health)} · ${profile.credentialConfigured ? '凭据已配置' : '凭据未配置'}` : '未验证'}</span></div><div class="form-grid"><label>供应商<input name="provider" required maxlength="100" value="${escapeHtml(value.provider)}"></label><label>显示名称<input name="displayName" required maxlength="120" value="${escapeHtml(value.displayName)}"></label></div><div class="form-grid"><label>协议<select name="protocol"><option value="openai-compatible">OpenAI-compatible</option></select></label><label>模型名<input name="modelName" required maxlength="200" value="${escapeHtml(value.modelName)}"></label></div><label>服务端 Endpoint<input name="endpoint" required maxlength="500" value="${escapeHtml(value.endpoint)}"><small>远程地址必须 HTTPS；本机 HTTP 只允许回环地址。</small></label><label>服务端环境变量名<input name="credentialRef" required maxlength="140" value="${escapeHtml(value.credentialRef)}"><small>只保存 env: 引用，不在浏览器输入或保存 API Key。</small></label><fieldset><legend>能力标签</legend><div class="model-capability-grid">${CAPABILITIES.map(([key, label]) => `<label><input type="checkbox" name="capabilities" value="${key}" ${value.capabilities.includes(key) ? 'checked' : ''}>${label}</label>`).join('')}</div></fieldset><div class="form-grid"><label>上下文窗口<input name="contextWindow" type="number" min="1000" max="2000000" value="${value.contextWindow ?? ''}"></label><label>状态<select name="status"><option value="enabled" ${value.status === 'enabled' ? 'selected' : ''}>启用</option><option value="disabled" ${value.status === 'disabled' ? 'selected' : ''}>停用</option></select></label></div><div class="form-grid"><label>区域<input name="region" required maxlength="80" value="${escapeHtml(value.region)}"></label><label>数据保留说明<input name="dataRetention" required maxlength="200" value="${escapeHtml(value.dataRetention)}"></label></div><p class="form-status${state.saveError ? ' is-error' : ''}" id="modelProfileFormStatus">${escapeHtml(state.saveError)}</p><div class="editor-actions"><button class="button button-quiet" type="button" id="cancelModelEdit">取消</button><button class="button button-primary" type="submit">${profile ? '保存修改' : '添加模型'}</button></div></form>`;
       editor.querySelector('#cancelModelEdit').addEventListener('click', () => { state.editing = false; state.saveError = ''; render(); });
+      if (profile) {
+        const probe = document.createElement('button');
+        probe.className = 'button button-quiet'; probe.type = 'button'; probe.textContent = '检查连接';
+        probe.addEventListener('click', async () => {
+          probe.disabled = true; setStatus('正在检查模型连接...', 'loading');
+          try {
+            const checked = await api.probeModelProfile(profile.profileId);
+            state.profiles = state.profiles.map((item) => item.profileId === checked.profileId ? checked : item);
+            setStatus(checked.health === 'healthy' ? '模型连接正常。' : (checked.lastError || '模型连接不可用。'), checked.health === 'healthy' ? 'ready' : 'error');
+          } catch (error) { setStatus(error.message || '模型连接检查失败。', 'error'); }
+          finally { probe.disabled = false; render(); }
+        });
+        editor.querySelector('.editor-actions').prepend(probe);
+      }
       editor.querySelector('#modelProfileForm').addEventListener('submit', (event) => saveProfile(event, profile));
       onIcons();
     }

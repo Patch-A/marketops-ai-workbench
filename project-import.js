@@ -298,6 +298,17 @@
         return validateModelProfile(payload.profile);
       },
 
+      async probeModelProfile(profileId, request = {}) {
+        if (!UUID_PATTERN.test(profileId || '')) throw new ProjectApiError('INVALID_INPUT', 'A model profile id is required.');
+        const payload = await requestJson(fetchImpl, `${MODEL_PROFILES_ROUTE}/${encodeURIComponent(profileId)}/probe`, {
+          method: 'POST', credentials: 'same-origin', headers: { Accept: 'application/json' }, signal: request.signal,
+        });
+        if (!isPlainObject(payload) || !isPlainObject(payload.profile)) {
+          throw new ProjectApiError('MALFORMED_RESPONSE', 'The model probe response violated its contract.', { uncertain: true });
+        }
+        return validateModelProfile(payload.profile);
+      },
+
       async matchModelTask(taskType, request = {}) {
         if (!nonEmptyText(taskType)) throw new ProjectApiError('INVALID_INPUT', 'A task type is required.');
         const payload = await requestJson(fetchImpl, MODEL_MATCH_ROUTE, {

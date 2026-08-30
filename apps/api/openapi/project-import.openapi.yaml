@@ -79,6 +79,20 @@
         }
       }
     },
+    "/v1/model-profiles/{profileId}/probe": {
+      "post": {
+        "operationId": "probeModelProfile",
+        "summary": "Check a model endpoint using a server-side credential reference",
+        "security": [{ "deploymentActor": [] }, { "browserDeploymentActor": [] }],
+        "parameters": [{ "name": "profileId", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Updated health state without secret values.", "headers": { "Cache-Control": { "required": true, "schema": { "type": "string", "const": "no-store" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ModelProfileMutationResult" } } } },
+          "401": { "$ref": "#/components/responses/AuthenticationFailure" },
+          "404": { "$ref": "#/components/responses/ImportFailure" },
+          "503": { "$ref": "#/components/responses/ImportFailure" }
+        }
+      }
+    },
     "/v1/model-task-matches": {
       "post": {
         "operationId": "matchModelTask",
@@ -1922,7 +1936,7 @@
           "credentialRef": { "type": "string", "pattern": "^env:[A-Z][A-Z0-9_]{2,127}$" },
           "credentialConfigured": { "type": "boolean" },
           "status": { "type": "string", "enum": ["enabled", "disabled"] },
-          "health": { "type": "string", "const": "unverified" },
+          "health": { "type": "string", "enum": ["unverified", "healthy", "unhealthy", "unconfigured"] },
           "version": { "type": "integer", "minimum": 1 },
           "createdAt": { "type": "string", "format": "date-time" },
           "updatedAt": { "type": "string", "format": "date-time" },
