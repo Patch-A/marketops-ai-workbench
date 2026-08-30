@@ -70,14 +70,23 @@ from apps.api.marketops_retrieval import (  # noqa: E402
     RetrievalScopeContext,
     SourceIndexingService,
 )
+from apps.api.marketops_learning import (  # noqa: E402
+    ApprovalDecisionRequest,
+    AsyncpgKnowledgeApprovalRepository,
+    AsyncpgLearningRepository,
+    FeedbackSourceReference,
+    LearningApplicationService,
+    LearningScopeContext,
+    OutcomeInput,
+    RetrospectiveInput,
+)
 from scripts.run_m1_01_postgres_gate import (  # noqa: E402
     APPLICATION_ROLE,
     DATABASE_NAME,
     MIGRATOR_ROLE,
     POSTGRES_VERSION_NUM,
-    attest_application_role,
-    migrate_and_grant,
 )
+from scripts.run_m2_02_postgres_gate import migrate_and_grant_m2  # noqa: E402
 from scripts.run_m1_01_restart_recovery_gate import (  # noqa: E402
     TABLE_COUNTS,
     import_request,
@@ -694,8 +703,64 @@ async def restored_security(asyncpg: Any, admin_dsn: str, app_dsn: str) -> dict[
             raise RuntimeError("restored migration registry checksums drifted")
     finally:
         await connection.close()
-    role = await attest_application_role(asyncpg, app_dsn)
+    role = await attest_learning_application_role(asyncpg, app_dsn)
     return {"ownersVerified": True, "forcedRlsTables": list(BUSINESS_TABLES), "applicationRole": role}
+
+
+async def attest_learning_application_role(asyncpg: Any, app_dsn: str) -> dict[str, Any]:
+    connection = await asyncpg.connect(app_dsn)
+    try:
+        role = await connection.fetchrow(
+            "SELECT rolname, rolsuper, rolcreaterole, rolcreatedb, rolbypassrls "
+            "FROM pg_catalog.pg_roles WHERE rolname = current_user"
+        )
+        privileges = await connection.fetchrow(
+            """
+            SELECT
+                has_table_privilege(current_user, 'marketops.audit_events', 'SELECT') AS audit_select,
+                has_table_privilege(current_user, 'marketops.audit_events', 'INSERT') AS audit_insert,
+                has_table_privilege(current_user, 'marketops.project_capsules', 'SELECT') AS capsule_select,
+                has_table_privilege(current_user, 'marketops.project_capsules', 'INSERT') AS capsule_insert,
+                has_table_privilege(current_user, 'marketops.project_capsules', 'UPDATE') AS capsule_update,
+                has_table_privilege(current_user, 'marketops.project_outcomes', 'INSERT') AS outcome_insert,
+                has_table_privilege(current_user, 'marketops.project_retrospectives', 'INSERT') AS retrospective_insert,
+                has_table_privilege(current_user, 'marketops.knowledge_items', 'INSERT') AS knowledge_insert,
+                has_table_privilege(current_user, 'marketops.knowledge_item_versions', 'INSERT') AS version_insert,
+                has_table_privilege(current_user, 'marketops.knowledge_item_evidence', 'INSERT') AS evidence_insert,
+                has_table_privilege(current_user, 'marketops.knowledge_items', 'DELETE') AS knowledge_delete,
+                has_table_privilege(current_user, 'marketops.knowledge_promotion_roots', 'SELECT') AS promotion_root_select,
+                has_table_privilege(current_user, 'marketops.knowledge_promotion_roots', 'INSERT') AS promotion_root_insert,
+                has_table_privilege(current_user, 'marketops.knowledge_promotion_versions', 'SELECT') AS promotion_version_select,
+                has_table_privilege(current_user, 'marketops.knowledge_promotion_versions', 'INSERT') AS promotion_version_insert,
+                has_table_privilege(current_user, 'marketops.knowledge_citations', 'SELECT') AS citation_select,
+                has_table_privilege(current_user, 'marketops.knowledge_citations', 'INSERT') AS citation_insert,
+                has_table_privilege(current_user, 'marketops.knowledge_citations', 'UPDATE') AS citation_update,
+                has_table_privilege(current_user, 'marketops.knowledge_citations', 'DELETE') AS citation_delete
+            """
+        )
+    finally:
+        await connection.close()
+    expected = {
+        "audit_select": True, "audit_insert": True, "capsule_select": True,
+        "capsule_insert": True, "capsule_update": False, "outcome_insert": True,
+        "retrospective_insert": True, "knowledge_insert": True, "version_insert": True,
+        "evidence_insert": True, "knowledge_delete": False,
+        "promotion_root_select": True, "promotion_root_insert": True,
+        "promotion_version_select": True, "promotion_version_insert": True,
+        "citation_select": True, "citation_insert": True,
+        "citation_update": False, "citation_delete": False,
+    }
+    if role is None or str(role["rolname"]) != APPLICATION_ROLE:
+        raise RuntimeError("restored application role identity drifted")
+    if any(bool(role[key]) for key in ("rolsuper", "rolcreaterole", "rolcreatedb", "rolbypassrls")):
+        raise RuntimeError("restored application role has elevated attributes")
+    actual_privileges = dict(privileges)
+    if actual_privileges != expected:
+        raise RuntimeError(
+            "restored learning application privileges drifted: "
+            f"expected={expected}, actual={actual_privileges}"
+        )
+    return {"name": APPLICATION_ROLE, "privileges": expected}
 
 
 async def rls_visibility(asyncpg: Any, app_dsn: str, scope: Any, project_id: str) -> dict[str, bool]:
@@ -1053,8 +1118,9 @@ async def seed_execution_history(
                 plan_version_id=schedule_history["planVersionId"],
                 task_id=schedule_history["taskId"],
                 expected_sequence=0,
-                status="in_progress",
+                status="completed",
                 actual_start="2026-08-18",
+                actual_finish="2026-08-19",
                 note="Synthetic recovery execution update",
             ),
             execution_scope,
@@ -1110,6 +1176,140 @@ async def seed_retrieval_history(
         await pool.close()
 
 
+async def seed_learning_history(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    schedule_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=2)
+    try:
+        learning_scope = LearningScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        service = LearningApplicationService(
+            AsyncpgLearningRepository(
+                pool,
+                id_factory=lambda: str(uuid4()),
+                clock=lambda: datetime.now(timezone.utc),
+            ),
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        result = await service.finalize_capsule(
+            committed["projectId"],
+            (
+                OutcomeInput(
+                    "qualified leads",
+                    "30",
+                    "42",
+                    "count",
+                    FeedbackSourceReference(
+                        "artifact_version",
+                        committed["proposalVersionId"],
+                        committed["projectId"],
+                        "0" * 64,
+                    ),
+                ),
+            ),
+            (
+                RetrospectiveInput(
+                    "A rehearsal uncovered a missing venue handoff.",
+                    "process_observation",
+                    True,
+                    (
+                        FeedbackSourceReference(
+                            "schedule_snapshot",
+                            schedule_history["scheduleSnapshotId"],
+                            committed["projectId"],
+                            "0" * 64,
+                        ),
+                    ),
+                ),
+            ),
+            learning_scope,
+        )
+        if result.replayed or result.capsule.capsule_version != 1:
+            raise RuntimeError("recovery learning fixture was not created freshly")
+        if result.capsule.outcome_count != 1 or result.capsule.retrospective_count != 1:
+            raise RuntimeError("recovery learning feedback counts are invalid")
+        if result.capsule.knowledge_count < 3:
+            raise RuntimeError("recovery learning candidates are incomplete")
+        return {
+            "capsuleId": result.capsule.capsule_id,
+            "capsuleVersion": result.capsule.capsule_version,
+            "knowledgeCount": result.capsule.knowledge_count,
+        }
+    finally:
+        await pool.close()
+
+
+async def seed_approval_history(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    learning_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=1)
+    try:
+        learning_scope = LearningScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        knowledge = await LearningApplicationService(
+            AsyncpgLearningRepository(
+                pool,
+                id_factory=lambda: str(uuid4()),
+                clock=lambda: datetime.now(timezone.utc),
+            ),
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        ).list_knowledge(committed["projectId"], learning_scope)
+        if len(knowledge) != learning_history["knowledgeCount"]:
+            raise RuntimeError("approval recovery fixture has incomplete candidate knowledge")
+        knowledge_id = knowledge[0].knowledge_id
+        repository = AsyncpgKnowledgeApprovalRepository(
+            pool,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        approved = await repository.decide(
+            learning_scope,
+            committed["projectId"],
+            knowledge_id,
+            ApprovalDecisionRequest("approve", 0, "project"),
+        )
+        elevated = await repository.decide(
+            learning_scope,
+            committed["projectId"],
+            knowledge_id,
+            ApprovalDecisionRequest("elevate", 1, "client", reason="Recovery fixture reuse."),
+        )
+        citation = await repository.cite_approved_knowledge(
+            learning_scope,
+            source_project_id=committed["projectId"],
+            source_knowledge_id=knowledge_id,
+            target_project_id=committed["projectId"],
+            reason="Verify approved recovery fixture provenance.",
+        )
+    finally:
+        await pool.close()
+    if approved.replayed or elevated.replayed or citation.replayed:
+        raise RuntimeError("approval recovery fixture unexpectedly replayed")
+    return {
+        "knowledgeId": knowledge_id,
+        "promotionVersion": citation.citation.authorization.promotion_version,
+        "citationId": citation.citation.citation_id,
+    }
+
+
 async def fresh_execution_read(
     asyncpg: Any,
     app_dsn: str,
@@ -1147,6 +1347,94 @@ async def fresh_execution_read(
         "taskId": state.task_id,
         "sequence": state.sequence_no,
         "status": state.status,
+    }
+
+
+async def fresh_learning_read(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    learning_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=1)
+    try:
+        learning_scope = LearningScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        service = LearningApplicationService(
+            AsyncpgLearningRepository(
+                pool,
+                id_factory=lambda: str(uuid4()),
+                clock=lambda: datetime.now(timezone.utc),
+            ),
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        capsule = await service.read_capsule(
+            committed["projectId"], learning_history["capsuleId"], learning_scope
+        )
+        knowledge = await service.list_knowledge(committed["projectId"], learning_scope)
+    finally:
+        await pool.close()
+    if (
+        capsule.capsule_version != learning_history["capsuleVersion"]
+        or len(knowledge) != learning_history["knowledgeCount"]
+        or not all(item.evidence for item in knowledge)
+    ):
+        raise RuntimeError("restored learning capsule is not readable by a fresh service")
+    return {
+        "accepted": True,
+        "capsuleId": capsule.capsule_id,
+        "knowledgeCount": len(knowledge),
+    }
+
+
+async def fresh_approval_read(
+    asyncpg: Any,
+    app_dsn: str,
+    scope: Any,
+    committed: Mapping[str, Any],
+    approval_history: Mapping[str, Any],
+) -> dict[str, Any]:
+    pool = await asyncpg.create_pool(dsn=app_dsn, min_size=1, max_size=1)
+    try:
+        learning_scope = LearningScopeContext(
+            scope.organization_id,
+            scope.workspace_id,
+            scope.client_id,
+            scope.actor_id,
+        )
+        repository = AsyncpgKnowledgeApprovalRepository(
+            pool,
+            id_factory=lambda: str(uuid4()),
+            clock=lambda: datetime.now(timezone.utc),
+        )
+        history = await repository.read_history(
+            learning_scope, committed["projectId"], approval_history["knowledgeId"]
+        )
+        citations = await repository.list_effective_citations(
+            learning_scope, committed["projectId"]
+        )
+    finally:
+        await pool.close()
+    if history is None or history.state.current is None:
+        raise RuntimeError("restored approval history is not readable by a fresh service")
+    current = history.state.current
+    if (
+        current.version != approval_history["promotionVersion"]
+        or current.status != "approved"
+        or current.effective_scope != "client"
+        or [citation.citation_id for citation in citations] != [approval_history["citationId"]]
+    ):
+        raise RuntimeError("restored approval or citation is not readable by a fresh service")
+    return {
+        "accepted": True,
+        "promotionVersion": current.version,
+        "citationId": citations[0].citation_id,
     }
 
 
@@ -1224,7 +1512,7 @@ async def verify_legacy_upgrade_restore(
     target_admin = replace_database_in_dsn(admin_dsn, database_name)
     target_migrator = replace_database_in_dsn(migrator_dsn, database_name)
     target_app = replace_database_in_dsn(app_dsn, database_name)
-    await migrate_and_grant(asyncpg, target_migrator)
+    await migrate_and_grant_m2(asyncpg, target_migrator)
     await assert_empty_business_tables(asyncpg, target_admin)
     restore_object_bundle(bundle, restore_work_root / "objects")
     await asyncio.to_thread(
@@ -1332,7 +1620,7 @@ async def verify_review_v2_upgrade_restore(
     target_admin = replace_database_in_dsn(admin_dsn, database_name)
     target_migrator = replace_database_in_dsn(migrator_dsn, database_name)
     target_app = replace_database_in_dsn(app_dsn, database_name)
-    await migrate_and_grant(asyncpg, target_migrator)
+    await migrate_and_grant_m2(asyncpg, target_migrator)
     await assert_empty_business_tables(asyncpg, target_admin)
     restore_object_bundle(bundle, restore_work_root / "objects")
     await asyncio.to_thread(
@@ -1430,6 +1718,12 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         retrieval_history = await seed_retrieval_history(
             asyncpg, app_dsn, scope, committed, work_root
         )
+        learning_history = await seed_learning_history(
+            asyncpg, app_dsn, scope, committed, schedule_history
+        )
+        approval_history = await seed_approval_history(
+            asyncpg, app_dsn, scope, committed, learning_history
+        )
         manifest, toc_tables = await export_bundle(
             asyncpg,
             admin_dsn=admin_dsn,
@@ -1480,7 +1774,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         target_admin = replace_database_in_dsn(admin_dsn, restore_database)
         target_migrator = replace_database_in_dsn(migrator_dsn, restore_database)
         target_app = replace_database_in_dsn(app_dsn, restore_database)
-        await migrate_and_grant(asyncpg, target_migrator)
+        await migrate_and_grant_m2(asyncpg, target_migrator)
         await assert_empty_business_tables(asyncpg, target_admin)
         restore_object_bundle(bundle, restore_work_root / "objects")
         await asyncio.to_thread(
@@ -1499,6 +1793,15 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             "wbs_task_execution_updates",
             "source_indexes",
             "source_chunks",
+            "project_capsules",
+            "project_outcomes",
+            "project_retrospectives",
+            "knowledge_items",
+            "knowledge_item_versions",
+            "knowledge_item_evidence",
+            "knowledge_promotion_roots",
+            "knowledge_promotion_versions",
+            "knowledge_citations",
         ):
             if restored_snapshot[table]["count"] < 1:
                 raise RuntimeError(f"restored {table} recovery fixture is empty")
@@ -1541,6 +1844,12 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             restore_work_root,
             retrieval_history,
         )
+        learning_read = await fresh_learning_read(
+            asyncpg, target_app, scope, committed, learning_history
+        )
+        approval_read = await fresh_approval_read(
+            asyncpg, target_app, scope, committed, approval_history
+        )
 
         source_project_after, _ = await project_snapshot(
             asyncpg,
@@ -1557,7 +1866,7 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         created_databases.append(negative_database)
         negative_admin = replace_database_in_dsn(admin_dsn, negative_database)
         negative_migrator = replace_database_in_dsn(migrator_dsn, negative_database)
-        await migrate_and_grant(asyncpg, negative_migrator)
+        await migrate_and_grant_m2(asyncpg, negative_migrator)
         await install_rejecting_restore_trigger(asyncpg, negative_admin)
         await asyncio.to_thread(
             restore_database_dump,
@@ -1570,9 +1879,9 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
         negative["singleTransactionRollbackVerified"] = True
 
         evidence = {
-            "schemaVersion": 3,
-            "taskId": "M2-01",
-            "workPackage": "M2-01-backup-restore",
+            "schemaVersion": 5,
+            "taskId": "M2-03",
+            "workPackage": "M2-03-backup-restore",
             "postgresVersionNum": POSTGRES_VERSION_NUM,
             "migrations": list(MIGRATION_SET),
             "databaseTableData": list(toc_tables),
@@ -1598,6 +1907,10 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
                 "freshExecutionRead": execution_read,
                 "retrievalHistory": retrieval_history,
                 "freshRetrievalReplay": retrieval_replayed,
+                "learningHistory": learning_history,
+                "freshLearningRead": learning_read,
+                "approvalHistory": approval_history,
+                "freshApprovalRead": approval_read,
                 "freshReviewReplay": review_replayed,
                 "persistentIdempotencyRequestRestored": (
                     manifest["snapshot"]["extraction_run_requests"]["count"] == 1
@@ -1608,14 +1921,15 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             "negativeChecks": negative,
             "claimBoundary": (
                 "This synthetic CI experiment establishes application-level logical backup and "
-                "isolated restore for seven reviewed PostgreSQL 18.4 migrations, non-empty review history, "
+                "isolated restore for nine reviewed PostgreSQL 18.4 migrations, non-empty review history, "
                 "a seven-table v1 bundle and a twelve-table v2 review bundle each upgraded into the current "
-                "seven-migration schema, a non-empty v3 persistent review idempotency request replayed through "
-                "a fresh ReviewService, non-empty WBS, schedule, execution, source-index, and source-chunk rows "
-                "restored by row-set hash, fresh execution and retrieval service reads, and the current immutable "
+                "nine-migration schema, a non-empty v3 persistent review idempotency request replayed through "
+                "a fresh ReviewService, non-empty WBS, schedule, completed execution, source-index, source-chunk, "
+                "project capsule, feedback, candidate, version, evidence, knowledge-promotion, and citation rows "
+                "restored by row-set hash, fresh execution, retrieval, learning, and approval service reads, and the current immutable "
                 "local-object adapter. It does not establish physical crash consistency, WAL/PITR, "
                 "authenticity, encryption, off-site retention, production cutover, RPO/RTO, "
-                "cross-host or PostgreSQL-version recovery, demand, ROI, repeat use, payment, or M2-01 completion."
+                "cross-host or PostgreSQL-version recovery, demand, ROI, repeat use, payment, or M2-03 completion."
             ),
         }
         output.parent.mkdir(parents=True, exist_ok=True)
@@ -1652,9 +1966,9 @@ async def run(work_root: Path, state_path: Path, output: Path) -> None:
             cleanup_failed = True
         if cleanup_failed:
             if active_error is not None:
-                active_error.add_note("M2-01 backup/restore cleanup also failed")
+                active_error.add_note("M2-03 backup/restore cleanup also failed")
             else:
-                raise RuntimeError("M2-01 backup/restore cleanup failed")
+                raise RuntimeError("M2-03 backup/restore cleanup failed")
 
 
 def main() -> int:

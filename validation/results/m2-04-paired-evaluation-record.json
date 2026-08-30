@@ -1,0 +1,127 @@
+{
+  "schemaVersion": 1,
+  "recordType": "m2-04-paired-usefulness-evaluation",
+  "status": "completed",
+  "evaluationId": "eval-3f8e82d0091c40af8e4afd66bc9cd6c5",
+  "isSynthetic": false,
+  "task": {
+    "authorizedDeidentifiedTaskRef": "task-bb7b967f847d456c9daf7176fe800271",
+    "targetProjectRef": "project-2bd8e29d9654488dbb6321e607f47c8c",
+    "targetWorkspaceRef": "workspace-7d2972c2222648e8a4d0e43ff49b92d9",
+    "targetClientRef": "client-1650764b97764e9ab049d49b59cef598",
+    "briefSha256": "2c7d70fe2e143dd65799578c4a6330a3a0cee5941ccbed1e653055867e5c91c3",
+    "authorizationRecorded": true,
+    "deidentified": true,
+    "removedCategories": [
+      "personal-name",
+      "organization-name",
+      "customer-name",
+      "brand-name",
+      "contact-details",
+      "commercial-terms",
+      "project-identifiers"
+    ]
+  },
+  "evaluator": {
+    "evaluatorRef": "evaluator-a4895eb44afc336fecbba6e520cd67e178dace0276655d102fceffa8e5f70570",
+    "role": "independent-evaluator",
+    "independentOfImplementation": true,
+    "evaluationDate": "2026-08-17T21:23:19.022+08:00",
+    "consentToPublishDeidentified": true
+  },
+  "preRegistration": {
+    "recordedAt": "2026-08-17T12:59:35.921Z",
+    "rubricVersion": "m2-04-v1",
+    "adoptionCriterion": "citation-adopted-plus-retained-control",
+    "stopOnSeriousFactualOrPrivacyIssue": true,
+    "prohibitedClaims": [
+      "demand",
+      "roi",
+      "time-savings",
+      "repeat-use",
+      "payment",
+      "production-readiness"
+    ]
+  },
+  "conditions": {
+    "conditionOrder": "control-first",
+    "blind": false,
+    "control": {
+      "historicalKnowledge": "none",
+      "briefSha256": "2c7d70fe2e143dd65799578c4a6330a3a0cee5941ccbed1e653055867e5c91c3",
+      "outputRef": "output-46f68eec5079eb426d69c3271fdaf4dc0c1d017c14602a5f5d24fa0ea887598e",
+      "outputSha256": "46f68eec5079eb426d69c3271fdaf4dc0c1d017c14602a5f5d24fa0ea887598e"
+    },
+    "treatment": {
+      "historicalKnowledge": "approved-citation-only",
+      "citationSnapshotRef": "citation-475f06214dfa460fa6176ed4750bbb65",
+      "citationPromotionVersion": 2,
+      "citationEffectiveScope": "client",
+      "citationSourceProjectRef": "project-fa4523832311495f9bd6bf7007546cc5",
+      "citationSourceWorkspaceRef": "workspace-7d2972c2222648e8a4d0e43ff49b92d9",
+      "citationSourceClientRef": "client-1650764b97764e9ab049d49b59cef598",
+      "citationTargetProjectRef": "project-2bd8e29d9654488dbb6321e607f47c8c",
+      "citationWorkspaceRef": "workspace-7d2972c2222648e8a4d0e43ff49b92d9",
+      "citationClientRef": "client-1650764b97764e9ab049d49b59cef598",
+      "citationReasonCode": "paired-evaluation-approved-reuse",
+      "citationContentSha256": "c80d1dd5add541daac857b0d2fab2080d9ffa3016b3efcb68919ae4aede61b62",
+      "briefSha256": "2c7d70fe2e143dd65799578c4a6330a3a0cee5941ccbed1e653055867e5c91c3",
+      "outputRef": "output-e54b22474d404e46614b70b87dd3210bd6a310edb8e9c4b48ba37d61e7a9e23d",
+      "outputSha256": "e54b22474d404e46614b70b87dd3210bd6a310edb8e9c4b48ba37d61e7a9e23d"
+    }
+  },
+  "rubric": {
+    "seriousFactualOrPrivacyIssue": { "control": false, "treatment": false },
+    "unsupportedClaims": { "control": 0, "treatment": 0 },
+    "usefulRetainedControls": { "control": [], "treatment": [] },
+    "privacyLeakDetected": { "control": false, "treatment": false },
+    "crossClientLeakDetected": { "control": false, "treatment": false },
+    "citationActuallyAdopted": true,
+    "evaluatorNotesRef": "notes-5756cbb5e64f670654a66de975cf53a34cdc539c3a9c58a057ba2630f6f34722",
+    "evaluatorNotesSha256": "5756cbb5e64f670654a66de975cf53a34cdc539c3a9c58a057ba2630f6f34722"
+  },
+  "result": {
+    "completedAt": "2026-08-17T21:24:11.381+08:00",
+    "outcome": "failed",
+    "observedMeasures": {
+      "control": {
+        "factualErrorCount": 0,
+        "unsupportedClaimCount": 0,
+        "usefulRetainedControlCount": 0,
+        "seriousFactualOrPrivacyIssue": false,
+        "privacyLeakDetected": false,
+        "crossClientLeakDetected": false,
+        "citationActuallyAdopted": false
+      },
+      "treatment": {
+        "factualErrorCount": 0,
+        "unsupportedClaimCount": 0,
+        "usefulRetainedControlCount": 0,
+        "seriousFactualOrPrivacyIssue": false,
+        "privacyLeakDetected": false,
+        "crossClientLeakDetected": false,
+        "citationActuallyAdopted": true
+      }
+    },
+    "evaluatorOpinionCode": "citation-adopted",
+    "evaluatorOpinionRef": "opinion-f800ea8b1513e05b46c11eb254a90c6f4c487baa8f223931a855b7f41c1398b7",
+    "evaluatorOpinionSha256": "f800ea8b1513e05b46c11eb254a90c6f4c487baa8f223931a855b7f41c1398b7",
+    "noCommercialInference": true,
+    "claimBoundary": [
+      "no-demand-claim",
+      "no-roi-claim",
+      "no-time-savings-claim",
+      "no-repeat-use-claim",
+      "no-payment-claim",
+      "no-production-readiness-claim"
+    ],
+    "limitations": [
+      "single-paired-run",
+      "non-blind-citation",
+      "metadata-only-record",
+      "no-commercial-inference",
+      "human-authorization-unverified-by-script",
+      "independent-evaluator-unverified-by-script"
+    ]
+  }
+}

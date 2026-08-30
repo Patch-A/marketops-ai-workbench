@@ -20,12 +20,20 @@ from apps.api.marketops_import.backup import (
     IDEMPOTENCY_BUSINESS_TABLES,
     IDEMPOTENCY_MIGRATION_SET,
     IDEMPOTENCY_SCHEMA_VERSION,
+    KNOWLEDGE_APPROVAL_MIGRATION_NAME,
+    KNOWLEDGE_APPROVAL_MIGRATION_SHA256,
+    LEARNING_MIGRATION_SET,
+    LEARNING_SCHEMA_VERSION,
+    LEARNING_BUSINESS_TABLES,
     LEGACY_BUSINESS_TABLES,
     MIGRATION_SET,
     MIGRATION_SHA256,
     REVIEW_BUSINESS_TABLES,
     REVIEW_MIGRATION_SET,
     REVIEW_SCHEMA_VERSION,
+    RETRIEVAL_BUSINESS_TABLES,
+    RETRIEVAL_MIGRATION_SET,
+    RETRIEVAL_SCHEMA_VERSION,
     SCHEDULE_BUSINESS_TABLES,
     SCHEDULE_MIGRATION_SET,
     SCHEDULE_SCHEMA_VERSION,
@@ -99,6 +107,97 @@ class BackupBundleTests(unittest.TestCase):
         for item in reloaded.manifest["objects"]:
             path = restored / Path(item["archivePath"]).relative_to("objects")
             self.assertEqual(hashlib.sha256(path.read_bytes()).hexdigest(), item["sha256"])
+
+    def test_v9_manifest_binds_exact_approval_migration_and_30_tables(self):
+        bundle = self.create()
+        migration_path = (
+            Path(__file__).resolve().parents[1]
+            / "migrations"
+            / KNOWLEDGE_APPROVAL_MIGRATION_NAME
+        )
+
+        self.assertEqual(bundle.manifest["schemaVersion"], 9)
+        self.assertEqual(bundle.manifest["taskId"], "M2-03")
+        self.assertEqual(len(BUSINESS_TABLES), 30)
+        self.assertEqual(
+            bundle.manifest["database"]["tableData"],
+            list(BUSINESS_TABLES),
+        )
+        self.assertEqual(set(bundle.manifest["snapshot"]), set(BUSINESS_TABLES))
+        self.assertEqual(
+            bundle.manifest["migrations"][-1],
+            {
+                "name": KNOWLEDGE_APPROVAL_MIGRATION_NAME,
+                "sha256": KNOWLEDGE_APPROVAL_MIGRATION_SHA256,
+            },
+        )
+        self.assertEqual(
+            KNOWLEDGE_APPROVAL_MIGRATION_SHA256,
+            hashlib.sha256(migration_path.read_bytes()).hexdigest(),
+        )
+
+    def test_v9_manifest_rejects_approval_migration_or_table_set_drift(self):
+        base = self.create().manifest
+
+        missing_migration = {
+            **base,
+            "migrations": list(base["migrations"][:-1]),
+        }
+        with self.assertRaisesRegex(BackupBundleError, "migration set is incomplete"):
+            validate_manifest(missing_migration)
+
+        bad_migrations = [dict(item) for item in base["migrations"]]
+        bad_migrations[-1]["sha256"] = "d" * 64
+        bad_sha = {**base, "migrations": bad_migrations}
+        with self.assertRaisesRegex(BackupBundleError, "migration set differs"):
+            validate_manifest(bad_sha)
+
+        missing_table = BUSINESS_TABLES[-1]
+        bad_tables = {
+            **base,
+            "database": {
+                **base["database"],
+                "tableData": [
+                    table for table in BUSINESS_TABLES if table != missing_table
+                ],
+            },
+            "snapshot": {
+                table: summary
+                for table, summary in base["snapshot"].items()
+                if table != missing_table
+            },
+        }
+        with self.assertRaisesRegex(BackupBundleError, "table-data allowlist drifted"):
+            validate_manifest(bad_tables)
+
+    def test_v8_learning_manifest_remains_readable_after_v9_upgrade(self):
+        bundle = self.create()
+        manifest = {
+            **bundle.manifest,
+            "schemaVersion": LEARNING_SCHEMA_VERSION,
+            "taskId": "M2-02",
+            "migrations": list(LEARNING_MIGRATION_SET),
+            "database": {
+                **bundle.manifest["database"],
+                "tableData": list(LEARNING_BUSINESS_TABLES),
+            },
+            "snapshot": {
+                table: bundle.manifest["snapshot"][table]
+                for table in LEARNING_BUSINESS_TABLES
+            },
+        }
+        (bundle.root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_backup_bundle(bundle.root)
+
+        self.assertEqual(loaded.manifest["schemaVersion"], LEARNING_SCHEMA_VERSION)
+        self.assertEqual(loaded.manifest["migrations"], list(LEARNING_MIGRATION_SET))
+        self.assertEqual(
+            loaded.manifest["database"]["tableData"], list(LEARNING_BUSINESS_TABLES)
+        )
 
     def test_refuses_existing_destinations(self):
         (self.root / "bundle").mkdir()
@@ -413,6 +512,73 @@ class BackupBundleTests(unittest.TestCase):
             loaded.manifest["database"]["tableData"],
             list(EXECUTION_BUSINESS_TABLES),
         )
+
+    def test_retrieval_v7_manifest_remains_readable_after_v8_upgrade(self):
+        bundle = self.create()
+        manifest = {
+            **bundle.manifest,
+            "schemaVersion": RETRIEVAL_SCHEMA_VERSION,
+            "taskId": "M2-01",
+            "migrations": list(RETRIEVAL_MIGRATION_SET),
+            "database": {
+                **bundle.manifest["database"],
+                "tableData": list(RETRIEVAL_BUSINESS_TABLES),
+            },
+            "snapshot": {
+                table: bundle.manifest["snapshot"][table]
+                for table in RETRIEVAL_BUSINESS_TABLES
+            },
+        }
+        (bundle.root / "manifest.json").write_text(
+            json.dumps(manifest, ensure_ascii=True, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+
+        loaded = load_backup_bundle(bundle.root)
+
+        self.assertEqual(loaded.manifest["schemaVersion"], RETRIEVAL_SCHEMA_VERSION)
+        self.assertEqual(loaded.manifest["taskId"], "M2-01")
+        self.assertEqual(loaded.manifest["migrations"], list(RETRIEVAL_MIGRATION_SET))
+        self.assertEqual(
+            loaded.manifest["database"]["tableData"],
+            list(RETRIEVAL_BUSINESS_TABLES),
+        )
+        self.assertEqual(
+            set(loaded.manifest["snapshot"]),
+            set(RETRIEVAL_BUSINESS_TABLES),
+        )
+
+    def test_retrieval_v7_manifest_rejects_0008_and_learning_tables(self):
+        base = self.create().manifest
+        historical = {
+            **base,
+            "schemaVersion": RETRIEVAL_SCHEMA_VERSION,
+            "taskId": "M2-01",
+            "migrations": list(RETRIEVAL_MIGRATION_SET),
+            "database": {
+                **base["database"],
+                "tableData": list(RETRIEVAL_BUSINESS_TABLES),
+            },
+            "snapshot": {
+                table: base["snapshot"][table]
+                for table in RETRIEVAL_BUSINESS_TABLES
+            },
+        }
+
+        with_0008 = {**historical, "migrations": list(MIGRATION_SET)}
+        with self.assertRaisesRegex(BackupBundleError, "migration set is incomplete"):
+            validate_manifest(with_0008)
+
+        with_learning_tables = {
+            **historical,
+            "database": {
+                **historical["database"],
+                "tableData": list(BUSINESS_TABLES),
+            },
+            "snapshot": dict(base["snapshot"]),
+        }
+        with self.assertRaisesRegex(BackupBundleError, "table-data allowlist drifted"):
+            validate_manifest(with_learning_tables)
 
 
 if __name__ == "__main__":

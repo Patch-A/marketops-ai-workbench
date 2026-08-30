@@ -106,8 +106,8 @@ jobs:
           test -n "$digest"
           echo "MARKETOPS_POSTGRES_REPO_DIGEST=$digest" >> "$GITHUB_ENV"
           echo "PostgreSQL image: $digest"
-      - name: Provision and attest PostgreSQL 18.4
-        run: python scripts/run_m1_01_postgres_gate.py --output "$RUNNER_TEMP/m1-01-postgres-gate.json"
+      - name: Provision and attest PostgreSQL 18.4 through M2-02
+        run: python scripts/run_m2_02_postgres_gate.py
       - name: Run server-backed import tests
         run: |
           python -m unittest apps.api.tests.test_project_import_http -v

@@ -176,6 +176,7 @@ class SchedulePostgresRuntimeTests(unittest.IsolatedAsyncioTestCase):
                     ("audit_events", "project_id", self.project_id),
                     ("wbs_plan_approvals", "project_id", self.project_id),
                     ("schedule_snapshots", "project_id", self.project_id),
+                    ("wbs_task_execution_updates", "project_id", self.project_id),
                     ("wbs_tasks", "project_id", self.project_id),
                     ("wbs_plan_versions", "project_id", self.project_id),
                     ("wbs_plans", "project_id", self.project_id),

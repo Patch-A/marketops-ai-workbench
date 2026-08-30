@@ -1,0 +1,93 @@
+{
+  "schemaVersion": 1,
+  "recordType": "m2-04-paired-usefulness-evaluation",
+  "status": "planned",
+  "evaluationId": "pending-eval",
+  "isSynthetic": false,
+  "task": {
+    "authorizedDeidentifiedTaskRef": "pending-task",
+    "targetProjectRef": "pending-project",
+    "targetWorkspaceRef": "pending-workspace",
+    "targetClientRef": "pending-client",
+    "briefSha256": "pending-sha256",
+    "authorizationRecorded": false,
+    "deidentified": true,
+    "removedCategories": ["customer-name", "brand-name", "commercial-terms"]
+  },
+  "evaluator": {
+    "evaluatorRef": "pending-evaluator",
+    "role": "not-assigned",
+    "independentOfImplementation": false,
+    "evaluationDate": null,
+    "consentToPublishDeidentified": false
+  },
+  "preRegistration": {
+    "recordedAt": null,
+    "rubricVersion": "m2-04-v1",
+    "adoptionCriterion": "citation-adopted-plus-retained-control",
+    "stopOnSeriousFactualOrPrivacyIssue": true,
+    "prohibitedClaims": [
+      "demand",
+      "roi",
+      "time-savings",
+      "repeat-use",
+      "payment",
+      "production-readiness"
+    ]
+  },
+  "conditions": {
+    "conditionOrder": "not-run",
+    "blind": false,
+    "control": {
+      "historicalKnowledge": "none",
+      "briefSha256": "pending-sha256",
+      "outputRef": "pending-output",
+      "outputSha256": "pending-sha256"
+    },
+    "treatment": {
+      "historicalKnowledge": "approved-citation-only",
+      "citationSnapshotRef": "pending-citation",
+      "citationPromotionVersion": null,
+      "citationEffectiveScope": null,
+      "citationSourceProjectRef": "pending-project",
+      "citationSourceWorkspaceRef": "pending-workspace",
+      "citationSourceClientRef": "pending-client",
+      "citationTargetProjectRef": "pending-project",
+      "citationWorkspaceRef": "pending-workspace",
+      "citationClientRef": "pending-client",
+      "citationReasonCode": "paired-evaluation-approved-reuse",
+      "citationContentSha256": "pending-sha256",
+      "briefSha256": "pending-sha256",
+      "outputRef": "pending-output",
+      "outputSha256": "pending-sha256"
+    }
+  },
+  "rubric": {
+    "seriousFactualOrPrivacyIssue": { "control": null, "treatment": null },
+    "unsupportedClaims": { "control": null, "treatment": null },
+    "usefulRetainedControls": { "control": null, "treatment": null },
+    "privacyLeakDetected": { "control": null, "treatment": null },
+    "crossClientLeakDetected": { "control": null, "treatment": null },
+    "citationActuallyAdopted": null,
+    "evaluatorNotesRef": "pending-notes",
+    "evaluatorNotesSha256": "pending-sha256"
+  },
+  "result": {
+    "completedAt": null,
+    "outcome": "not-run",
+    "observedMeasures": null,
+    "evaluatorOpinionCode": "not-run",
+    "evaluatorOpinionRef": "pending-opinion",
+    "evaluatorOpinionSha256": "pending-sha256",
+    "noCommercialInference": true,
+    "claimBoundary": [
+      "no-demand-claim",
+      "no-roi-claim",
+      "no-time-savings-claim",
+      "no-repeat-use-claim",
+      "no-payment-claim",
+      "no-production-readiness-claim"
+    ],
+    "limitations": ["not-run"]
+  }
+}

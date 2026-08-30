@@ -116,6 +116,27 @@ class ProjectImportHttpTests(unittest.TestCase):
         self.assertEqual(second, frozen)
         self.assertIsNot(first, second)
 
+    def test_wb02_brief_route_and_static_research_asset(self):
+        from apps.api.marketops_brief import BriefResearchService
+        with tempfile.TemporaryDirectory() as root:
+            app = create_app(
+                authenticator=StaticBearerAuthenticator("test-token", self.scope),
+                brief_research_service=BriefResearchService(Path(root)),
+                static_root=Path(__file__).resolve().parents[3],
+                request_id_factory=lambda: "request-id",
+            )
+            body = json.dumps({
+                "deidentified": True, "productName": "产品", "productType": "B2B",
+                "targetMarket": "印度", "audience": "采购负责人", "objective": "研究",
+                "timeframe": "十周", "background": "背景", "constraints": [],
+            }, ensure_ascii=False).encode()
+            response = asyncio.run(asgi_json(app, "POST", "/v1/workbench/briefs", body, [("Authorization", "Bearer test-token")]))
+            self.assertEqual(response.status_code, 201)
+            self.assertEqual(response.json()["brief"]["status"], "ready")
+            static = asyncio.run(asgi_get(app, "/research-workbench.js", [("Authorization", "Bearer test-token")]))
+            self.assertEqual(static.status_code, 200)
+            self.assertIn("BRIEF / RESEARCH / DRAFT", static.text)
+
     def test_custom_authenticator_scope_is_canonicalized_into_a_new_value(self):
         raw_scope = ScopeContext(
             *(f"{{{str(uuid4()).upper()}}}" for _ in range(4))
@@ -453,6 +474,10 @@ class ProjectReadHttpTests(unittest.TestCase):
                 "project-import.js",
                 "review-workbench.js",
                 "schedule-workbench.js",
+                "model-center.js",
+                "geo-workbench.js",
+                "content-workbench.js",
+                "calendar-workbench.js",
                 "styles.css",
             ):
                 (root / filename).write_text(f"asset:{filename}", encoding="utf-8")
@@ -483,6 +508,11 @@ class ProjectReadHttpTests(unittest.TestCase):
                 "base-uri 'none'; frame-ancestors 'none'; form-action 'self'",
             )
             self.assertEqual(loaded.text, "asset:app.js")
+            model_center = asyncio.run(
+                asgi_get(app, "/model-center.js", [("Authorization", f"Basic {encoded}")])
+            )
+            self.assertEqual(model_center.status_code, 200)
+            self.assertEqual(model_center.text, "asset:model-center.js")
             self.assertNotIn("test-token", loaded.text)
 
             review_module = asyncio.run(
@@ -506,6 +536,28 @@ class ProjectReadHttpTests(unittest.TestCase):
             )
             self.assertEqual(schedule_module.status_code, 200)
             self.assertEqual(schedule_module.text, "asset:schedule-workbench.js")
+
+            geo_module = asyncio.run(
+                asgi_get(
+                    app,
+                    "/geo-workbench.js",
+                    [("Authorization", f"Basic {encoded}")],
+                )
+            )
+            self.assertEqual(geo_module.status_code, 200)
+            self.assertEqual(geo_module.text, "asset:geo-workbench.js")
+
+            content_module = asyncio.run(
+                asgi_get(app, "/content-workbench.js", [("Authorization", f"Basic {encoded}")])
+            )
+            self.assertEqual(content_module.status_code, 200)
+            self.assertEqual(content_module.text, "asset:content-workbench.js")
+
+            calendar_module = asyncio.run(
+                asgi_get(app, "/calendar-workbench.js", [("Authorization", f"Basic {encoded}")])
+            )
+            self.assertEqual(calendar_module.status_code, 200)
+            self.assertEqual(calendar_module.text, "asset:calendar-workbench.js")
 
             unknown = asyncio.run(
                 asgi_get(app, "/.git/config", [("Authorization", f"Basic {encoded}")])
@@ -821,6 +873,34 @@ async def asgi_post(app, headers, body):
         name.decode("latin-1"): value.decode("latin-1")
         for name, value in start["headers"]
     }
+    return AsgiResponse(start["status"], response_headers, response_body)
+
+
+async def asgi_json(app, method, target, body, headers):
+    messages = []
+    delivered = False
+    parsed = urlsplit(target)
+
+    async def receive():
+        nonlocal delivered
+        if delivered:
+            return {"type": "http.disconnect"}
+        delivered = True
+        return {"type": "http.request", "body": body, "more_body": False}
+
+    async def send(message):
+        messages.append(message)
+
+    await app({
+        "type": "http", "asgi": {"version": "3.0", "spec_version": "2.3"}, "http_version": "1.1",
+        "method": method, "scheme": "http", "path": parsed.path, "raw_path": parsed.path.encode("ascii"),
+        "query_string": parsed.query.encode("ascii"), "root_path": "", "headers": [
+            (name.lower().encode("latin-1"), value.encode("latin-1")) for name, value in [*headers, ("Content-Type", "application/json")]
+        ], "client": ("127.0.0.1", 12345), "server": ("testserver", 80),
+    }, receive, send)
+    start = next(message for message in messages if message["type"] == "http.response.start")
+    response_body = b"".join(message.get("body", b"") for message in messages if message["type"] == "http.response.body")
+    response_headers = {name.decode("latin-1"): value.decode("latin-1") for name, value in start["headers"]}
     return AsgiResponse(start["status"], response_headers, response_body)
 
 
