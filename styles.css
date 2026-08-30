@@ -356,6 +356,12 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 .status-enabled { color: var(--success); }
 .status-disabled { color: var(--muted); }
 .model-profile-form { display: grid; gap: 12px; }
+.model-profile-form label { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; min-width: 0; color: var(--ink-2); font-size: 10px; line-height: 1.4; overflow-wrap: anywhere; }
+.model-profile-form label > input, .model-profile-form label > select, .model-profile-form label > small { grid-column: 1; }
+.model-profile-form input, .model-profile-form select { display: block; width: 100%; min-width: 0; max-width: 100%; min-height: 38px; box-sizing: border-box; padding: 8px 9px; border: 1px solid var(--line); border-radius: 5px; background: var(--surface-2); color: var(--ink); font: inherit; }
+.model-profile-form label small { display: block; min-width: 0; color: var(--muted); font-size: 8px; line-height: 1.45; overflow-wrap: anywhere; }
+.model-profile-form .form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; }
+.model-profile-form fieldset, .model-profile-form .editor-heading, .model-profile-form .editor-actions { min-width: 0; }
 .editor-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
 .editor-heading h2 { margin: 4px 0 0; }
 .model-profile-form fieldset { border: 1px solid var(--line); padding: 10px; border-radius: 6px; }
@@ -376,6 +382,7 @@ button:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-
 
 @media (max-width: 700px) {
   .model-center-layout { grid-template-columns: 1fr; }
+  .model-profile-form .form-grid { grid-template-columns: 1fr; }
   .model-capability-grid { grid-template-columns: 1fr 1fr; }
 }
 @media (prefers-reduced-motion: reduce) {
