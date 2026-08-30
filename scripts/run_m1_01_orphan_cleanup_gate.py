@@ -154,10 +154,11 @@ class _BlockingReferenceReader(CompleteReferenceReader):
 
 
 class PostgresCompleteReferenceReader(CompleteReferenceReader):
-    """Test-only RLS-bypass reader for every artifact reference in the CI DB."""
+    """Test-only RLS-bypass reader for the current project's artifact references."""
 
-    def __init__(self, admin_dsn: str):
+    def __init__(self, admin_dsn: str, project_id: str):
         self._admin_dsn = admin_dsn
+        self._project_id = project_id
 
     async def snapshot_references(self) -> ReferenceSnapshot:
         try:
@@ -178,8 +179,10 @@ class PostgresCompleteReferenceReader(CompleteReferenceReader):
                     SELECT storage_key, byte_size,
                            pg_catalog.encode(sha256, 'hex') AS sha256
                     FROM marketops.artifact_versions
+                    WHERE project_id = $1
                     ORDER BY storage_key
-                    """
+                    """,
+                    self._project_id,
                 )
         finally:
             await connection.close()
@@ -638,7 +641,8 @@ async def _run_apply_child(work_root: Path, output: Path) -> None:
     cleaner = OrphanCleaner(
         LocalObjectStore(work_root / "objects"),
         PostgresCompleteReferenceReader(
-            required_environment("MARKETOPS_TEST_ADMIN_DATABASE_URL")
+            required_environment("MARKETOPS_TEST_ADMIN_DATABASE_URL"),
+            load_state(work_root / "state.json")["committed"]["projectId"],
         ),
         observation_interval=OBSERVATION_INTERVAL,
         plan_lifetime=PLAN_LIFETIME,
@@ -691,7 +695,7 @@ async def run(work_root: Path, output: Path, state_path: Path | None = None) -> 
     store = LocalObjectStore(object_root)
     admin_dsn = required_environment("MARKETOPS_TEST_ADMIN_DATABASE_URL")
     app_dsn = required_environment("MARKETOPS_TEST_DATABASE_URL")
-    reader = PostgresCompleteReferenceReader(admin_dsn)
+    reader = PostgresCompleteReferenceReader(admin_dsn, state["committed"]["projectId"])
     cleaner = OrphanCleaner(
         store,
         reader,
